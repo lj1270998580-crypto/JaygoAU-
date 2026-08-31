@@ -56,6 +56,7 @@ type LibraryItem = {
 type Settings = {
   outputDir: string;
   resourceId: string;  // 合成资源ID，克隆音色默认 seed-icl-2.0（声音复刻 2.0）
+  officialResourceId: string;  // 官方音色资源ID，默认 seed-tts-2.0（豆包语音合成 2.0）
   defaultFormat: 'mp3' | 'wav' | 'ogg_opus' | 'pcm';
   defaultSampleRate: number;
   speed: number;       // 倍速 0.5-2
@@ -69,6 +70,7 @@ type Settings = {
 const DEFAULT_SETTINGS: Settings = {
   outputDir: '',
   resourceId: 'seed-icl-2.0',
+  officialResourceId: 'seed-tts-2.0',
   defaultFormat: 'mp3',
   defaultSampleRate: 24000,
   speed: 1.0,
@@ -114,13 +116,14 @@ function loadSettings(): Settings {
 
 function persistSettings() {
   fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
-  const { outputDir, resourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices, library } = settings;
+  const { outputDir, resourceId, officialResourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices, library } = settings;
   // 关键：apiKeyEnc 不属于 Settings 结构但存在同一文件里，
   // 这里必须原样带回，否则任何一次持久化（改设置 / 复刻 / 增删音色）都会把 API Key 抹掉。
   const prevApiKeyEnc = loadSettingsRaw().apiKeyEnc;
   const data: Record<string, unknown> = {
     outputDir,
     resourceId,
+    officialResourceId,
     defaultFormat,
     defaultSampleRate,
     speed,
@@ -166,8 +169,8 @@ function setApiKey(key: string) {
 }
 
 function stripVoices(raw: any) {
-  const { outputDir, resourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices } = raw;
-  return { outputDir, resourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices: voices ?? [] };
+  const { outputDir, resourceId, officialResourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices } = raw;
+  return { outputDir, resourceId, officialResourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices: voices ?? [] };
 }
 
 function clearApiKey() {
@@ -526,7 +529,7 @@ ipcMain.handle('synthesize', async (e, args: {
   const key = getApiKey();
   const isOfficial = args.official === true;
   const resourceId = isOfficial
-    ? (args.speakerId.includes('uranus') ? 'seed-tts-2.0' : 'seed-tts-1.0')
+    ? (args.speakerId.includes('uranus') ? 'seed-tts-2.0' : (settings.officialResourceId || 'seed-tts-2.0'))
     : (args.resourceId || settings.resourceId || 'seed-icl-2.0');
   const format = args.format || settings.defaultFormat;
   const speechRate = Math.round((args.speed - 1) * 100);
@@ -630,7 +633,7 @@ ipcMain.handle('previewVoice', async (_e, args: { speakerId: string; official?: 
   const key = getApiKey();
   const isOfficial = args.official === true;
   const resourceId = isOfficial
-    ? (args.speakerId.includes('uranus') ? 'seed-tts-2.0' : 'seed-tts-1.0')
+    ? (args.speakerId.includes('uranus') ? 'seed-tts-2.0' : (settings.officialResourceId || 'seed-tts-2.0'))
     : (settings.resourceId || 'seed-icl-2.0');
 
   const reqParams: any = {

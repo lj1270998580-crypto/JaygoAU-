@@ -103,10 +103,10 @@ export const OFFICIAL_VOICES: OfficialVoice[] = [
   { id: 'en_male_tim_uranus_bigtts', name: 'Tim 2.0', gender: '男', tag: '美式 2.0' },
 ];
 
-/** 根据音色 ID 判断应使用哪个资源：uranus 走 seed-tts-2.0，其余走 seed-tts-1.0 */
+/** 根据音色 ID 判断应使用哪个资源：uranus 走 seed-tts-2.0，其余默认走 seed-tts-2.0（与设置面板 officialResourceId 一致） */
 export function officialResourceId(voiceId: string): string {
   if (voiceId.includes('uranus')) return 'seed-tts-2.0';
-  return 'seed-tts-1.0';
+  return 'seed-tts-2.0';
 }
 
 export function officialVoiceById(id: string): OfficialVoice | undefined {

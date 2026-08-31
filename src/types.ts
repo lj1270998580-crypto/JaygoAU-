@@ -12,6 +12,7 @@ export interface VoiceRecord {
 export interface Settings {
   outputDir: string;
   resourceId: string;
+  officialResourceId?: string;  // 官方音色（非克隆）所用资源，默认 seed-tts-2.0
   defaultFormat: 'mp3' | 'wav' | 'ogg_opus' | 'pcm';
   defaultSampleRate: number;
   speed: number;

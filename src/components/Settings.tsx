@@ -134,6 +134,19 @@ export default function Settings() {
             </select>
           </div>
           <div>
+            <label className="label">官方音色资源 ID</label>
+            <select
+              className="glass-input w-full"
+              value={settings.officialResourceId || 'seed-tts-2.0'}
+              onChange={(e) => patchSettings({ officialResourceId: e.target.value })}
+            >
+              {RESOURCE_IDS.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </select>
+            <p className="text-[11px] opacity-60 mt-1">官方音色（非克隆）试听/合成所用资源，默认 2.0。若账号只开通了 1.0 请切回。</p>
+          </div>
+          <div>
             <label className="label">复刻语种</label>
             <select
               className="glass-input w-full"

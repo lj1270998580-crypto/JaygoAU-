@@ -56,6 +56,7 @@ npm run dist         # 产出 Windows NSIS 安装包（out/ 目录）
    - 注册地址：https://console.volcengine.com/speech/new/overview?projectName=default
 2. 确保已开通「豆包语音 - 声音复刻」与「语音合成」相关服务并购买资源包。
 3. 在 Jaygo AU「设置」中粘贴保存。
+4. **官方音色资源版本**：设置里「官方音色资源 ID」默认 `seed-tts-2.0`（豆包语音合成 2.0）。若你的账号只开通了 1.0，请切回 `seed-tts-1.0`，否则官方音色试听 / 合成会返回 403（资源未授权）。uranus 系 2.0 高表现力音色固定走 2.0，不受此选项影响。
 
 ## 📌 使用流程
 
