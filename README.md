@@ -1,6 +1,8 @@
 # Jaygo AU · 火山引擎声音复刻工作台
 
-一个桌面端（Windows / macOS / Linux）应用，用于**可视化上传音频 → 复刻专属音色 → 选择音色 → 输入文本合成语音**。全部云端能力基于火山引擎「豆包语音」声音复刻 / 语音合成 API，用户只需在设置中填入 API Key 即可使用。界面采用 **Glassmorphism（毛玻璃）** 风格。
+一个桌面端应用，用于**可视化上传音频 → 复刻专属音色 → 选择音色 → 输入文本合成语音**。全部云端能力基于火山引擎「豆包语音」声音复刻 / 语音合成 API，用户只需在设置中填入 API Key 即可使用。界面采用 **简洁风格**（类似 Notion/Linear 的白底细边框设计）。
+
+> **跨平台说明**：当前仅提供 Windows 安装包，但项目基于 Electron 构建，理论上支持 macOS 和 Linux。如需其他平台版本，可自行修改 `package.json` 中的构建配置并执行 `npm run dist`。
 
 ## ✨ 功能
 
@@ -15,7 +17,7 @@
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  Renderer (React + Vite + Tailwind)  —  纯展示与交互         │
-│  Glassmorphism UI / Zustand 状态 / 不持有任何密钥            │
+│  简洁 UI / Zustand 状态 / 不持有任何密钥            │
 └───────────────┬──────────────────────────────────────────┘
                 │ window.JaygoAPI (contextBridge, 仅方法)
 ┌───────────────▼──────────────────────────────────────────┐
@@ -51,6 +53,7 @@ npm run dist         # 产出 Windows NSIS 安装包（out/ 目录）
 ## 🔑 获取 API Key
 
 1. 登录火山引擎控制台 → 「API Key 管理」创建 Key（新版控制台，仅一个 `X-Api-Key`）。
+   - 注册地址：https://console.volcengine.com/speech/new/overview?projectName=default
 2. 确保已开通「豆包语音 - 声音复刻」与「语音合成」相关服务并购买资源包。
 3. 在 Jaygo AU「设置」中粘贴保存。
 

@@ -1,7 +1,7 @@
 {
   "name": "jaygo-au",
   "version": "0.1.0",
-  "description": "Jaygo AU — 火山引擎声音复刻 & 语音合成桌面工具 (Glassmorphism UI)",
+  "description": "Jaygo AU — 火山引擎声音复刻 & 语音合成桌面工具 (简洁 UI)",
   "private": true,
   "author": "Jaygo",
   "main": "dist-electron/main.js",
