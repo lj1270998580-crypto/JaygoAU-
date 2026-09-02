@@ -4,6 +4,7 @@
  *   SSH_PASS='<服务器root密码>' node scripts/deploy-ssh.js
  * 说明:
  *   - 密码只从环境变量读取，绝不写入本文件 / 不入库
+ *   - 用 exec `cat > file` 通道上传（规避部分环境下 ssh2 sftp 子系统卡死）
  *   - 部署更新源（latest.yml + exe + blockmap）到 /jaygo-au/updates
  *   - 部署后端代码（server/）到 /jaygo-au/server 供 pm2 启动
  */
@@ -47,28 +48,44 @@ function mkdirRemote(conn, dir) {
   });
 }
 
-function putFile(sftp, local, remote) {
+function putFile(conn, local, remote) {
   return new Promise((resolve, reject) => {
-    sftp.fastPut(local, remote, {}, (err) => (err ? reject(err) : resolve()));
+    conn.exec(`cat > ${remote}`, (err, stream) => {
+      if (err) return reject(err);
+      const rs = fs.createReadStream(local);
+      let sent = 0;
+      rs.on('data', (c) => {
+        sent += c.length;
+        if (sent % (20 * 1024 * 1024) < c.length) process.stdout.write(`  ..${(sent / 1048576) | 0}MB `);
+      });
+      rs.pipe(stream);
+      rs.on('error', reject);
+      stream.stderr.on('data', (d) => process.stderr.write(d));
+      stream.on('exit', (code) => { if (code !== 0) reject(new Error('cat exit ' + code)); });
+      stream.on('close', () => resolve());
+    });
   });
 }
 
 async function main() {
   const conn = new Client();
   conn.on('ready', async () => {
-    const sftp = await new Promise((res, rej) => conn.sftp((e, s) => (e ? rej(e) : res(s))));
+    console.log('SSH 连接成功');
     let ok = 0, fail = 0;
     for (const [localRel, remoteRel] of FILES) {
       const local = path.join(ROOT, localRel);
       const remote = `${REMOTE}/${remoteRel}`;
       if (!fs.existsSync(local)) { console.error('本地缺失:', localRel); fail++; continue; }
+      const size = fs.statSync(local).size;
+      process.stdout.write(`上传 ${remoteRel} (${(size / 1048576) | 0}MB)...`);
       try {
         await mkdirRemote(conn, path.dirname(remote));
-        await putFile(sftp, local, remote);
-        console.log('OK  ', remoteRel);
+        await putFile(conn, local, remote);
+        console.log(' OK');
         ok++;
       } catch (e) {
-        console.error('FAIL', remoteRel, '-', e.message);
+        console.log(' FAIL');
+        console.error('  ', e.message);
         fail++;
       }
     }
