@@ -66,10 +66,6 @@ export default function Transcribe() {
       showToast('请先选择音视频文件', 'err');
       return;
     }
-    if (!settings.ossBucket || !settings.ossAccessKeyId || !settings.ossAccessKeySecret) {
-      showToast('转录需先在「设置 → 阿里云 OSS」填写 Bucket / AccessKey', 'err');
-      return;
-    }
     setBusy(true);
     setStatus('准备中…');
     setResult(null);
@@ -175,7 +171,7 @@ export default function Transcribe() {
             <span className="inline-block h-3 w-3 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
             <span>{status || '转录中…'}</span>
           </div>
-          <p className="text-[11px] text-zinc-400 mt-2">转录在本地服务中异步进行，文件会先临时上传到阿里云 OSS（任务结束自动删除），再将公开 URL 交给火山识别。</p>
+          <p className="text-[11px] text-zinc-400 mt-2">转录在本地异步进行，文件经服务端下发的临时凭证上传到阿里云 OSS（任务结束自动删除），再将临时 URL 交给火山识别。</p>
         </div>
       )}
 

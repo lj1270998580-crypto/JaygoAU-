@@ -98,6 +98,61 @@ function BalanceIndicator() {
   );
 }
 
+// 左下角在线更新：检查 / 下载 / 重启安装
+function UpdateWidget() {
+  const { appVersion, update, initUpdate, checkUpdates, downloadUpdate, quitInstallUpdate } = useStore();
+  useEffect(() => {
+    initUpdate();
+  }, [initUpdate]);
+
+  let action: JSX.Element;
+  if (update.checking) {
+    action = <span className="text-zinc-400">检查中…</span>;
+  } else if (update.error) {
+    action = <span className="text-rose-500" title={update.error}>检查出错</span>;
+  } else if (update.downloaded) {
+    action = (
+      <button className="text-emerald-600 hover:underline font-medium" onClick={quitInstallUpdate} title="退出并静默安装，完成后自动重新打开">
+        重启并更新
+      </button>
+    );
+  } else if (update.available) {
+    const downloading = update.progress > 0;
+    action = (
+      <button
+        className="text-blue-600 hover:underline font-medium"
+        onClick={downloadUpdate}
+        disabled={downloading}
+        title={update.available.releaseNotes || `发现新版本 v${update.available.version}`}
+      >
+        {downloading ? `下载中 ${Math.floor(update.progress)}%` : `下载 v${update.available.version}`}
+      </button>
+    );
+  } else if (update.notAvailable) {
+    action = <span className="text-zinc-400">已是最新</span>;
+  } else {
+    action = (
+      <button className="text-zinc-400 hover:text-zinc-600" onClick={checkUpdates}>
+        检查更新
+      </button>
+    );
+  }
+
+  return (
+    <div
+      className="flex items-center gap-2 mx-1 px-2.5 h-8 rounded-md text-[12px] bg-zinc-50 text-zinc-600"
+      title={update.available?.releaseNotes || '软件更新'}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 12a9 9 0 1 1-3-6.7" />
+        <polyline points="21 3 21 9 15 9" />
+      </svg>
+      <span className="text-zinc-400">v{appVersion || '—'}</span>
+      <span className="ml-auto">{action}</span>
+    </div>
+  );
+}
+
 export default function App() {
   const { settings, hasKey, tab, toast, init, setTab, setSynth, showToast } = useStore();
 
@@ -189,6 +244,10 @@ export default function App() {
             <span className={`block h-1.5 w-1.5 rounded-full ${hasKey ? 'bg-emerald-500' : 'bg-rose-400 animate-pulse'}`} />
             {hasKey ? '已连接' : '未配置 Key'}
           </div>
+
+          {/* 余额（左下角，需配置火山 AK/SK）+ 在线更新 */}
+          <BalanceIndicator />
+          <UpdateWidget />
         </aside>
 
         {/* 主内容：白底大画布 */}
@@ -198,11 +257,12 @@ export default function App() {
               <div className="h-full flex items-center justify-center text-zinc-400 text-sm">加载中…</div>
             ) : (
               <>
-                {tab === 'settings' && <Settings />}
-                {tab === 'clone' && <Clone />}
-                {tab === 'voices' && <Voices />}
-                {tab === 'synth' && <Synthesize />}
-                {tab === 'library' && <Library />}
+              {tab === 'settings' && <Settings />}
+              {tab === 'clone' && <Clone />}
+              {tab === 'voices' && <Voices />}
+              {tab === 'synth' && <Synthesize />}
+              {tab === 'library' && <Library />}
+              {tab === 'transcribe' && <Transcribe />}
               </>
             )}
           </div>

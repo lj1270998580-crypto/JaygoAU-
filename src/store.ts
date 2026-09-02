@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { api } from './lib/ipc';
-import type { Settings, LibraryItem, ScannedAudio } from './types';
+import type { Settings, LibraryItem, ScannedAudio, UpdateEvent } from './types';
 
 // 将已记录的库与磁盘扫描结果合并（按路径去重，磁盘历史文件补默认字段）
 function mergeLibrary(existing: LibraryItem[], scanned: ScannedAudio[]): LibraryItem[] {
@@ -32,6 +32,15 @@ export interface BalanceInfo {
   fetchedAt: number;
 }
 
+export interface UpdateState {
+  checking: boolean;
+  available: { version: string; releaseNotes?: string } | null;
+  downloaded: boolean;
+  progress: number;
+  error: string | null;
+  notAvailable: boolean;
+}
+
 interface AppState {
   settings: Settings | null;
   hasKey: boolean;
@@ -42,6 +51,8 @@ interface AppState {
   synth: { active: boolean; pct: number; stage: string; voiceName?: string };
   toast: { msg: string; type: 'ok' | 'err' | 'info' } | null;
   balance: BalanceInfo | null;
+  appVersion: string;
+  update: UpdateState;
 
   init: () => Promise<void>;
   setTab: (t: Tab) => void;
@@ -53,6 +64,10 @@ interface AppState {
   patchSettings: (p: Partial<Settings>) => Promise<void>;
   refreshSettings: () => Promise<void>;
   refreshBalance: () => Promise<void>;
+  initUpdate: () => void;
+  checkUpdates: () => Promise<void>;
+  downloadUpdate: () => Promise<void>;
+  quitInstallUpdate: () => void;
   addLibrary: (item: LibraryItem) => void;
   setSynth: (s: Partial<AppState['synth']>) => void;
   showToast: (msg: string, type?: 'ok' | 'err' | 'info') => void;
@@ -70,6 +85,8 @@ export const useStore = create<AppState>((set, get) => ({
   synth: { active: false, pct: 0, stage: '' },
   toast: null,
   balance: null,
+  appVersion: '',
+  update: { checking: false, available: null, downloaded: false, progress: 0, error: null, notAvailable: false },
 
   async init() {
     const [settings, hasKey, scanned] = await Promise.all([
@@ -128,6 +145,47 @@ export const useStore = create<AppState>((set, get) => ({
   async refreshBalance() {
     const b = await api.getBalance().catch(() => null);
     set({ balance: b });
+  },
+
+  initUpdate() {
+    api.getAppVersion().then((v) => set({ appVersion: v })).catch(() => {});
+    api.onUpdateEvent((e: UpdateEvent) => {
+      switch (e.type) {
+        case 'checking':
+          set({ update: { checking: true, available: null, downloaded: false, progress: 0, error: null, notAvailable: false } });
+          break;
+        case 'available':
+          set({ update: { checking: false, available: { version: e.version, releaseNotes: e.releaseNotes }, downloaded: false, progress: 0, error: null, notAvailable: false } });
+          break;
+        case 'not-available':
+          set({ update: { checking: false, available: null, downloaded: false, progress: 0, error: null, notAvailable: true } });
+          break;
+        case 'downloaded':
+          set({ update: { ...get().update, checking: false, downloaded: true } });
+          break;
+        case 'progress':
+          set({ update: { ...get().update, progress: e.percent } });
+          break;
+        case 'error':
+          set({ update: { ...get().update, checking: false, error: e.message } });
+          break;
+      }
+    });
+  },
+
+  async checkUpdates() {
+    const r = await api.checkUpdates().catch((e: any) => ({ ok: false, error: e?.message || '检查失败' }));
+    if (!r.ok) set({ update: { ...get().update, checking: false, error: r.error || '检查更新失败' } });
+  },
+
+  async downloadUpdate() {
+    set({ update: { ...get().update, error: null } });
+    const r = await api.downloadUpdate().catch((e: any) => ({ ok: false, error: e?.message || '下载失败' }));
+    if (!r.ok) set({ update: { ...get().update, error: r.error || '下载更新失败' } });
+  },
+
+  quitInstallUpdate() {
+    api.quitInstallUpdate().catch(() => {});
   },
 
   addLibrary(item) {

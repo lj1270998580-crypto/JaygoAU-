@@ -43,18 +43,20 @@ export type Settings = {
   // ---- 视音频转录（录音文件识别 2.0） ----
   asrResourceId: string;
   enableSpeakerInfo: boolean;
-  // ---- 阿里云 OSS ----
-  ossRegion: string;
-  ossBucket: string;
-  ossEndpoint: string;
-  ossAccessKeyId: string;
-  ossAccessKeySecret: string;
   // ---- 火山 AK/SK ----
   volcAccessKeyId: string;
   volcSecretKey: string;
 };
 
 export type SynthProgress = { stage: 'streaming' | 'done'; pct: number; bytes: number };
+
+export type UpdateEvent =
+  | { type: 'checking' }
+  | { type: 'available'; version: string; releaseNotes?: string }
+  | { type: 'not-available'; version?: string }
+  | { type: 'downloaded'; version: string }
+  | { type: 'progress'; percent: number }
+  | { type: 'error'; message: string };
 
 const api = {
   getSettings: (): Promise<Settings> => ipcRenderer.invoke('getSettings'),
@@ -137,6 +139,17 @@ const api = {
     const listener = (_e: unknown, p: SynthProgress) => cb(p);
     ipcRenderer.on('synth-progress', listener);
     return () => ipcRenderer.removeListener('synth-progress', listener);
+  },
+
+  // ---- 在线更新 ----
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke('get-app-version'),
+  checkUpdates: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('check-updates'),
+  downloadUpdate: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('download-update'),
+  quitInstallUpdate: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('quit-install-update'),
+  onUpdateEvent: (cb: (e: UpdateEvent) => void) => {
+    const listener = (_e: unknown, payload: UpdateEvent) => cb(payload);
+    ipcRenderer.on('update-event', listener);
+    return () => ipcRenderer.removeListener('update-event', listener);
   },
 };
 

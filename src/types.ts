@@ -24,12 +24,6 @@ export interface Settings {
   // ---- 视音频转录（录音文件识别 2.0） ----
   asrResourceId?: string;          // 默认 volc.seedasr.auc
   enableSpeakerInfo?: boolean;     // 转录时是否开启说话人分离
-  // ---- 阿里云 OSS（转录时临时托管音频/视频，生成公开 URL 给火山拉取） ----
-  ossRegion?: string;
-  ossBucket?: string;
-  ossEndpoint?: string;            // 形如 oss-cn-shanghai.aliyuncs.com
-  ossAccessKeyId?: string;
-  ossAccessKeySecret?: string;
   // ---- 火山 AK/SK（账户余额实时查询用，独立于 X-Api-Key） ----
   volcAccessKeyId?: string;
   volcSecretKey?: string;
@@ -40,6 +34,14 @@ export interface SynthProgress {
   pct: number;
   bytes: number;
 }
+
+export type UpdateEvent =
+  | { type: 'checking' }
+  | { type: 'available'; version: string; releaseNotes?: string }
+  | { type: 'not-available'; version?: string }
+  | { type: 'downloaded'; version: string }
+  | { type: 'progress'; percent: number }
+  | { type: 'error'; message: string };
 
 export interface LibraryItem {
   id: string;
@@ -122,6 +124,12 @@ export interface JaygoAPI {
     freeze: number;
     fetchedAt: number;
   } | null>;
+  // ---- 在线更新 ----
+  getAppVersion(): Promise<string>;
+  checkUpdates(): Promise<{ ok: boolean; error?: string }>;
+  downloadUpdate(): Promise<{ ok: boolean; error?: string }>;
+  quitInstallUpdate(): Promise<{ ok: boolean }>;
+  onUpdateEvent(cb: (e: UpdateEvent) => void): () => void;
   onTranscribeStatus(cb: (msg: string) => void): () => void;
   onSynthProgress(cb: (p: SynthProgress) => void): () => void;
 }

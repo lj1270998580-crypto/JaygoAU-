@@ -121,33 +121,13 @@ export default function Settings() {
         )}
       </Section>
 
-      <Section title="阿里云 OSS（视音频转录用）" desc="转录时需先把音视频上传到阿里云 OSS 生成公开 URL（任务结束后自动删除）。请填写你的 OSS Bucket 与 AccessKey。">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="label">Bucket 名称</label>
-            <input className="glass-input w-full" value={settings.ossBucket || ''} onChange={(e) => patchSettings({ ossBucket: e.target.value })} placeholder="your-bucket" />
-          </div>
-          <div>
-            <label className="label">Endpoint（公网域名）</label>
-            <input className="glass-input w-full" value={settings.ossEndpoint || ''} onChange={(e) => patchSettings({ ossEndpoint: e.target.value })} placeholder="oss-cn-shanghai.aliyuncs.com" />
-          </div>
-          <div>
-            <label className="label">Region（留空则用 Endpoint）</label>
-            <input className="glass-input w-full" value={settings.ossRegion || ''} onChange={(e) => patchSettings({ ossRegion: e.target.value })} placeholder="cn-shanghai" />
-          </div>
-          <div>
-            <label className="label">AccessKeyId</label>
-            <input className="glass-input w-full font-mono" value={settings.ossAccessKeyId || ''} onChange={(e) => patchSettings({ ossAccessKeyId: e.target.value })} />
-          </div>
-          <div className="col-span-2">
-            <label className="label">AccessKeySecret</label>
-            <div className="flex gap-2">
-              <input type={showSecrets ? 'text' : 'password'} className="glass-input flex-1 font-mono" value={settings.ossAccessKeySecret || ''} onChange={(e) => patchSettings({ ossAccessKeySecret: e.target.value })} />
-              <button className="btn-ghost" onClick={() => setShowSecrets((s) => !s)}>{showSecrets ? '隐藏' : '显示'}</button>
-            </div>
-          </div>
+      <Section title="视音频转录存储（已托管）" desc="转录时的音视频临时托管由 Jaygo 服务端托管，App 内已内置安全的临时上传凭证，你无需任何配置。音频仅在任务期间存在，结束后自动删除。">
+        <div className="flex items-center gap-2 text-[12.5px] text-emerald-700 bg-emerald-50/60 border border-emerald-200 rounded-lg px-3.5 py-3">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+          <span>已默认接入 · 包内不含 OSS 密匙 · 单次 / 短时预签名 URL 上传</span>
         </div>
-        <p className="text-[11px] text-zinc-400 mt-2 leading-relaxed">Endpoint 须为公网可访问域名（如 oss-cn-shanghai.aliyuncs.com），否则火山服务器无法拉取音频。OSS 对象仅作临时托管，任务结束后立即删除。</p>
       </Section>
 
       <Section title="火山 AK/SK（账户余额查询用）" desc="用于左下角实时查询账户余额，独立于 X-Api-Key（需在火山控制台「访问控制」创建、并拥有账单查询权限）。">
@@ -278,7 +258,7 @@ export default function Settings() {
           />
           <span className="text-[13px] text-zinc-700">默认开启说话人分离（多人对话按说话人分段，仅中文/普通话生效）</span>
         </label>
-        <p className="text-[11px] text-zinc-400 mt-2 leading-relaxed">计费：录音文件识别 2.0 按量 0.8 元/小时。需先在上方配置阿里云 OSS 与 API Key。</p>
+        <p className="text-[11px] text-zinc-400 mt-2 leading-relaxed">计费：录音文件识别 2.0 按量 0.8 元/小时。需先配置 API Key（转录的云端临时存储已由服务端托管，你无需任何配置）。</p>
       </Section>
 
       <Section title="音频存储位置" desc="合成与试听文件的保存目录，修改后已有文件会自动迁移到新目录。">

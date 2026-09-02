@@ -1,8 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog, safeStorage, shell } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import OSS from 'ali-oss';
 import ffmpegStatic from 'ffmpeg-static';
 import { spawn } from 'node:child_process';
 
@@ -35,6 +35,23 @@ const BASE = 'https://openspeech.bytedance.com';
 const CLONE_URL = `${BASE}/api/v3/tts/voice_clone`;
 const GET_VOICE_URL = `${BASE}/api/v3/tts/get_voice`;
 const SYNTH_URL = `${BASE}/api/v3/tts/unidirectional`;
+
+// ============================================================
+// 服务端地址（仅公开端点，绝不包含 OSS AK/SK 等密匙）
+// 真实阿里云 OSS AK/SK 只存于服务端，客户端转录时向这些端点
+// 换取「单次 / 短时 / 限单个对象」的临时预签名 URL 后直接上传。
+// 部署时若改用其他域名，只需改这里（及 electron-builder 的 publish.url）。
+// ============================================================
+const APP_CONFIG = {
+  // 获取上传/下载临时预签名 URL（POST，返回 {putUrl,getUrl,key,expiresIn}）
+  ossTokenEndpoint: 'https://ailabing.cn/api/jaygo-au/oss-token',
+  // 任务结束后删除临时对象（POST {key}）
+  ossDeleteEndpoint: 'https://ailabing.cn/api/jaygo-au/oss-delete',
+  // 在线更新 feed（electron-updater generic provider，latest.yml 所在目录）
+  updateFeedUrl: 'https://ailabing.cn/jaygo-au/updates',
+  // 可选：与后端约定的轻量共享令牌，仅用于过滤随机扫描（非保密，不必进密匙管理）
+  appToken: '',
+};
 
 type VoiceRecord = {
   id: string;          // custom_speaker_id / speaker id
@@ -71,12 +88,6 @@ type Settings = {
   // ---- 视音频转录（录音文件识别 2.0） ----
   asrResourceId: string;        // 默认 volc.seedasr.auc
   enableSpeakerInfo: boolean;   // 转录时是否开启说话人分离
-  // ---- 阿里云 OSS（转录时临时托管音频/视频，生成公开 URL 给火山拉取） ----
-  ossRegion: string;
-  ossBucket: string;
-  ossEndpoint: string;
-  ossAccessKeyId: string;
-  ossAccessKeySecret: string;
   // ---- 火山 AK/SK（账户余额实时查询用，独立于 X-Api-Key） ----
   volcAccessKeyId: string;
   volcSecretKey: string;
@@ -96,11 +107,6 @@ const DEFAULT_SETTINGS: Settings = {
   library: [],
   asrResourceId: 'volc.seedasr.auc',
   enableSpeakerInfo: false,
-  ossRegion: '',
-  ossBucket: '',
-  ossEndpoint: '',
-  ossAccessKeyId: '',
-  ossAccessKeySecret: '',
   volcAccessKeyId: '',
   volcSecretKey: '',
 };
@@ -307,6 +313,11 @@ app.whenReady().then(() => {
     dbg('createWindow 完成');
   } catch (e: any) {
     dbg('createWindow 抛错: ' + (e?.stack || e));
+  }
+  try {
+    initAutoUpdater();
+  } catch (e: any) {
+    dbg('initAutoUpdater 抛错: ' + (e?.stack || e));
   }
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -954,31 +965,51 @@ async function resolveAudioForAsr(filePath: string): Promise<{ localPath: string
   return { localPath: out, format: 'wav', codec: 'raw', isTemp: true };
 }
 
-function getOssClient(): any {
-  const { ossRegion, ossBucket, ossEndpoint, ossAccessKeyId, ossAccessKeySecret } = settings;
-  if (!ossBucket || !ossAccessKeyId || !ossAccessKeySecret) {
-    throw new Error('转录需要阿里云 OSS 临时托管音频。请先在「设置 → 阿里云 OSS」填写 Bucket / AccessKeyId / AccessKeySecret。');
+// ---- 托管式 OSS：真实 AK/SK 仅存于服务端，客户端只拿临时预签名 URL ----
+// 安全要点：① 全程 HTTPS；② 预签名 URL 限单次 PUT/GET、绑定随机对象 key、短时有效；
+//          ③ 客户端不持有任何长期密匙；④ 任务结束后由服务端删除临时对象。
+async function requestOssTicket(): Promise<{ putUrl: string; getUrl: string; key: string; expiresIn: number }> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (APP_CONFIG.appToken) headers['x-app-token'] = APP_CONFIG.appToken;
+  const res = await fetch(APP_CONFIG.ossTokenEndpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`获取 OSS 上传凭证失败（${res.status}）：${t.slice(0, 200)}`);
   }
-  const cfg: any = { accessKeyId: ossAccessKeyId, accessKeySecret: ossAccessKeySecret, bucket: ossBucket };
-  if (ossEndpoint) cfg.endpoint = ossEndpoint;
-  else if (ossRegion) cfg.region = ossRegion;
-  return new OSS(cfg);
+  const data: any = await res.json().catch(() => ({}));
+  if (!data.putUrl || !data.getUrl || !data.key) {
+    throw new Error('OSS 凭证返回格式异常，请联系开发者');
+  }
+  return data;
 }
 
-async function uploadToOss(localPath: string): Promise<{ url: string; key: string }> {
-  const client = getOssClient();
-  const ext = path.extname(localPath) || '.wav';
-  const key = `jaygo-asr/${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
-  await client.put(key, localPath);
-  // 生成 1 小时有效的公开可读签名 URL（任务结束后即删除对象）
-  const url = client.signatureUrl(key, { expires: 3600, method: 'GET' });
-  return { url, key };
+async function uploadAudioToOss(localPath: string): Promise<{ url: string; key: string }> {
+  const ticket = await requestOssTicket();
+  const buf = fs.readFileSync(localPath);
+  const res = await fetch(ticket.putUrl, {
+    method: 'PUT',
+    body: buf,
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`上传到 OSS 失败（${res.status}）：${t.slice(0, 200)}`);
+  }
+  return { url: ticket.getUrl, key: ticket.key };
 }
 
-async function deleteOss(key: string) {
+async function deleteOssObject(key: string) {
   try {
-    const client = getOssClient();
-    await client.delete(key);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (APP_CONFIG.appToken) headers['x-app-token'] = APP_CONFIG.appToken;
+    await fetch(APP_CONFIG.ossDeleteEndpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ key }),
+    });
   } catch {
     // 忽略删除失败（不影响结果返回）
   }
@@ -1040,8 +1071,8 @@ ipcMain.handle('transcribe', async (e, args: { filePath: string; enableSpeakerIn
   if (!fs.existsSync(filePath)) throw new Error('文件不存在：' + filePath);
 
   const audio = await resolveAudioForAsr(filePath);
-  e.sender.send('transcribe-status', '正在上传到阿里云 OSS 临时存储…');
-  const upload = await uploadToOss(audio.localPath);
+  e.sender.send('transcribe-status', '正在上传到云端临时存储…');
+  const upload = await uploadAudioToOss(audio.localPath);
   try {
     const submitBody: any = {
       audio: { url: upload.url, format: audio.format },
@@ -1070,7 +1101,7 @@ ipcMain.handle('transcribe', async (e, args: { filePath: string; enableSpeakerIn
     return { ...result, url: upload.url };
   } finally {
     // 无论成功失败，都清理 OSS 临时文件与本地临时音频
-    await deleteOss(upload.key);
+    await deleteOssObject(upload.key);
     if (audio.isTemp) {
       try { fs.unlinkSync(audio.localPath); } catch { /* ignore */ }
     }
@@ -1189,5 +1220,66 @@ ipcMain.handle('getBalance', async () => {
     dbg('getBalance error: ' + (err?.stack || err));
     return null; // 查询失败不阻塞界面，余额区显示「—」
   }
+});
+
+// ============================================================
+// 在线更新（electron-updater generic provider，自家服务器托管）
+// 未设置 publisherName → 不强制 Authenticode，未签名安装包可自动更新；
+// 完整性由下载文件 SHA512 与 latest.yml 比对保证（HTTPS 传输）。
+// ============================================================
+function broadcastUpdate(payload: any) {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('update-event', payload);
+  }
+}
+
+function initAutoUpdater() {
+  try {
+    autoUpdater.setFeedURL({ provider: 'generic', url: APP_CONFIG.updateFeedUrl });
+  } catch (e: any) {
+    dbg('setFeedURL error: ' + (e?.stack || e));
+  }
+  autoUpdater.autoDownload = false;          // 由用户手动触发下载
+  autoUpdater.autoRunAppAfterInstall = true;  // 安装后自动重新打开
+
+  autoUpdater.on('checking-for-update', () => broadcastUpdate({ type: 'checking' }));
+  autoUpdater.on('update-available', (info: any) =>
+    broadcastUpdate({ type: 'available', version: info?.version, releaseNotes: info?.releaseNotes }));
+  autoUpdater.on('update-not-available', (info: any) =>
+    broadcastUpdate({ type: 'not-available', version: info?.version }));
+  autoUpdater.on('update-downloaded', (info: any) =>
+    broadcastUpdate({ type: 'downloaded', version: info?.version }));
+  autoUpdater.on('download-progress', (p: any) =>
+    broadcastUpdate({ type: 'progress', percent: p?.percent ?? 0 }));
+  autoUpdater.on('error', (err: any) =>
+    broadcastUpdate({ type: 'error', message: err?.message || String(err) }));
+
+  dbg('autoUpdater 初始化完成，feed=' + APP_CONFIG.updateFeedUrl);
+}
+
+ipcMain.handle('get-app-version', () => app.getVersion());
+
+ipcMain.handle('check-updates', async () => {
+  try {
+    await autoUpdater.checkForUpdates();
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('download-update', async () => {
+  try {
+    await autoUpdater.downloadUpdate();
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('quit-install-update', () => {
+  // 静默安装并重新打开（NSIS /S + 自动重启）
+  autoUpdater.quitAndInstall(true, true);
+  return { ok: true };
 });
 
