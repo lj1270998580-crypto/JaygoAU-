@@ -21,6 +21,7 @@
   "build": {
     "appId": "com.jaygo.au",
     "productName": "Jaygo AU",
+    "artifactName": "Jaygo.AU.Setup.${version}.${ext}",
     "files": [
       "dist/**/*",
       "dist-electron/**/*"
