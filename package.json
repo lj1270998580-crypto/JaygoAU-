@@ -12,6 +12,8 @@
     "dist": "npm run build && electron-builder --win --dir && node scripts/apply-icon.mjs"
   },
   "dependencies": {
+    "ali-oss": "^6.21.0",
+    "ffmpeg-static": "^5.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^4.5.5"

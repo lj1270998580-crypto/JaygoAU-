@@ -6,6 +6,7 @@ import Clone from './components/Clone';
 import Voices from './components/Voices';
 import Synthesize from './components/Synthesize';
 import Library from './components/Library';
+import Transcribe from './components/Transcribe';
 
 /* 16x16 线性图标（1.5 描边，currentColor） */
 const Icon = {
@@ -46,8 +47,47 @@ const NAV: { key: Tab; label: string; icon: JSX.Element }[] = [
   { key: 'clone', label: '声音复刻', icon: Icon.clone },
   { key: 'voices', label: '音色库', icon: Icon.voices },
   { key: 'library', label: '音频库', icon: Icon.library },
+  { key: 'transcribe', label: '视音频转录', icon: Icon.transcribe },
   { key: 'settings', label: '设置', icon: Icon.settings },
 ];
+
+// 左下角账户余额：读取火山 AK/SK 配置后实时查询，并每 60s 刷新一次
+function BalanceIndicator() {
+  const { settings, balance, refreshBalance } = useStore();
+  useEffect(() => {
+    refreshBalance();
+    const t = setInterval(() => refreshBalance(), 60000);
+    return () => clearInterval(t);
+  }, [refreshBalance]);
+
+  const hasAk = Boolean(settings?.volcAccessKeyId);
+  let value: JSX.Element;
+  if (!hasAk) {
+    value = <span className="text-zinc-400">未配置 AK/SK</span>;
+  } else if (!balance) {
+    value = <span className="text-zinc-400">获取失败</span>;
+  } else {
+    const low = balance.available <= 0;
+    value = <span className={low ? 'text-rose-500' : 'text-emerald-600'}>¥{balance.available.toFixed(2)}</span>;
+  }
+  const tip = balance
+    ? `可用余额 ¥${balance.available.toFixed(2)} ｜ 现金 ¥${balance.cash.toFixed(2)} ｜ 欠费 ¥${balance.arrears.toFixed(2)} ｜ 冻结 ¥${balance.freeze.toFixed(2)}`
+    : '在「设置 → 火山 AK/SK」填写后，可实时显示账户余额';
+  return (
+    <div
+      className="flex items-center gap-2 mx-1 px-2.5 h-8 rounded-md text-[12px] bg-zinc-50 text-zinc-600"
+      title={tip}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="6" width="18" height="13" rx="2" />
+        <path d="M3 10h18" />
+        <circle cx="12" cy="13" r="1.4" />
+      </svg>
+      <span className="text-zinc-400">余额</span>
+      <span className="ml-auto font-medium">{value}</span>
+    </div>
+  );
+}
 
 export default function App() {
   const { settings, hasKey, tab, toast, init, setTab, setSynth, showToast } = useStore();

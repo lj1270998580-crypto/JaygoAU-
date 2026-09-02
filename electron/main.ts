@@ -2,6 +2,9 @@ import { app, BrowserWindow, ipcMain, dialog, safeStorage, shell } from 'electro
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import OSS from 'ali-oss';
+import ffmpegStatic from 'ffmpeg-static';
+import { spawn } from 'node:child_process';
 
 // Agent / headless 验证模式：禁用 GPU 相关进程，避免无显示环境启动崩溃
 // 正常用户桌面使用时不设置 JAYGO_HEADLESS 即可保持硬件加速
@@ -65,6 +68,18 @@ type Settings = {
   denoise: boolean;
   voices: VoiceRecord[];
   library: LibraryItem[];
+  // ---- 视音频转录（录音文件识别 2.0） ----
+  asrResourceId: string;        // 默认 volc.seedasr.auc
+  enableSpeakerInfo: boolean;   // 转录时是否开启说话人分离
+  // ---- 阿里云 OSS（转录时临时托管音频/视频，生成公开 URL 给火山拉取） ----
+  ossRegion: string;
+  ossBucket: string;
+  ossEndpoint: string;
+  ossAccessKeyId: string;
+  ossAccessKeySecret: string;
+  // ---- 火山 AK/SK（账户余额实时查询用，独立于 X-Api-Key） ----
+  volcAccessKeyId: string;
+  volcSecretKey: string;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -79,6 +94,15 @@ const DEFAULT_SETTINGS: Settings = {
   denoise: true,
   voices: [],
   library: [],
+  asrResourceId: 'volc.seedasr.auc',
+  enableSpeakerInfo: false,
+  ossRegion: '',
+  ossBucket: '',
+  ossEndpoint: '',
+  ossAccessKeyId: '',
+  ossAccessKeySecret: '',
+  volcAccessKeyId: '',
+  volcSecretKey: '',
 };
 
 const settingsPath = () => path.join(app.getPath('userData'), 'jaygo-settings.json');
@@ -169,8 +193,22 @@ function setApiKey(key: string) {
 }
 
 function stripVoices(raw: any) {
-  const { outputDir, resourceId, officialResourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices } = raw;
-  return { outputDir, resourceId, officialResourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices: voices ?? [] };
+  const {
+    outputDir, resourceId, officialResourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices,
+    asrResourceId, enableSpeakerInfo, ossRegion, ossBucket, ossEndpoint, ossAccessKeyId, ossAccessKeySecret, volcAccessKeyId, volcSecretKey,
+  } = raw;
+  return {
+    outputDir, resourceId, officialResourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices: voices ?? [],
+    asrResourceId: asrResourceId ?? 'volc.seedasr.auc',
+    enableSpeakerInfo: enableSpeakerInfo ?? false,
+    ossRegion: ossRegion ?? '',
+    ossBucket: ossBucket ?? '',
+    ossEndpoint: ossEndpoint ?? '',
+    ossAccessKeyId: ossAccessKeyId ?? '',
+    ossAccessKeySecret: ossAccessKeySecret ?? '',
+    volcAccessKeyId: volcAccessKeyId ?? '',
+    volcSecretKey: volcSecretKey ?? '',
+  };
 }
 
 function clearApiKey() {
@@ -857,3 +895,299 @@ ipcMain.handle('importVoices', async (_e, rawIds: string) => {
   persistSettings();
   return { added: added.length, failed };
 });
+
+// ============================================================
+// 视音频转录（录音文件识别 2.0）
+// ============================================================
+
+const VIDEO_EXT = new Set(['mp4', 'mov', 'avi', 'mkv', 'flv', 'wmv', 'webm', 'mpeg', 'mpg', 'm4v', 'ts', 'vob', '3gp', 'm2ts']);
+// 火山 ASR 支持的音频容器 → (format, codec)
+const ASR_AUDIO: Record<string, { format: string; codec?: string }> = {
+  wav: { format: 'wav', codec: 'raw' },
+  pcm: { format: 'pcm', codec: 'raw' },
+  mp3: { format: 'mp3' },
+  m4a: { format: 'm4a' },
+  aac: { format: 'aac' },
+  ogg: { format: 'ogg' },
+  oga: { format: 'ogg' },
+  opus: { format: 'ogg', codec: 'opus' },
+  amr: { format: 'amr' },
+  spx: { format: 'spx' },
+};
+
+const ASR_SUBMIT = `${BASE}/api/v3/auc/bigmodel/submit`;
+const ASR_QUERY = `${BASE}/api/v3/auc/bigmodel/query`;
+
+function sleep(ms: number) {
+  return new Promise<void>((r) => setTimeout(r, ms));
+}
+
+// 用 ffmpeg 从视频（或不支持的音频格式）中提取单声道 16k wav
+function extractAudio(input: string, output: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!ffmpegStatic) return reject(new Error('未找到 ffmpeg（ffmpeg-static 未正确安装）'));
+    const args = ['-i', input, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', output];
+    let stderr = '';
+    const proc = spawn(ffmpegStatic, args);
+    proc.stderr.on('data', (d) => (stderr += d.toString()));
+    proc.on('error', (e) => reject(e));
+    proc.on('close', (code) => {
+      if (code === 0 && fs.existsSync(output)) resolve();
+      else reject(new Error(`音频提取失败（ffmpeg 退出码 ${code}）：${stderr.slice(-400)}`));
+    });
+  });
+}
+
+// 解析出可直接送 ASR 的音频：视频 → 抽音频；不支持的音频 → 转 wav
+async function resolveAudioForAsr(filePath: string): Promise<{ localPath: string; format: string; codec?: string; isTemp: boolean }> {
+  const ext = path.extname(filePath).slice(1).toLowerCase();
+  if (VIDEO_EXT.has(ext)) {
+    const out = path.join(app.getPath('temp'), `jaygo-asr-${crypto.randomBytes(4).toString('hex')}.wav`);
+    await extractAudio(filePath, out);
+    return { localPath: out, format: 'wav', codec: 'raw', isTemp: true };
+  }
+  const a = ASR_AUDIO[ext];
+  if (a) return { localPath: filePath, format: a.format, codec: a.codec, isTemp: false };
+  // 不支持的音频格式（如 wma/flac）→ 统一转 wav
+  const out = path.join(app.getPath('temp'), `jaygo-asr-${crypto.randomBytes(4).toString('hex')}.wav`);
+  await extractAudio(filePath, out);
+  return { localPath: out, format: 'wav', codec: 'raw', isTemp: true };
+}
+
+function getOssClient(): any {
+  const { ossRegion, ossBucket, ossEndpoint, ossAccessKeyId, ossAccessKeySecret } = settings;
+  if (!ossBucket || !ossAccessKeyId || !ossAccessKeySecret) {
+    throw new Error('转录需要阿里云 OSS 临时托管音频。请先在「设置 → 阿里云 OSS」填写 Bucket / AccessKeyId / AccessKeySecret。');
+  }
+  const cfg: any = { accessKeyId: ossAccessKeyId, accessKeySecret: ossAccessKeySecret, bucket: ossBucket };
+  if (ossEndpoint) cfg.endpoint = ossEndpoint;
+  else if (ossRegion) cfg.region = ossRegion;
+  return new OSS(cfg);
+}
+
+async function uploadToOss(localPath: string): Promise<{ url: string; key: string }> {
+  const client = getOssClient();
+  const ext = path.extname(localPath) || '.wav';
+  const key = `jaygo-asr/${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
+  await client.put(key, localPath);
+  // 生成 1 小时有效的公开可读签名 URL（任务结束后即删除对象）
+  const url = client.signatureUrl(key, { expires: 3600, method: 'GET' });
+  return { url, key };
+}
+
+async function deleteOss(key: string) {
+  try {
+    const client = getOssClient();
+    await client.delete(key);
+  } catch {
+    // 忽略删除失败（不影响结果返回）
+  }
+}
+
+// 轮询查询结果，直到识别完成或超时
+async function pollAsr(taskId: string, key: string, e: Electron.IpcMainInvokeEvent): Promise<{ text: string; utterances: any[]; durationMs: number }> {
+  const headers: Record<string, string> = {
+    'X-Api-Key': key,
+    'X-Api-Resource-Id': settings.asrResourceId || 'volc.seedasr.auc',
+    'X-Api-Request-Id': taskId,
+  };
+  const deadline = Date.now() + 15 * 60 * 1000; // 15 分钟超时
+  let n = 0;
+  while (Date.now() < deadline) {
+    await sleep(3000);
+    n += 1;
+    e.sender.send('transcribe-status', `识别中（第 ${n} 次查询）…`);
+    const res = await httpPostJson(ASR_QUERY, headers, {});
+    const body = res && res.body ? res.body : res;
+    const result = body?.result;
+    if (result && result.text != null) {
+      const utterances = (result.utterances || []).map((u: any) => ({
+        text: u.text || '',
+        startTime: u.start_time || 0,
+        endTime: u.end_time || 0,
+        speaker: u.additions?.speaker,
+      }));
+      return { text: result.text, utterances, durationMs: body?.audio_info?.duration || 0 };
+    }
+    const statusCode = res?.['X-Api-Status-Code'] || res?.status;
+    if (statusCode && String(statusCode).startsWith('4')) {
+      throw new Error('转录查询失败：' + JSON.stringify(res).slice(0, 220));
+    }
+  }
+  throw new Error('转录超时（15 分钟仍未完成，请检查音频时长或网络）');
+}
+
+ipcMain.handle('pickMediaFile', async () => {
+  const res = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [
+      {
+        name: '音视频文件',
+        extensions: [
+          'wav', 'mp3', 'm4a', 'ogg', 'oga', 'opus', 'aac', 'pcm', 'amr', 'spx', 'wma', 'flac',
+          'mp4', 'mov', 'avi', 'mkv', 'flv', 'wmv', 'webm', 'mpeg', 'mpg', 'm4v', 'ts', '3gp',
+        ],
+      },
+    ],
+  });
+  if (res.canceled || !res.filePaths.length) return null;
+  return res.filePaths[0];
+});
+
+ipcMain.handle('transcribe', async (e, args: { filePath: string; enableSpeakerInfo: boolean }) => {
+  const key = getApiKey();
+  const { filePath, enableSpeakerInfo } = args;
+  if (!fs.existsSync(filePath)) throw new Error('文件不存在：' + filePath);
+
+  const audio = await resolveAudioForAsr(filePath);
+  e.sender.send('transcribe-status', '正在上传到阿里云 OSS 临时存储…');
+  const upload = await uploadToOss(audio.localPath);
+  try {
+    const submitBody: any = {
+      audio: { url: upload.url, format: audio.format },
+      request: {
+        model_name: 'bigmodel',
+        enable_punc: true,
+        enable_itn: true,
+        enable_speaker_info: enableSpeakerInfo,
+        show_utterances: enableSpeakerInfo,
+      },
+    };
+    if (audio.codec) submitBody.audio.codec = audio.codec;
+
+    e.sender.send('transcribe-status', '已提交转录任务，等待识别…');
+    const submitRes = await httpPostJson(ASR_SUBMIT, {
+      'X-Api-Key': key,
+      'X-Api-Resource-Id': settings.asrResourceId || 'volc.seedasr.auc',
+      'X-Api-Request-Id': uuid(),
+      'X-Api-Sequence': '-1',
+    }, submitBody);
+
+    const taskId = submitRes?.task_id;
+    if (!taskId) throw new Error('提交转录任务失败：' + JSON.stringify(submitRes).slice(0, 220));
+
+    const result = await pollAsr(taskId, key, e);
+    return { ...result, url: upload.url };
+  } finally {
+    // 无论成功失败，都清理 OSS 临时文件与本地临时音频
+    await deleteOss(upload.key);
+    if (audio.isTemp) {
+      try { fs.unlinkSync(audio.localPath); } catch { /* ignore */ }
+    }
+  }
+});
+
+// ============================================================
+// 账户余额查询（火山费用中心 QueryBalanceAcct，AK/SK 签名）
+// ============================================================
+
+function sha256hex(s: string | Buffer): string {
+  return crypto.createHash('sha256').update(s).digest('hex');
+}
+function hmacHex(key: string | Buffer, s: string): Buffer {
+  return crypto.createHmac('sha256', key).update(s, 'utf8').digest();
+}
+function uriEscape(s: string): string {
+  return encodeURIComponent(s)
+    .replace(/\+/g, '%20')
+    .replace(/\*/g, '%2A')
+    .replace(/%7E/g, '~');
+}
+function volcXDate(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+}
+
+// 火山 OpenAPI V4 签名（HMAC-SHA256，无 VOLC 前缀）
+function signVolcRequest(p: {
+  method: string;
+  host: string;
+  path: string;
+  query: Record<string, string>;
+  accessKeyId: string;
+  secretAccessKey: string;
+  region: string;
+  service: string;
+}): { queryString: string; headers: Record<string, string> } {
+  const datetime = volcXDate();
+  const date = datetime.slice(0, 8);
+
+  const sortedKeys = Object.keys(p.query).sort();
+  const canonicalQuery = sortedKeys.map((k) => `${uriEscape(k)}=${uriEscape(p.query[k])}`).join('&');
+
+  const canonicalHeaders = `host:${p.host}\n` + `x-date:${datetime}\n`;
+  const signedHeaders = 'host;x-date';
+  const payloadHash = sha256hex('');
+
+  const canonicalRequest = [
+    p.method.toUpperCase(),
+    p.path,
+    canonicalQuery,
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join('\n');
+
+  const credentialScope = `${date}/${p.region}/${p.service}/request`;
+  const stringToSign = ['HMAC-SHA256', datetime, credentialScope, sha256hex(canonicalRequest)].join('\n');
+
+  const kDate = hmacHex(p.secretAccessKey, date);
+  const kRegion = hmacHex(kDate, p.region);
+  const kService = hmacHex(kRegion, p.service);
+  const kSigning = hmacHex(kService, 'request');
+  const signature = hmacHex(kSigning, stringToSign).toString('hex');
+
+  const authorization =
+    `HMAC-SHA256 Credential=${p.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  return {
+    queryString: canonicalQuery,
+    headers: {
+      'X-Date': datetime,
+      Authorization: authorization,
+      // 注意：fetch 会自动带上 Host，这里不要把 Host 作为真实请求头（否则 undici 报错）
+    },
+  };
+}
+
+ipcMain.handle('getBalance', async () => {
+  const { volcAccessKeyId, volcSecretKey } = settings;
+  if (!volcAccessKeyId || !volcSecretKey) return null;
+  try {
+    const signed = signVolcRequest({
+      method: 'GET',
+      host: 'billing.volcengineapi.com',
+      path: '/',
+      query: { Action: 'QueryBalanceAcct', Version: '2022-01-01' },
+      accessKeyId: volcAccessKeyId,
+      secretAccessKey: volcSecretKey,
+      region: 'cn-beijing',
+      service: 'billing',
+    });
+    const res = await fetch(`https://billing.volcengineapi.com/?${signed.queryString}`, {
+      method: 'GET',
+      headers: signed.headers,
+    });
+    const json: any = await res.json().catch(() => ({}));
+    if (json?.Result) {
+      const r = json.Result;
+      const num = (v: any) => (v == null ? 0 : Number(v));
+      return {
+        available: num(r.AvailableBalance),
+        cash: num(r.CashBalance),
+        arrears: num(r.ArrearsBalance),
+        freeze: num(r.FreezeAmount),
+        fetchedAt: Date.now(),
+      };
+    }
+    if (json?.ResponseMetadata?.Error) {
+      throw new Error('查询余额失败：' + (json.ResponseMetadata.Error.Message || json.ResponseMetadata.Error.Code || '未知错误'));
+    }
+    return null;
+  } catch (err: any) {
+    dbg('getBalance error: ' + (err?.stack || err));
+    return null; // 查询失败不阻塞界面，余额区显示「—」
+  }
+});
+

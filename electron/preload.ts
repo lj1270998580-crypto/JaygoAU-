@@ -31,6 +31,7 @@ export type ScannedAudio = {
 export type Settings = {
   outputDir: string;
   resourceId: string;
+  officialResourceId: string;
   defaultFormat: 'mp3' | 'wav' | 'ogg_opus' | 'pcm';
   defaultSampleRate: number;
   speed: number;
@@ -39,6 +40,18 @@ export type Settings = {
   denoise: boolean;
   voices: VoiceRecord[];
   library: LibraryItem[];
+  // ---- 视音频转录（录音文件识别 2.0） ----
+  asrResourceId: string;
+  enableSpeakerInfo: boolean;
+  // ---- 阿里云 OSS ----
+  ossRegion: string;
+  ossBucket: string;
+  ossEndpoint: string;
+  ossAccessKeyId: string;
+  ossAccessKeySecret: string;
+  // ---- 火山 AK/SK ----
+  volcAccessKeyId: string;
+  volcSecretKey: string;
 };
 
 export type SynthProgress = { stage: 'streaming' | 'done'; pct: number; bytes: number };
@@ -101,6 +114,24 @@ const api = {
   downloadAudio: (args: { path: string; suggestedName: string }): Promise<string | null> =>
     ipcRenderer.invoke('downloadAudio', args),
   listLibrary: (): Promise<ScannedAudio[]> => ipcRenderer.invoke('listLibrary'),
+
+  // ---- 视音频转录 ----
+  pickMediaFile: (): Promise<string | null> => ipcRenderer.invoke('pickMediaFile'),
+  transcribe: (args: { filePath: string; enableSpeakerInfo: boolean }) =>
+    ipcRenderer.invoke('transcribe', args),
+  getBalance: (): Promise<{
+    available: number;
+    cash: number;
+    arrears: number;
+    freeze: number;
+    fetchedAt: number;
+  } | null> => ipcRenderer.invoke('getBalance'),
+
+  onTranscribeStatus: (cb: (msg: string) => void) => {
+    const listener = (_e: unknown, msg: string) => cb(msg);
+    ipcRenderer.on('transcribe-status', listener);
+    return () => ipcRenderer.removeListener('transcribe-status', listener);
+  },
 
   onSynthProgress: (cb: (p: SynthProgress) => void) => {
     const listener = (_e: unknown, p: SynthProgress) => cb(p);

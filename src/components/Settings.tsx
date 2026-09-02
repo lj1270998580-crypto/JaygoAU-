@@ -17,6 +17,7 @@ export default function Settings() {
   const { settings, hasKey, setApiKey, clearApiKey, patchSettings, showToast } = useStore();
   const [keyInput, setKeyInput] = useState('');
   const [show, setShow] = useState(false);
+  const [showSecrets, setShowSecrets] = useState(false);
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
@@ -119,6 +120,48 @@ export default function Settings() {
         )}
       </Section>
 
+      <Section title="阿里云 OSS（视音频转录用）" desc="转录时需先把音视频上传到阿里云 OSS 生成公开 URL（任务结束后自动删除）。请填写你的 OSS Bucket 与 AccessKey。">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label">Bucket 名称</label>
+            <input className="glass-input w-full" value={settings.ossBucket || ''} onChange={(e) => patchSettings({ ossBucket: e.target.value })} placeholder="your-bucket" />
+          </div>
+          <div>
+            <label className="label">Endpoint（公网域名）</label>
+            <input className="glass-input w-full" value={settings.ossEndpoint || ''} onChange={(e) => patchSettings({ ossEndpoint: e.target.value })} placeholder="oss-cn-shanghai.aliyuncs.com" />
+          </div>
+          <div>
+            <label className="label">Region（留空则用 Endpoint）</label>
+            <input className="glass-input w-full" value={settings.ossRegion || ''} onChange={(e) => patchSettings({ ossRegion: e.target.value })} placeholder="cn-shanghai" />
+          </div>
+          <div>
+            <label className="label">AccessKeyId</label>
+            <input className="glass-input w-full font-mono" value={settings.ossAccessKeyId || ''} onChange={(e) => patchSettings({ ossAccessKeyId: e.target.value })} />
+          </div>
+          <div className="col-span-2">
+            <label className="label">AccessKeySecret</label>
+            <div className="flex gap-2">
+              <input type={showSecrets ? 'text' : 'password'} className="glass-input flex-1 font-mono" value={settings.ossAccessKeySecret || ''} onChange={(e) => patchSettings({ ossAccessKeySecret: e.target.value })} />
+              <button className="btn-ghost" onClick={() => setShowSecrets((s) => !s)}>{showSecrets ? '隐藏' : '显示'}</button>
+            </div>
+          </div>
+        </div>
+        <p className="text-[11px] text-zinc-400 mt-2 leading-relaxed">Endpoint 须为公网可访问域名（如 oss-cn-shanghai.aliyuncs.com），否则火山服务器无法拉取音频。OSS 对象仅作临时托管，任务结束后立即删除。</p>
+      </Section>
+
+      <Section title="火山 AK/SK（账户余额查询用）" desc="用于左下角实时查询账户余额，独立于 X-Api-Key（需在火山控制台「访问控制」创建、并拥有账单查询权限）。">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label">AccessKeyId</label>
+            <input className="glass-input w-full font-mono" value={settings.volcAccessKeyId || ''} onChange={(e) => patchSettings({ volcAccessKeyId: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">SecretKey</label>
+            <input type={showSecrets ? 'text' : 'password'} className="glass-input w-full font-mono" value={settings.volcSecretKey || ''} onChange={(e) => patchSettings({ volcSecretKey: e.target.value })} />
+          </div>
+        </div>
+      </Section>
+
       <Section title="合成默认参数" desc="复刻语种、资源 ID，以及每次合成时的默认格式与采样率。">
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -215,6 +258,28 @@ export default function Settings() {
         </label>
       </Section>
 
+      <Section title="视音频转录" desc="录音文件识别 2.0：上传音视频 → 转写成带标点、有排版的文本。">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label">识别模型（Resource-Id）</label>
+            <select className="glass-input w-full" value={settings.asrResourceId || 'volc.seedasr.auc'} onChange={(e) => patchSettings({ asrResourceId: e.target.value })}>
+              <option value="volc.seedasr.auc">豆包录音文件识别 2.0</option>
+              <option value="volc.bigasr.auc">豆包录音文件识别 1.0</option>
+            </select>
+          </div>
+        </div>
+        <label className="flex items-center gap-2 mt-4 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={settings.enableSpeakerInfo ?? false}
+            onChange={(e) => patchSettings({ enableSpeakerInfo: e.target.checked })}
+            className="w-4 h-4"
+          />
+          <span className="text-[13px] text-zinc-700">默认开启说话人分离（多人对话按说话人分段，仅中文/普通话生效）</span>
+        </label>
+        <p className="text-[11px] text-zinc-400 mt-2 leading-relaxed">计费：录音文件识别 2.0 按量 0.8 元/小时。需先在上方配置阿里云 OSS 与 API Key。</p>
+      </Section>
+
       <Section title="音频存储位置" desc="合成与试听文件的保存目录，修改后已有文件会自动迁移到新目录。">
         <div className="flex items-center gap-2">
           <div className="glass-input flex-1 text-zinc-600 break-all !h-auto !py-2 text-xs">
@@ -240,6 +305,38 @@ export default function Settings() {
           <button className="btn-ghost whitespace-nowrap" onClick={() => api.openOutputDir()}>
             打开目录
           </button>
+        </div>
+      </Section>
+
+      <Section title="官方价格说明" desc="以下为火山引擎官方计费标准，帮助你了解各功能的消费情况（以官网最新公示为准）。">
+        <div className="overflow-hidden rounded-lg border border-zinc-200">
+          <table className="w-full text-[12.5px]">
+            <thead className="bg-zinc-50 text-zinc-500">
+              <tr>
+                <th className="text-left font-medium px-3 py-2">功能</th>
+                <th className="text-left font-medium px-3 py-2">计费单位</th>
+                <th className="text-left font-medium px-3 py-2">按量价格</th>
+                <th className="text-left font-medium px-3 py-2">资源包</th>
+              </tr>
+            </thead>
+            <tbody>
+              {PRICING.map((p) => (
+                <tr key={p.feature} className="border-t border-zinc-100">
+                  <td className="px-3 py-2 text-zinc-800 font-medium align-top whitespace-nowrap">{p.feature}</td>
+                  <td className="px-3 py-2 text-zinc-600 align-top">{p.unit}</td>
+                  <td className="px-3 py-2 text-zinc-600 align-top">{p.payAsYouGo}</td>
+                  <td className="px-3 py-2 text-zinc-600 align-top">{p.resourcePack || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-3 space-y-1 text-[11.5px] text-zinc-400 leading-relaxed">
+          {PRICING.filter((p) => p.note).map((p) => (
+            <div key={p.feature}>
+              · <b className="text-zinc-600">{p.feature}</b>：{p.note}
+            </div>
+          ))}
         </div>
       </Section>
 

@@ -22,7 +22,15 @@ function mergeLibrary(existing: LibraryItem[], scanned: ScannedAudio[]): Library
   return Array.from(byPath.values()).sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export type Tab = 'settings' | 'clone' | 'voices' | 'synth' | 'library';
+export type Tab = 'settings' | 'clone' | 'voices' | 'synth' | 'library' | 'transcribe';
+
+export interface BalanceInfo {
+  available: number;
+  cash: number;
+  arrears: number;
+  freeze: number;
+  fetchedAt: number;
+}
 
 interface AppState {
   settings: Settings | null;
@@ -33,6 +41,7 @@ interface AppState {
   library: LibraryItem[];
   synth: { active: boolean; pct: number; stage: string; voiceName?: string };
   toast: { msg: string; type: 'ok' | 'err' | 'info' } | null;
+  balance: BalanceInfo | null;
 
   init: () => Promise<void>;
   setTab: (t: Tab) => void;
@@ -43,6 +52,7 @@ interface AppState {
   clearApiKey: () => Promise<void>;
   patchSettings: (p: Partial<Settings>) => Promise<void>;
   refreshSettings: () => Promise<void>;
+  refreshBalance: () => Promise<void>;
   addLibrary: (item: LibraryItem) => void;
   setSynth: (s: Partial<AppState['synth']>) => void;
   showToast: (msg: string, type?: 'ok' | 'err' | 'info') => void;
@@ -112,6 +122,11 @@ export const useStore = create<AppState>((set, get) => ({
   async refreshSettings() {
     const s = await api.getSettings();
     set({ settings: s, library: s.library ?? get().library });
+  },
+
+  async refreshBalance() {
+    const b = await api.getBalance().catch(() => null);
+    set({ balance: b });
   },
 
   addLibrary(item) {

@@ -21,6 +21,18 @@ export interface Settings {
   denoise: boolean;
   voices: VoiceRecord[];
   library: LibraryItem[];
+  // ---- 视音频转录（录音文件识别 2.0） ----
+  asrResourceId?: string;          // 默认 volc.seedasr.auc
+  enableSpeakerInfo?: boolean;     // 转录时是否开启说话人分离
+  // ---- 阿里云 OSS（转录时临时托管音频/视频，生成公开 URL 给火山拉取） ----
+  ossRegion?: string;
+  ossBucket?: string;
+  ossEndpoint?: string;            // 形如 oss-cn-shanghai.aliyuncs.com
+  ossAccessKeyId?: string;
+  ossAccessKeySecret?: string;
+  // ---- 火山 AK/SK（账户余额实时查询用，独立于 X-Api-Key） ----
+  volcAccessKeyId?: string;
+  volcSecretKey?: string;
 }
 
 export interface SynthProgress {
@@ -94,6 +106,23 @@ export interface JaygoAPI {
   readAudio(p: string): Promise<string>;
   downloadAudio(a: { path: string; suggestedName: string }): Promise<string | null>;
   listLibrary(): Promise<{ path: string; name: string; size: number; createdAt: number; ext: string }[]>;
+  // ---- 视音频转录 ----
+  pickMediaFile(): Promise<string | null>;
+  transcribe(a: { filePath: string; enableSpeakerInfo: boolean }): Promise<{
+    text: string;
+    utterances: { text: string; startTime: number; endTime: number; speaker?: string }[];
+    durationMs: number;
+    url: string;
+  }>;
+  // ---- 账户余额查询 ----
+  getBalance(): Promise<{
+    available: number;
+    cash: number;
+    arrears: number;
+    freeze: number;
+    fetchedAt: number;
+  } | null>;
+  onTranscribeStatus(cb: (msg: string) => void): () => void;
   onSynthProgress(cb: (p: SynthProgress) => void): () => void;
 }
 
