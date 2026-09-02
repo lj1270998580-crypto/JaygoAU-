@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useStore } from '../store';
 import { api } from '../lib/ipc';
 import { FORMATS, SAMPLE_RATES, RESOURCE_IDS, LANGUAGES } from '../lib/format';
+import { PRICING } from '../lib/pricing';
 
 function Section({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
   return (

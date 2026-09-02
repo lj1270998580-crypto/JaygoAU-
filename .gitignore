@@ -4,5 +4,6 @@ dist-electron/
 out/
 out_new/
 out_release/
+out_release2/
 *.log
 .DS_Store

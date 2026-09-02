@@ -69,6 +69,7 @@ export const useStore = create<AppState>((set, get) => ({
   library: [],
   synth: { active: false, pct: 0, stage: '' },
   toast: null,
+  balance: null,
 
   async init() {
     const [settings, hasKey, scanned] = await Promise.all([
