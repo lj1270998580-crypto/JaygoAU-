@@ -1127,16 +1127,12 @@ ipcMain.handle('transcribe', async (e, args: { filePath: string; enableSpeakerIn
       throw e;
     }
     dbg(`[ASR submit] status=${submit.status} body=${submit.text.slice(0, 500)}`);
-    const taskId = submit.json?.task_id;
-    if (!taskId) {
-      const sj: any = submit.json || {};
-      const detail =
-        `HTTP ${submit.status}` +
-        ` body=${(submit.text || '(空)').slice(0, 300)}` +
-        (sj['X-Api-Status-Code'] != null ? ` X-Api-Status-Code=${sj['X-Api-Status-Code']}` : '') +
-        (sj.message ? ` message=${sj.message}` : '');
-      throw new Error('提交转录任务失败：' + detail);
-    }
+    // 火山 ASR 大模型（bigmodel）实测坑：提交成功响应常常是字面 `{}`，
+    // 任务 ID 不在 body 里 —— 任务标识就是我们自己发的 X-Api-Request-Id UUID，
+    // 后面轮询也用同一个 UUID（pollAsr 已把它当作 X-Api-Request-Id 发出去）。
+    // 优先取 body 里的 task_id（部分账户/变体官方文档示例中有），回退用 header UUID，
+    // 这样无论响应是 `{}` 还是带 task_id，都能正确进入轮询。
+    const taskId = submit.json?.task_id || reqHeaders['X-Api-Request-Id'];
 
     const result = await pollAsr(taskId, key, e);
     return { ...result, url: upload.url };
