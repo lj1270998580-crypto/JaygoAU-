@@ -354,13 +354,15 @@ function extractAsrResult(body: any): { text: string; utterances: any[]; duratio
 
 // ---- 创建窗口 ----
 function createWindow() {
+  const iconPath = path.join(__dirname, 'icon.ico');
   const win = new BrowserWindow({
     width: 1180,
     height: 780,
     minWidth: 980,
     minHeight: 640,
     title: 'Jaygo AU',
-    backgroundColor: '#f4f5f7',
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    backgroundColor: '#0c0c0e',
     frame: false,            // 去掉原生标题栏，改用自绘标题栏（含最小化/最大化/关闭）
     autoHideMenuBar: true,   // 同时隐藏菜单栏，避免 Alt 键唤出
     webPreferences: {

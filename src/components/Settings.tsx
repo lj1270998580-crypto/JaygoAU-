@@ -209,7 +209,7 @@ export default function Settings() {
         </div>
         <div className="grid grid-cols-2 gap-4 mt-4">
           <div>
-            <label className="label">默认语速 <span className="text-zinc-900 font-medium">{settings.speed.toFixed(1)}x</span></label>
+            <label className="label">默认语速 <span className="text-zinc-900 dark:text-zinc-100 font-medium">{settings.speed.toFixed(1)}x</span></label>
             <input
               type="range"
               min={0.5}
@@ -221,7 +221,7 @@ export default function Settings() {
             />
           </div>
           <div>
-            <label className="label">默认音量 <span className="text-zinc-900 font-medium">{settings.volume.toFixed(1)}x</span></label>
+            <label className="label">默认音量 <span className="text-zinc-900 dark:text-zinc-100 font-medium">{settings.volume.toFixed(1)}x</span></label>
             <input
               type="range"
               min={0.5}
@@ -235,7 +235,7 @@ export default function Settings() {
         </div>
         <label className="flex items-center gap-2 mt-4 cursor-pointer select-none">
           <input type="checkbox" checked={settings.denoise} onChange={(e) => patchSettings({ denoise: e.target.checked })} className="w-4 h-4" />
-          <span className="text-[13px] text-zinc-700">复刻时启用音频降噪</span>
+          <span className="text-[13px] text-zinc-700 dark:text-zinc-200">复刻时启用音频降噪</span>
         </label>
       </Section>
 
@@ -256,14 +256,14 @@ export default function Settings() {
             onChange={(e) => patchSettings({ enableSpeakerInfo: e.target.checked })}
             className="w-4 h-4"
           />
-          <span className="text-[13px] text-zinc-700">默认开启说话人分离（多人对话按说话人分段，仅中文/普通话生效）</span>
+          <span className="text-[13px] text-zinc-700 dark:text-zinc-200">默认开启说话人分离（多人对话按说话人分段，仅中文/普通话生效）</span>
         </label>
-        <p className="text-[11px] text-zinc-400 mt-2 leading-relaxed">计费：录音文件识别 2.0 按量 0.8 元/小时。需先配置 API Key（转录的云端临时存储已由服务端托管，你无需任何配置）。</p>
+        <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-2 leading-relaxed">计费：录音文件识别 2.0 按量 0.8 元/小时。需先配置 API Key（转录的云端临时存储已由服务端托管，你无需任何配置）。</p>
       </Section>
 
       <Section title="音频存储位置" desc="合成与试听文件的保存目录，修改后已有文件会自动迁移到新目录。">
         <div className="flex items-center gap-2">
-          <div className="glass-input flex-1 text-zinc-600 break-all !h-auto !py-2 text-xs">
+          <div className="glass-input flex-1 text-zinc-700 dark:text-zinc-300 break-all !h-auto !py-2 text-xs">
             {settings.outputDir || '使用默认目录'}
           </div>
           <button

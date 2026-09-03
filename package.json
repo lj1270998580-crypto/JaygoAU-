@@ -1,16 +1,16 @@
 {
   "name": "jaygo-au",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "description": "Jaygo AU — 火山引擎声音复刻 & 语音合成桌面工具 (简洁 UI)",
   "private": true,
   "author": "Jaygo",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "concurrently -n vite,electron -k \"vite\" \"cross-env DEV=1 tsc -p tsconfig.electron.json && tsx electron/main.ts\"",
-    "build": "npm run typecheck && vite build --emptyOutDir=false && tsc -p tsconfig.electron.json",
+    "build": "npm run typecheck && vite build --emptyOutDir=false && tsc -p tsconfig.electron.json && node -e \"require('fs').copyFileSync('build/icon.ico', 'dist-electron/icon.ico')\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "dist": "npm run build && electron-builder --win --dir --publish=never && node scripts/apply-icon.mjs",
-    "release": "npm run build && electron-builder --win --publish=never && node scripts/apply-icon.mjs",
+    "dist": "npm run build && electron-builder --win --dir --publish=never",
+    "release": "npm run build && electron-builder --win --publish=never",
     "deploy:update": "bash scripts/deploy-update.sh"
   },
   "dependencies": {
@@ -27,7 +27,8 @@
     "artifactName": "Jaygo.AU.Setup.${version}.${ext}",
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "build/icon.ico"
     ],
     "asarUnpack": [
       "node_modules/ffmpeg-static"
@@ -37,11 +38,13 @@
     },
     "win": {
       "target": "nsis",
-      "icon": "build/icon.ico",
-      "signAndEditExecutable": false
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "include": "build/installer.nsh",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,

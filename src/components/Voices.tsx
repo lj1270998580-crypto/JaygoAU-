@@ -260,11 +260,11 @@ export default function Voices() {
       {/* 我的音色列表 */}
       {voices.length > 0 && (
         <div className="mb-6">
-          <div className="text-[12px] font-medium text-zinc-900 mb-2">我的音色</div>
+          <div className="text-[12px] font-medium text-zinc-900 dark:text-white mb-2">我的音色</div>
           {voices.map((v) => (
             <div
               key={v.id}
-              className="group flex items-center gap-3 py-3 px-3 -mx-3 rounded-lg hover:bg-zinc-50/70 transition"
+              className="group flex items-center gap-3 py-3 px-3 -mx-3 rounded-lg hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40 transition"
             >
               <div className="flex-1 min-w-0">
                 {editingId === v.id ? (
@@ -284,12 +284,12 @@ export default function Voices() {
                   </div>
                 ) : (
                   <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="text-[13px] font-medium text-zinc-900 truncate">{v.name}</span>
+                    <span className="text-[13px] font-medium text-zinc-900 dark:text-zinc-100 truncate">{v.name}</span>
                     <span className={`chip ${statusColor(v.status)}`}>{statusText(v.status)}</span>
                     {v.modelType != null && (
-                      <span className="chip bg-zinc-100 text-zinc-500">{modelTypeText(v.modelType)}</span>
+                      <span className="chip bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">{modelTypeText(v.modelType)}</span>
                     )}
-                    <span className="text-[11px] text-zinc-400 font-mono truncate hidden sm:inline">{v.id}</span>
+                    <span className="text-[11px] text-zinc-400 dark:text-zinc-500 font-mono truncate hidden sm:inline">{v.id}</span>
                   </div>
                 )}
               </div>
@@ -339,20 +339,20 @@ export default function Voices() {
       )}
 
       {/* 添加音色：默认展开 */}
-      <div className="border-t border-zinc-100 pt-4 mb-8">
+      <div className="border-t border-zinc-100 dark:border-zinc-800/80 pt-4 mb-6">
         <button
-          className="text-[12px] text-zinc-400 hover:text-zinc-600 transition flex items-center gap-1"
+          type="button"
           onClick={() => setShowAdd((s) => !s)}
+          className="text-[12px] text-zinc-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition flex items-center gap-1"
         >
-          <span className={`inline-block transition-transform ${showAdd ? 'rotate-90' : ''}`}>›</span>
-          添加已有音色（从火山控制台导入）
+          <span>{showAdd ? '收起导入' : '＋ 导入已有音色 ID（用于跨设备或恢复已复刻音色）'}</span>
         </button>
 
         {showAdd && (
           <div className="mt-3 space-y-4">
             <div>
               <label className="label">批量导入音色 ID</label>
-              <p className="text-[11px] text-zinc-400 mb-2 leading-relaxed">
+              <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mb-2 leading-relaxed">
                 火山接口无法直接列出账号下的音色，请从控制台复制音色 ID 粘贴到这里（支持换行 / 逗号 / 空格分隔），导入时会自动逐个查询训练状态。
               </p>
               <textarea
