@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 export type VoiceRecord = {
   id: string;
@@ -67,6 +67,13 @@ const api = {
     ipcRenderer.invoke('saveSettings', partial),
 
   pickAudioFile: (): Promise<string | null> => ipcRenderer.invoke('pickAudioFile'),
+  getPathForFile: (file: File): string => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return (file as any).path || '';
+    }
+  },
   chooseOutputDir: (): Promise<(Settings & { migrated: number; skipped: number }) | null> =>
     ipcRenderer.invoke('chooseOutputDir'),
   openOutputDir: (): Promise<boolean> => ipcRenderer.invoke('openOutputDir'),

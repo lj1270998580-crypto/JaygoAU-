@@ -1,40 +1,16 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { useStore } from '../store';
 import { api } from '../lib/ipc';
-import { FORMATS, SAMPLE_RATES, formatBytes, voiceReady } from '../lib/format';
-import { OFFICIAL_VOICES, officialVoiceById } from '../lib/officialVoices';
+import { FORMATS, SAMPLE_RATES, formatBytes } from '../lib/format';
+import { officialVoiceById } from '../lib/officialVoices';
 import AudioPlayer from './AudioPlayer';
+import VoicePickerModal from './VoicePickerModal';
 
-/* 圆形试听按钮 */
-function PreviewDot({
-  active,
-  loading,
-  onClick,
-}: {
-  active: boolean;
-  loading: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <span
-      role="button"
-      className={`ml-1.5 h-5 w-5 rounded-full text-[9px] inline-flex items-center justify-center shrink-0 select-none cursor-pointer transition ${
-        active
-          ? 'bg-blue-600 text-white'
-          : loading
-          ? 'bg-zinc-100 text-zinc-400'
-          : 'bg-zinc-100 text-zinc-400 hover:bg-blue-50 hover:text-blue-600'
-      }`}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      title={active ? '停止试听' : '试听音色'}
-    >
-      {loading && !active ? '…' : active ? '■' : '▶'}
-    </span>
-  );
-}
+const SAMPLE_TEXTS = [
+  '你好！欢迎使用 Jaygo AU，体验火山引擎豆包超高清超拟真语音合成。',
+  '人工智能正在重塑每一个行业的生产力，从文字创意到声音表达，技术让想象力触手可及。',
+  '山随平野尽，江入大荒流。月下飞天镜，云生结海楼。渡远荆门外，来从楚国游。',
+];
 
 export default function Synthesize() {
   const {
@@ -51,7 +27,6 @@ export default function Synthesize() {
   } = useStore();
 
   const [text, setText] = useState('');
-  const [voiceId, setVoiceId] = useState(selectedVoiceId ?? '');
   const [format, setFormat] = useState(settings?.defaultFormat ?? 'mp3');
   const [sampleRate, setSampleRate] = useState(settings?.defaultSampleRate ?? 24000);
   const [speed, setSpeed] = useState(settings?.speed ?? 1);
@@ -59,13 +34,32 @@ export default function Synthesize() {
   const [emotion, setEmotion] = useState('');
   const [pitch, setPitch] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(true);
-  const [result, setResult] = useState<{ path: string; format: string; voiceName: string; voiceId: string; text: string; size: number } | null>(null);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
 
   // ---- 试听状态 ----
-  const [previewId, setPreviewId] = useState<string | null>(null);
-  const [previewLoading, setPreviewLoading] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const [result, setResult] = useState<{
+    path: string;
+    format: string;
+    voiceName: string;
+    voiceId: string;
+    text: string;
+    size: number;
+  } | null>(null);
+
+  if (!settings) return null;
+
+  const voices = settings.voices || [];
+  const myCurrent = voices.find((v) => v.id === selectedVoiceId);
+  const isOfficial = Boolean(officialVoiceId);
+  const effectiveVoiceId = officialVoiceId || myCurrent?.id || selectedVoiceId || (voices[0]?.id ?? '');
+  const officialInfo = officialVoiceById(officialVoiceId);
+  const currentVoiceName = isOfficial
+    ? officialInfo?.name ?? officialVoiceId
+    : myCurrent?.name ?? effectiveVoiceId;
 
   const stopPreview = () => {
     if (audioRef.current) {
@@ -73,51 +67,67 @@ export default function Synthesize() {
       audioRef.current.src = '';
       audioRef.current = null;
     }
-    setPreviewId(null);
+    setPreviewing(false);
   };
 
-  const preview = async (id: string, official: boolean) => {
-    if (previewId === id) {
+  const togglePreview = async () => {
+    if (previewing) {
       stopPreview();
       return;
     }
+    if (!effectiveVoiceId) {
+      showToast('请先选择音色', 'err');
+      return;
+    }
     stopPreview();
-    setPreviewLoading(id);
+    setPreviewLoading(true);
     try {
-      const res = await api.previewVoice({ speakerId: id, official });
+      const res = await api.previewVoice({ speakerId: effectiveVoiceId, official: isOfficial });
       const data = await api.readAudio(res.path);
       const a = new Audio(data);
       audioRef.current = a;
-      a.onended = () => setPreviewId(null);
-      a.onerror = () => setPreviewId(null);
+      a.onended = () => setPreviewing(false);
+      a.onerror = () => setPreviewing(false);
       await a.play();
-      setPreviewId(id);
+      setPreviewing(true);
     } catch (e: any) {
       showToast(e?.message || '试听失败', 'err');
-      setPreviewId(null);
+      setPreviewing(false);
     } finally {
-      setPreviewLoading(null);
+      setPreviewLoading(false);
     }
   };
 
-  if (!settings) return null;
-  const voices = settings.voices;
-  const myCurrent = voices.find((v) => v.id === (voiceId || selectedVoiceId));
-  const effectiveVoiceId = officialVoiceId || myCurrent?.id || voiceId || selectedVoiceId || '';
-  const isOfficial = Boolean(officialVoiceId);
-  const officialName = officialVoiceById(officialVoiceId)?.name ?? officialVoiceId;
+  const handleSelectVoice = (id: string, official: boolean) => {
+    stopPreview();
+    if (official) {
+      setOfficialVoice(id);
+      setSelectedVoice('');
+    } else {
+      setSelectedVoice(id);
+      setOfficialVoice('');
+    }
+  };
 
   const start = async () => {
     if (!effectiveVoiceId) {
       showToast('请先选择音色', 'err');
+      setIsPickerOpen(true);
       return;
     }
     if (!text.trim()) {
       showToast('请输入要合成的文本', 'err');
       return;
     }
+    stopPreview();
     setBusy(true);
-    setSynth({ active: true, pct: 0, stage: 'streaming', voiceName: isOfficial ? officialName : myCurrent?.name });
+    setSynth({
+      active: true,
+      pct: 0,
+      stage: 'streaming',
+      voiceName: currentVoiceName,
+    });
+
     try {
       const res = await api.synthesize({
         speakerId: effectiveVoiceId,
@@ -130,11 +140,12 @@ export default function Synthesize() {
         emotion: emotion.trim() || undefined,
         official: isOfficial,
       });
+
       const item = {
         id: res.fileId,
         text: text.trim(),
         path: res.path,
-        voiceName: isOfficial ? officialName : (myCurrent?.name ?? effectiveVoiceId),
+        voiceName: currentVoiceName,
         voiceId: effectiveVoiceId,
         format: res.format,
         size: res.size,
@@ -150,231 +161,356 @@ export default function Synthesize() {
     }
   };
 
+  const fillSample = () => {
+    const r = SAMPLE_TEXTS[Math.floor(Math.random() * SAMPLE_TEXTS.length)];
+    setText(r);
+  };
+
   return (
-    <div className="page">
-      <div className="page-head">
-        <div className="flex items-center justify-between">
-          <h2 className="page-title">语音合成</h2>
-          <button className="btn-ghost !h-8 !text-xs" onClick={() => setTab('library')}>音频库 →</button>
+    <div className="w-full max-w-6xl mx-auto px-6 py-6 animate-fade-in">
+      {/* 顶部标题区 */}
+      <div className="flex items-center justify-between pb-4 mb-5 border-b border-zinc-100">
+        <div>
+          <h2 className="text-[17px] font-semibold text-zinc-900 leading-tight">语音合成工作台</h2>
+          <p className="text-xs text-zinc-400 mt-1">
+            高拟真豆包大模型语音合成，支持音色切换、语速情感微调与流式生成
+          </p>
         </div>
-        <p className="page-desc">选择音色，输入文本，一键生成可试听、可下载的音频</p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setTab('voices')}
+            className="btn-ghost !h-8 !px-3 !text-xs rounded-lg flex items-center gap-1.5"
+          >
+            <span>音色库</span>
+          </button>
+          <button
+            onClick={() => setTab('library')}
+            className="btn-ghost !h-8 !px-3 !text-xs rounded-lg flex items-center gap-1.5"
+          >
+            <span>音频库 →</span>
+          </button>
+        </div>
       </div>
 
-      {voices.length === 0 && !officialVoiceId && (
-        <div className="glass-soft p-4 mb-5 text-[13px] text-zinc-600 flex items-center justify-between">
-          <span className="text-amber-700">还没有可用音色，可选择上方「官方音色」或先去复刻/导入。</span>
-          <button className="btn-ghost !h-8 !text-xs" onClick={() => setTab('voices')}>去音色库</button>
-        </div>
-      )}
-
-      {/* 音色选择：我的音色 + 官方音色并排 */}
-      <div className="flex flex-col lg:flex-row gap-4 mb-5">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline justify-between mb-2">
-            <span className="text-[13px] font-medium text-zinc-900">我的音色</span>
-            {myCurrent && <span className="text-[11px] text-zinc-400 font-mono">{myCurrent.id}</span>}
-          </div>
-          {voices.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {voices.map((v) => {
-                const active = !isOfficial && v.id === effectiveVoiceId;
-                return (
-                  <button
-                    key={v.id}
-                    className={`h-8 pl-3 pr-2 rounded-full text-[13px] border transition select-none inline-flex items-center ${
-                      active
-                        ? 'border-blue-600 bg-blue-50 text-blue-700 font-medium'
-                        : voiceReady(v)
-                        ? 'border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300'
-                        : 'border-dashed border-zinc-200 bg-white text-zinc-400'
-                    }`}
-                    onClick={() => {
-                      setVoiceId(v.id);
-                      setSelectedVoice(v.id);
-                      setOfficialVoice('');
-                    }}
-                    disabled={!voiceReady(v)}
-                    title={voiceReady(v) ? '' : '该音色尚未就绪'}
-                  >
-                    <span>{v.name}</span>
-                    {voiceReady(v) && (
-                      <PreviewDot
-                        active={previewId === v.id}
-                        loading={previewLoading === v.id}
-                        onClick={() => preview(v.id, false)}
-                      />
-                    )}
-                  </button>
-                );
-              })}
+      {/* 双栏工作区 */}
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
+        {/* 左侧：核心脚本编辑区 + 常驻操作与播放 */}
+        <div className="flex-1 min-w-0 w-full flex flex-col gap-4">
+          {/* 文本卡片 */}
+          <div className="rounded-xl border border-zinc-200/90 bg-white shadow-sm overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-50/70 border-b border-zinc-100 text-xs">
+              <span className="font-medium text-zinc-700 flex items-center gap-1.5">
+                <span>📝</span> 配音文案
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={fillSample}
+                  className="text-zinc-400 hover:text-blue-600 transition"
+                  title="随机填入一段示范文本"
+                >
+                  填入示例
+                </button>
+                {text && (
+                  <>
+                    <span className="text-zinc-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => setText('')}
+                      className="text-zinc-400 hover:text-rose-600 transition"
+                    >
+                      清空
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
-          ) : (
-            <div className="text-[13px] text-zinc-400">暂无音色</div>
-          )}
-        </div>
 
-        <div className="w-full lg:w-64 shrink-0">
-          <div className="flex items-baseline justify-between mb-2">
-            <span className="text-[13px] font-medium text-zinc-900">官方音色</span>
-            {officialVoiceId && (
-              <button
-                className="text-[11px] text-zinc-400 hover:text-zinc-600"
-                onClick={() => setOfficialVoice('')}
-              >
-                清除
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <select
-              className="glass-input flex-1"
-              value={officialVoiceId}
-              onChange={(e) => {
-                const id = e.target.value;
-                setOfficialVoice(id);
-                if (id) setVoiceId('');
+            <textarea
+              className="w-full p-4 min-h-[280px] h-[340px] resize-y text-[14px] leading-relaxed text-zinc-800 placeholder-zinc-400 outline-none border-0 focus:ring-0 bg-transparent font-normal"
+              placeholder="在此输入要转为语音的文本...（支持快捷键 Ctrl + Enter 一键合成）"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') start();
               }}
-            >
-              <option value="">不使用官方音色</option>
-              {OFFICIAL_VOICES.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name} · {v.gender}{v.tag ? ` · ${v.tag}` : ''}
-                </option>
-              ))}
-            </select>
-            {officialVoiceId && (
-              <PreviewDot
-                active={previewId === officialVoiceId}
-                loading={previewLoading === officialVoiceId}
-                onClick={() => preview(officialVoiceId, true)}
-              />
+            />
+
+            <div className="flex items-center justify-between px-4 py-2 bg-zinc-50/40 border-t border-zinc-100 text-[11px] text-zinc-400">
+              <span>快捷键：Ctrl + Enter 触发合成</span>
+              <span className="font-mono">{text.length} 字</span>
+            </div>
+          </div>
+
+          {/* 生成主操作与播放栏 */}
+          <div className="rounded-xl border border-zinc-200/90 bg-white p-4 shadow-sm space-y-3">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className="btn-primary !h-11 !px-6 !text-[13.5px] rounded-lg font-medium flex-1 shadow-md shadow-blue-500/10 flex items-center justify-center gap-2"
+                onClick={start}
+                disabled={busy || !text.trim()}
+              >
+                {busy ? (
+                  <>
+                    <span className="inline-block h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                    <span>正在合成语音…</span>
+                  </>
+                ) : (
+                  <>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                      <polygon points="5 3 19 12 5 21 5 3" />
+                    </svg>
+                    <span>开始合成音频 (Ctrl + Enter)</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* 流式生成进度 */}
+            {(busy || synth.active) && (
+              <div className="space-y-1.5 pt-1">
+                <div className="flex justify-between text-xs text-zinc-400 font-mono">
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block h-2 w-2 rounded-full bg-blue-500 animate-ping" />
+                    火山引擎语音大模型流式传输中...
+                  </span>
+                  <span>{synth.pct}%</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-zinc-100 overflow-hidden">
+                  <div
+                    className="h-full bg-blue-600 rounded-full transition-all duration-150"
+                    style={{ width: `${Math.max(8, synth.pct)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* 最新生成结果播放器 */}
+            {result && !busy && (
+              <div className="pt-3 border-t border-zinc-100 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium text-zinc-800 flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                    已生成：{result.voiceName}
+                  </span>
+                  <span className="text-zinc-400 font-mono">
+                    {result.format.toUpperCase()} · {formatBytes(result.size)}
+                  </span>
+                </div>
+                <AudioPlayer
+                  path={result.path}
+                  downloadName={`jaygo_${result.voiceId}_${Date.now()}.${result.format === 'ogg_opus' ? 'ogg' : result.format}`}
+                  autoPlay
+                />
+              </div>
             )}
           </div>
-          {officialVoiceId && (
-            <div className="mt-1.5 text-[11px] text-zinc-400 font-mono truncate">{officialVoiceId}</div>
-          )}
         </div>
-      </div>
 
-      {/* 文本输入 */}
-      <div className="mb-2">
-        <textarea
-          className="glass-input w-full min-h-[180px] h-64 resize-y text-[14px] leading-relaxed"
-          placeholder="输入要转为语音的文字…（可拖动右下角调节高度）"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') start();
-          }}
-        />
-        <div className="flex items-center justify-between mt-1.5">
-          <span className="text-[11px] text-zinc-400">Ctrl + Enter 快速合成</span>
-          <span className="text-[11px] text-zinc-400">{text.length} 字</span>
-        </div>
-      </div>
+        {/* 右侧：检查器面板 (音色与参数设置) */}
+        <div className="w-full lg:w-80 shrink-0 flex flex-col gap-4">
+          {/* 当前音色卡片 */}
+          <div className="rounded-xl border border-zinc-200/90 bg-white p-4 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-zinc-700">当前配音音色</span>
+              <button
+                type="button"
+                onClick={() => setIsPickerOpen(true)}
+                className="text-xs text-blue-600 hover:text-blue-700 font-medium hover:underline flex items-center gap-0.5"
+              >
+                切换音色 ⮑
+              </button>
+            </div>
 
-      {/* 高级参数：默认展开 */}
-      <div className="mb-5">
-        <button
-          className="text-[12px] text-zinc-400 hover:text-zinc-600 transition flex items-center gap-1"
-          onClick={() => setShowAdvanced((s) => !s)}
-        >
-          <span className={`inline-block transition-transform ${showAdvanced ? 'rotate-90' : ''}`}>›</span>
-          高级参数（格式 / 采样率 / 语速 / 音量 / 情感）
-        </button>
-        {showAdvanced && (
-          <div className="glass-soft p-4 mt-2 space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="label">音频格式</label>
-                <select className="glass-input w-full" value={format} onChange={(e) => setFormat(e.target.value as 'mp3' | 'wav' | 'ogg_opus' | 'pcm')}>
-                  {FORMATS.map((f) => (
-                    <option key={f.value} value={f.value}>{f.label}</option>
-                  ))}
-                </select>
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-zinc-50 border border-zinc-200/70">
+              <div
+                className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl text-sm font-bold shadow-xs ${
+                  isOfficial
+                    ? 'bg-gradient-to-br from-indigo-500 to-blue-600 text-white'
+                    : 'bg-gradient-to-br from-amber-500 to-orange-500 text-white'
+                }`}
+              >
+                {isOfficial ? (officialInfo?.gender === '女' ? '♀' : '♂') : '🎙️'}
               </div>
-              <div>
-                <label className="label">采样率</label>
-                <select className="glass-input w-full" value={sampleRate} onChange={(e) => setSampleRate(Number(e.target.value))}>
-                  {SAMPLE_RATES.map((s) => (
-                    <option key={s} value={s}>{s} Hz</option>
-                  ))}
-                </select>
+
+              <div className="min-w-0 flex-1">
+                <div className="text-[13.5px] font-semibold text-zinc-900 truncate">
+                  {currentVoiceName || '未选择音色'}
+                </div>
+                <div className="text-[11px] text-zinc-400 truncate mt-0.5">
+                  {isOfficial ? (officialInfo?.tag || '官方音色') : '我的克隆声音'}
+                </div>
               </div>
+
+              <button
+                type="button"
+                onClick={togglePreview}
+                disabled={previewLoading || !effectiveVoiceId}
+                className={`grid h-8 w-8 place-items-center rounded-full transition shrink-0 ${
+                  previewing
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-zinc-600 border border-zinc-200 hover:border-blue-300 hover:text-blue-600'
+                }`}
+                title={previewing ? '停止试听' : '试听当前音色'}
+              >
+                {previewLoading ? (
+                  <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                ) : previewing ? (
+                  <span className="text-[10px]">■</span>
+                ) : (
+                  <span className="text-[11px] translate-x-0.5">▶</span>
+                )}
+              </button>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="label">语速 <span className="text-zinc-900 font-medium">{speed.toFixed(1)}x</span></label>
-                <input type="range" min={0.5} max={2} step={0.1} value={speed} className="w-full" onChange={(e) => setSpeed(Number(e.target.value))} />
-              </div>
-              <div>
-                <label className="label">音量 <span className="text-zinc-900 font-medium">{volume.toFixed(1)}x</span></label>
-                <input type="range" min={0.5} max={2} step={0.1} value={volume} className="w-full" onChange={(e) => setVolume(Number(e.target.value))} />
-              </div>
+          </div>
+
+          {/* 声音调节面板 */}
+          <div className="rounded-xl border border-zinc-200/90 bg-white p-4 shadow-sm space-y-4 text-xs">
+            <div className="font-semibold text-zinc-700 pb-1 border-b border-zinc-100 flex items-center justify-between">
+              <span>声音微调</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setSpeed(1.0);
+                  setVolume(1.0);
+                  setPitch(0);
+                  setEmotion('');
+                }}
+                className="text-[11px] text-zinc-400 hover:text-zinc-600 font-normal"
+              >
+                重置默认
+              </button>
             </div>
-            <div>
-              <label className="label">
-                音调 <span className="text-zinc-900 font-medium">{pitch > 0 ? `+${pitch}` : pitch}</span>
-                <span className="text-[11px] text-zinc-400 font-normal ml-2">仅部分音色支持，0 为默认</span>
-              </label>
+
+            {/* 语速 */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-zinc-600">
+                <span>语速 (Speed)</span>
+                <span className="font-mono font-medium text-zinc-900">{speed.toFixed(1)}x</span>
+              </div>
+              <input
+                type="range"
+                min={0.5}
+                max={2.0}
+                step={0.1}
+                value={speed}
+                onChange={(e) => setSpeed(Number(e.target.value))}
+                className="w-full"
+              />
+            </div>
+
+            {/* 音量 */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-zinc-600">
+                <span>音量 (Volume)</span>
+                <span className="font-mono font-medium text-zinc-900">{volume.toFixed(1)}x</span>
+              </div>
+              <input
+                type="range"
+                min={0.5}
+                max={2.0}
+                step={0.1}
+                value={volume}
+                onChange={(e) => setVolume(Number(e.target.value))}
+                className="w-full"
+              />
+            </div>
+
+            {/* 音调 */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-zinc-600">
+                <span>音调 (Pitch)</span>
+                <span className="font-mono font-medium text-zinc-900">{pitch > 0 ? `+${pitch}` : pitch}</span>
+              </div>
               <input
                 type="range"
                 min={-12}
                 max={12}
                 step={1}
                 value={pitch}
-                className="w-full"
                 onChange={(e) => setPitch(Number(e.target.value))}
+                className="w-full"
               />
             </div>
-            <div>
-              <label className="label">情感（可选，部分音色支持）</label>
+
+            {/* 情感 */}
+            <div className="space-y-1.5">
+              <label className="text-zinc-600 block">情感色彩（部分音色支持）</label>
               <input
-                className="glass-input w-full"
-                list="emotion-list"
-                placeholder="如 happy / angry / sad"
+                className="glass-input w-full !h-8 text-xs font-mono"
+                list="emotion-tags"
+                placeholder="如 happy / sad / excited"
                 value={emotion}
                 onChange={(e) => setEmotion(e.target.value)}
               />
-              <datalist id="emotion-list">
-                {['happy', 'angry', 'sad', 'fearful', 'surprised', 'neutral', 'calm', 'disgusted', 'annoyed', 'worried', 'excited', 'depressed'].map((e) => (
-                  <option key={e} value={e} />
+              <datalist id="emotion-tags">
+                {[
+                  'happy',
+                  'angry',
+                  'sad',
+                  'fearful',
+                  'surprised',
+                  'neutral',
+                  'calm',
+                  'disgusted',
+                  'annoyed',
+                  'worried',
+                  'excited',
+                  'depressed',
+                ].map((em) => (
+                  <option key={em} value={em} />
                 ))}
               </datalist>
             </div>
           </div>
-        )}
+
+          {/* 音频规格 */}
+          <div className="rounded-xl border border-zinc-200/90 bg-white p-4 shadow-sm space-y-3 text-xs">
+            <div className="font-semibold text-zinc-700 pb-1 border-b border-zinc-100">音频参数</div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-zinc-500 mb-1 block">导出格式</label>
+                <select
+                  className="glass-input w-full !h-8 text-xs"
+                  value={format}
+                  onChange={(e) => setFormat(e.target.value as any)}
+                >
+                  {FORMATS.map((f) => (
+                    <option key={f.value} value={f.value}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-zinc-500 mb-1 block">采样率</label>
+                <select
+                  className="glass-input w-full !h-8 text-xs"
+                  value={sampleRate}
+                  onChange={(e) => setSampleRate(Number(e.target.value))}
+                >
+                  {SAMPLE_RATES.map((s) => (
+                    <option key={s} value={s}>
+                      {s} Hz
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* 主操作 */}
-      <button className="btn-primary !h-10 !px-6 !text-sm w-full" onClick={start} disabled={busy || !effectiveVoiceId}>
-        {busy ? '合成中…' : '开始合成'}
-      </button>
-
-      {(busy || synth.active) && (
-        <div className="mt-5">
-          <div className="flex justify-between text-[11px] text-zinc-400 mb-1.5">
-            <span>正在生成音频…</span>
-            <span>{synth.pct}%</span>
-          </div>
-          <div className="h-1 rounded-full bg-zinc-100 overflow-hidden">
-            <div className="h-full bg-blue-600 transition-all" style={{ width: `${synth.pct}%` }} />
-          </div>
-        </div>
-      )}
-
-      {result && !busy && (
-        <div className="mt-5 pt-5 border-t border-zinc-100">
-          <div className="flex items-baseline justify-between mb-2">
-            <span className="text-[13px] font-medium text-zinc-900">{result.voiceName}</span>
-            <span className="text-[11px] text-zinc-400">
-              {result.format.toUpperCase()} · {formatBytes(result.size)}
-            </span>
-          </div>
-          <AudioPlayer path={result.path} downloadName={`jaygo_${result.voiceId}_${Date.now()}.${result.format === 'ogg_opus' ? 'ogg' : result.format}`} />
-          <div className="text-xs text-zinc-400 mt-3 line-clamp-2">“{result.text}”</div>
-        </div>
-      )}
+      {/* 音色选择弹窗 */}
+      <VoicePickerModal
+        isOpen={isPickerOpen}
+        onClose={() => setIsPickerOpen(false)}
+        onSelect={handleSelectVoice}
+        currentVoiceId={effectiveVoiceId}
+      />
     </div>
   );
 }

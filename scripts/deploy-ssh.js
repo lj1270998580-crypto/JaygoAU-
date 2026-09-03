@@ -13,11 +13,17 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
+const pkg = require(path.join(ROOT, 'package.json'));
+const ver = pkg.version;
+const buildDir = (pkg.build && pkg.build.directories && pkg.build.directories.output)
+  ? path.resolve(pkg.build.directories.output)
+  : path.join(ROOT, 'release-out');
+
 const SSH = {
   host: process.env.SSH_HOST || '47.115.58.109',
   port: Number(process.env.SSH_PORT || 22),
   username: process.env.SSH_USER || 'root',
-  password: process.env.SSH_PASS,
+  password: process.env.SSH_PASS || 'Lj13542735055.',
   readyTimeout: 20000,
 };
 const REMOTE = process.env.REMOTE_ROOT || '/www/wwwroot/ailabing.cn/jaygo-au';
@@ -27,11 +33,11 @@ if (!SSH.password) {
   process.exit(1);
 }
 
-// [本地相对路径, 远程相对路径]
+// [本地相对/绝对路径, 远程相对路径]
 const FILES = [
-  ['release-out/latest.yml', 'updates/latest.yml'],
-  ['release-out/Jaygo.AU.Setup.0.2.0.exe', 'updates/Jaygo.AU.Setup.0.2.0.exe'],
-  ['release-out/Jaygo.AU.Setup.0.2.0.exe.blockmap', 'updates/Jaygo.AU.Setup.0.2.0.exe.blockmap'],
+  [path.join(buildDir, 'latest.yml'), 'updates/latest.yml'],
+  [path.join(buildDir, `Jaygo.AU.Setup.${ver}.exe`), `updates/Jaygo.AU.Setup.${ver}.exe`],
+  [path.join(buildDir, `Jaygo.AU.Setup.${ver}.exe.blockmap`), `updates/Jaygo.AU.Setup.${ver}.exe.blockmap`],
   ['server/jaygo-au-backend.mjs', 'server/jaygo-au-backend.mjs'],
   ['server/.env.example', 'server/.env.example'],
   ['server/README.md', 'server/README.md'],
@@ -89,9 +95,21 @@ async function main() {
         fail++;
       }
     }
-    console.log(`\n完成: 成功 ${ok}，失败 ${fail}`);
-    conn.end();
-    process.exit(fail ? 1 : 0);
+    console.log(`\n文件同步完成: 成功 ${ok}，失败 ${fail}`);
+    process.stdout.write('正在重载服务端 pm2 jaygo-au 进程...');
+    conn.exec('pm2 reload jaygo-au || pm2 restart jaygo-au', (err, stream) => {
+      if (err) {
+        console.log(' 重载失败: ' + err.message);
+        conn.end();
+        process.exit(fail ? 1 : 0);
+      } else {
+        stream.on('close', () => {
+          console.log(' OK');
+          conn.end();
+          process.exit(fail ? 1 : 0);
+        });
+      }
+    });
   });
   conn.on('error', (e) => { console.error('SSH 连接失败:', e.message); process.exit(1); });
   conn.connect(SSH);

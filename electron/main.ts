@@ -194,11 +194,11 @@ function setApiKey(key: string) {
 
 function stripVoices(raw: any) {
   const {
-    outputDir, resourceId, officialResourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices,
+    outputDir, resourceId, officialResourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices, library,
     asrResourceId, enableSpeakerInfo, ossRegion, ossBucket, ossEndpoint, ossAccessKeyId, ossAccessKeySecret, volcAccessKeyId, volcSecretKey,
   } = raw;
   return {
-    outputDir, resourceId, officialResourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices: voices ?? [],
+    outputDir, resourceId, officialResourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices: voices ?? [], library: library ?? [],
     asrResourceId: asrResourceId ?? 'volc.seedasr.auc',
     enableSpeakerInfo: enableSpeakerInfo ?? false,
     ossRegion: ossRegion ?? '',
@@ -224,21 +224,15 @@ function uuid() {
 function makeSpeakerId(name: string): string {
   const base = (name || '')
     .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, '_')
-    .replace(/^[-_]+/, '')
-    .replace(/[-_]+$/, '');
-  const rand = crypto.randomBytes(3).toString('hex');
-  let id = `custom_zh_${base || 'voice'}_${rand}`;
-  if (!/^[a-z]/.test(id)) id = 'c' + id;
-  return id.slice(0, 256);
+    .replace(/[^\w\u4e00-\u9fa5]/g, '_')
+    .slice(0, 16);
+  const rnd = crypto.randomBytes(3).toString('hex');
+  return `jaygo_${base ? base + '_' : ''}${rnd}`;
 }
 
-function extForFormat(fmt: string): string {
-  if (fmt === 'wav') return 'wav';
-  if (fmt === 'ogg_opus') return 'ogg';
-  if (fmt === 'pcm') return 'pcm';
-  return 'mp3';
+function extForFormat(f: string): string {
+  if (f === 'ogg_opus') return 'ogg';
+  return f;
 }
 
 async function httpPostJson(url: string, headers: Record<string, string>, body: any): Promise<any> {
@@ -247,15 +241,9 @@ async function httpPostJson(url: string, headers: Record<string, string>, body: 
     headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
   });
-  const text = await res.text();
-  let json: any = {};
-  try {
-    json = JSON.parse(text);
-  } catch {
-    json = { raw: text };
-  }
+  const json: any = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg = json?.message || json?.raw || `HTTP ${res.status}`;
+    const msg = json?.message || `HTTP ${res.status}`;
     throw new Error(`请求失败(${res.status}): ${msg}`);
   }
   return json;
@@ -296,13 +284,14 @@ function netPost(url: string, headers: Record<string, string>, body: any): Promi
           outHeaders[String(k).toLowerCase()] = Array.isArray(v) ? v.join(',') : String(v);
         }
       } catch {}
-      let text = '';
+      const chunks: Buffer[] = [];
       res.on('data', (c: any) => {
-        text += typeof c === 'string' ? c : c.toString();
+        chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
       });
       res.on('end', () => {
         if (done) return;
         done = true;
+        const text = Buffer.concat(chunks).toString('utf-8');
         resolve({ status: res.statusCode || 0, headers: outHeaders, text });
       });
       res.on('error', (e: any) => {

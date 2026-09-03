@@ -204,27 +204,38 @@ export default function Voices() {
     setTab('synth');
   };
 
+  const voicesRef = useRef(settings.voices);
+  voicesRef.current = settings.voices;
+
   // 自动轮询「训练中」的音色，直到就绪或失败
   useEffect(() => {
     const hasTraining = settings.voices.some((v) => v.status === 1);
     if (!hasTraining) return;
+
+    let stopped = false;
     const timer = setInterval(async () => {
-      let anyTraining = false;
-      for (const v of settings.voices) {
-        if (v.status === 1) {
-          try {
-            await api.queryVoice(v.id);
-            await refreshSettings();
-          } catch {
-            /* ignore */
-          }
-          if (settings.voices.find((x) => x.id === v.id)?.status === 1) anyTraining = true;
+      if (stopped) return;
+      const trainingList = voicesRef.current.filter((v) => v.status === 1);
+      if (trainingList.length === 0) {
+        clearInterval(timer);
+        return;
+      }
+      for (const v of trainingList) {
+        if (stopped) break;
+        try {
+          await api.queryVoice(v.id);
+        } catch {
+          /* ignore */
         }
       }
-      if (!anyTraining) clearInterval(timer);
-    }, 4000);
-    return () => clearInterval(timer);
-  }, [settings.voices]);
+      if (!stopped) await refreshSettings();
+    }, 5000);
+
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [settings.voices.some((v) => v.status === 1)]);
 
   return (
     <div className="page">
