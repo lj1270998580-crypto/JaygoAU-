@@ -136,7 +136,7 @@ export default function AudioPlayer({
 
   return (
     <div
-      className={`flex items-center gap-3 rounded-lg border border-zinc-200/90 bg-zinc-50/70 p-2 select-none transition hover:border-zinc-300 ${
+      className={`flex items-center gap-3 rounded-xl border border-zinc-200/90 dark:border-zinc-800/90 bg-zinc-50/70 dark:bg-[#151518]/90 p-2.5 select-none transition hover:border-zinc-300 dark:hover:border-zinc-700 ${
         compact ? 'max-w-md w-full' : 'w-full'
       }`}
     >
@@ -180,14 +180,14 @@ export default function AudioPlayer({
           onClick={handleSeek}
           className="group relative h-3.5 w-full cursor-pointer flex items-center"
         >
-          <div className="h-1.5 w-full rounded-full bg-zinc-200 overflow-hidden transition-all group-hover:h-2">
+          <div className="h-1.5 w-full rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden transition-all group-hover:h-2">
             <div
               className="h-full bg-blue-600 rounded-full transition-[width] duration-75"
               style={{ width: `${pct}%` }}
             />
           </div>
         </div>
-        <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono -mt-0.5">
+        <div className="flex items-center justify-between text-[11px] text-zinc-400 dark:text-zinc-500 font-mono -mt-0.5">
           <span>{fmtTime(currentTime)}</span>
           <span>{duration > 0 ? fmtTime(duration) : '--:--'}</span>
         </div>
@@ -196,7 +196,7 @@ export default function AudioPlayer({
       <button
         type="button"
         onClick={toggleSpeed}
-        className="rounded px-1.5 py-0.5 text-[11px] font-mono font-medium text-zinc-500 hover:bg-zinc-200/70 hover:text-zinc-800 transition shrink-0"
+        className="rounded px-1.5 py-0.5 text-[11px] font-mono font-medium text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200/70 dark:hover:bg-zinc-800 hover:text-zinc-800 dark:hover:text-zinc-200 transition shrink-0"
         title="切换播放倍速"
       >
         {currentSpeed}x
@@ -205,7 +205,7 @@ export default function AudioPlayer({
       <button
         type="button"
         onClick={download}
-        className="rounded p-1.5 text-zinc-400 hover:bg-zinc-200/70 hover:text-zinc-700 transition shrink-0"
+        className="rounded p-1.5 text-zinc-400 dark:text-zinc-500 hover:bg-zinc-200/70 dark:hover:bg-zinc-800 hover:text-zinc-700 dark:hover:text-zinc-200 transition shrink-0"
         title="另存为文件"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

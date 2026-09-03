@@ -389,23 +389,23 @@ export default function Voices() {
       </div>
 
       {/* 官方音色 */}
-      <div className="border-t border-zinc-100 pt-5">
+      <div className="border-t border-zinc-100 dark:border-zinc-800/80 pt-5">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <div className="text-[12px] font-medium text-zinc-900">官方音色</div>
-            <div className="text-[11px] text-zinc-400">共 {officialGroups.reduce((s, g) => s + g.voices.length, 0)} 个，点击即可在「语音合成」中使用</div>
+            <div className="text-[12px] font-medium text-zinc-900 dark:text-white">官方音色</div>
+            <div className="text-[11px] text-zinc-400 dark:text-zinc-500">共 {officialGroups.reduce((s, g) => s + g.voices.length, 0)} 个，点击即可在「语音合成」中使用</div>
           </div>
         </div>
 
         <div className="space-y-5">
           {officialGroups.map((g) => (
             <div key={g.category}>
-              <div className="text-[11px] text-zinc-500 mb-2 sticky top-0 bg-white py-1">{g.category}</div>
+              <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-2 sticky top-0 bg-white dark:bg-[#0c0c0e] py-1">{g.category}</div>
               <div className="flex flex-wrap gap-2">
                 {g.voices.map((v) => (
                   <div
                     key={v.id}
-                    className="h-8 pl-3 pr-1.5 rounded-full text-[12px] border border-zinc-200 bg-white text-zinc-700 hover:border-blue-400 hover:text-blue-700 transition select-none flex items-center gap-1.5 cursor-pointer"
+                    className="h-8 pl-3 pr-1.5 rounded-full text-[12px] border border-zinc-200 dark:border-zinc-700/80 bg-white dark:bg-[#16161a] text-zinc-700 dark:text-zinc-300 hover:border-blue-400 dark:hover:border-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition select-none flex items-center gap-1.5 cursor-pointer"
                     onClick={() => useOfficial(v.id)}
                     title={v.id}
                   >

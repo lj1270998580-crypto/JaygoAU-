@@ -147,27 +147,27 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
       <div
-        className="flex flex-col w-full max-w-3xl h-[640px] max-h-[90vh] rounded-2xl bg-white shadow-2xl border border-zinc-200 overflow-hidden"
+        className="flex flex-col w-full max-w-3xl h-[640px] max-h-[90vh] rounded-2xl bg-white dark:bg-[#121215] shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden text-zinc-900 dark:text-zinc-100"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 弹窗头部 */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 dark:border-zinc-800/80 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="grid h-8 w-8 place-items-center rounded-lg bg-blue-50 text-blue-600 font-semibold text-sm">
+            <div className="grid h-8 w-8 place-items-center rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-semibold text-sm">
               🎙️
             </div>
             <div>
-              <h3 className="text-[15px] font-semibold text-zinc-900 leading-tight">选择配音音色</h3>
-              <p className="text-xs text-zinc-400 mt-0.5">
+              <h3 className="text-[15px] font-semibold text-zinc-900 dark:text-white leading-tight">选择配音音色</h3>
+              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
                 {myVoices.length} 个我的克隆 · {OFFICIAL_VOICES.length} 个官方精品音色
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="grid h-8 w-8 place-items-center rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition"
+            className="grid h-8 w-8 place-items-center rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
             title="关闭"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -178,11 +178,11 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
         </div>
 
         {/* 搜索栏与分类 Tab */}
-        <div className="px-6 py-3 border-b border-zinc-100 bg-zinc-50/50 shrink-0 space-y-2.5">
+        <div className="px-6 py-3 border-b border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/50 dark:bg-[#16161a] shrink-0 space-y-2.5">
           {/* 搜索框 */}
           <div className="relative">
             <svg
-              className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400"
+              className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400 dark:text-zinc-500"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -202,7 +202,7 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
             {search && (
               <button
                 onClick={() => setSearch('')}
-                className="absolute right-2.5 top-2.5 text-zinc-400 hover:text-zinc-600 text-xs"
+                className="absolute right-2.5 top-2.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 text-xs"
               >
                 ✕
               </button>
@@ -220,7 +220,7 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
                   className={`px-3 py-1 rounded-full text-xs font-medium transition shrink-0 ${
                     active
                       ? 'bg-blue-600 text-white shadow-sm'
-                      : 'bg-white text-zinc-600 border border-zinc-200 hover:border-zinc-300'
+                      : 'bg-white dark:bg-[#1c1c22] text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600'
                   }`}
                 >
                   {cat}
@@ -231,9 +231,9 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
         </div>
 
         {/* 音色卡片网格列表 */}
-        <div className="flex-1 overflow-y-auto p-6 min-h-0">
+        <div className="flex-1 overflow-y-auto p-6 min-h-0 bg-white dark:bg-[#121215]">
           {filteredList.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-zinc-400 text-xs py-16">
+            <div className="h-full flex flex-col items-center justify-center text-zinc-400 dark:text-zinc-600 text-xs py-16">
               <span className="text-3xl mb-2">🔍</span>
               <span>未找到符合条件的音色</span>
             </div>
@@ -254,10 +254,10 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
                     }}
                     className={`group relative flex items-center justify-between p-3 rounded-xl border transition cursor-pointer select-none ${
                       isSelected
-                        ? 'border-blue-600 bg-blue-50/60 ring-2 ring-blue-500/20'
+                        ? 'border-blue-600 dark:border-blue-500 bg-blue-50/60 dark:bg-blue-950/40 ring-2 ring-blue-500/20'
                         : item.ready
-                        ? 'border-zinc-200 bg-white hover:border-blue-300 hover:shadow-sm'
-                        : 'border-dashed border-zinc-200 bg-zinc-50/50 opacity-60 cursor-not-allowed'
+                        ? 'border-zinc-200 dark:border-zinc-800/90 bg-white dark:bg-[#16161a] hover:border-blue-300 dark:hover:border-blue-600/80 hover:shadow-sm'
+                        : 'border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 opacity-60 cursor-not-allowed'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
@@ -265,8 +265,8 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
                       <div
                         className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg text-xs font-bold ${
                           item.isOfficial
-                            ? 'bg-gradient-to-br from-indigo-50 to-blue-50 text-indigo-600 border border-indigo-100'
-                            : 'bg-gradient-to-br from-amber-50 to-orange-50 text-amber-600 border border-amber-100'
+                            ? 'bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-950/50 dark:to-blue-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/50'
+                            : 'bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50 text-amber-600 dark:text-amber-400 border border-amber-100 dark:border-amber-900/50'
                         }`}
                       >
                         {item.gender === '女' ? '♀' : item.gender === '男' ? '♂' : item.name.slice(0, 1)}
@@ -275,14 +275,16 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
                       {/* 音色名与描述 */}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[13px] font-medium text-zinc-900 truncate">{item.name}</span>
+                          <span className="text-[13px] font-medium text-zinc-900 dark:text-zinc-100 truncate">
+                            {item.name}
+                          </span>
                           {isSelected && (
                             <span className="text-[10px] bg-blue-600 text-white rounded px-1 py-0.2 shrink-0 font-normal">
                               当前
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-zinc-400 mt-0.5 truncate flex items-center gap-1.5">
+                        <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5 truncate flex items-center gap-1.5">
                           <span>{item.tag || item.category}</span>
                           {!item.ready && item.status != null && (
                             <span className={`chip ${statusColor(item.status)}`}>
@@ -303,7 +305,7 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
                         className={`grid h-7 w-7 place-items-center rounded-full transition shrink-0 ${
                           isAuditioning
                             ? 'bg-blue-600 text-white'
-                            : 'bg-zinc-100 text-zinc-500 hover:bg-blue-100 hover:text-blue-600'
+                            : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 hover:text-blue-600 dark:hover:text-blue-400'
                         }`}
                       >
                         {isLoading ? (
@@ -323,7 +325,7 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
         </div>
 
         {/* 底部信息栏 */}
-        <div className="px-6 py-3 border-t border-zinc-100 bg-zinc-50 flex items-center justify-between text-xs text-zinc-400 shrink-0">
+        <div className="px-6 py-3 border-t border-zinc-100 dark:border-zinc-800/80 bg-zinc-50 dark:bg-[#16161a] flex items-center justify-between text-xs text-zinc-400 dark:text-zinc-500 shrink-0">
           <span>单击卡片即可选择并应用到语音合成</span>
           <button
             onClick={onClose}

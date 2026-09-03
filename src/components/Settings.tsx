@@ -6,9 +6,9 @@ import { PRICING } from '../lib/pricing';
 
 function Section({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
   return (
-    <div className="py-6 border-b border-zinc-100 last:border-b-0">
-      <div className="section-title">{title}</div>
-      {desc && <div className="section-desc mb-4">{desc}</div>}
+    <div className="py-6 border-b border-zinc-100 dark:border-zinc-800/80 last:border-b-0">
+      <div className="section-title text-zinc-900 dark:text-white">{title}</div>
+      {desc && <div className="section-desc mb-4 text-zinc-500 dark:text-zinc-400">{desc}</div>}
       {children}
     </div>
   );
@@ -290,9 +290,9 @@ export default function Settings() {
       </Section>
 
       <Section title="官方价格说明" desc="以下为火山引擎官方计费标准，帮助你了解各功能的消费情况（以官网最新公示为准）。">
-        <div className="overflow-hidden rounded-lg border border-zinc-200">
+        <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
           <table className="w-full text-[12.5px]">
-            <thead className="bg-zinc-50 text-zinc-500">
+            <thead className="bg-zinc-50 dark:bg-[#16161a] text-zinc-500 dark:text-zinc-400">
               <tr>
                 <th className="text-left font-medium px-3 py-2">功能</th>
                 <th className="text-left font-medium px-3 py-2">计费单位</th>
@@ -302,28 +302,28 @@ export default function Settings() {
             </thead>
             <tbody>
               {PRICING.map((p) => (
-                <tr key={p.feature} className="border-t border-zinc-100">
-                  <td className="px-3 py-2 text-zinc-800 font-medium align-top whitespace-nowrap">{p.feature}</td>
-                  <td className="px-3 py-2 text-zinc-600 align-top">{p.unit}</td>
-                  <td className="px-3 py-2 text-zinc-600 align-top">{p.payAsYouGo}</td>
-                  <td className="px-3 py-2 text-zinc-600 align-top">{p.resourcePack || '—'}</td>
+                <tr key={p.feature} className="border-t border-zinc-100 dark:border-zinc-800">
+                  <td className="px-3 py-2 text-zinc-800 dark:text-zinc-200 font-medium align-top whitespace-nowrap">{p.feature}</td>
+                  <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400 align-top">{p.unit}</td>
+                  <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400 align-top">{p.payAsYouGo}</td>
+                  <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400 align-top">{p.resourcePack || '—'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <div className="mt-3 space-y-1 text-[11.5px] text-zinc-400 leading-relaxed">
+        <div className="mt-3 space-y-1 text-[11.5px] text-zinc-400 dark:text-zinc-500 leading-relaxed">
           {PRICING.filter((p) => p.note).map((p) => (
             <div key={p.feature}>
-              · <b className="text-zinc-600">{p.feature}</b>：{p.note}
+              · <b className="text-zinc-600 dark:text-zinc-300">{p.feature}</b>：{p.note}
             </div>
           ))}
         </div>
       </Section>
 
       <Section title="计费提醒">
-        <div className="text-[12.5px] text-zinc-600 leading-relaxed">
-          声音复刻为后付费音色，<b className="text-zinc-900">首次调用合成接口即视为「转正」并收取音色槽位费</b>。请在复刻完成、试听满意后再正式合成。
+        <div className="text-[12.5px] text-zinc-600 dark:text-zinc-400 leading-relaxed">
+          声音复刻为后付费音色，<b className="text-zinc-900 dark:text-zinc-100">首次调用合成接口即视为「转正」并收取音色槽位费</b>。请在复刻完成、试听满意后再正式合成。
         </div>
       </Section>
     </div>

@@ -49,19 +49,19 @@ export default function Library() {
       <div className="space-y-6">
         {groups.map(({ key, items }) => (
           <div key={key}>
-            <div className="flex items-center justify-between mb-2 pb-1 border-b border-zinc-100">
-              <div className="text-[13px] font-medium text-zinc-900 flex items-center gap-2">
+            <div className="flex items-center justify-between mb-2 pb-1 border-b border-zinc-100 dark:border-zinc-800">
+              <div className="text-[13px] font-medium text-zinc-900 dark:text-white flex items-center gap-2">
                 {voiceDisplay(items[0])}
-                <span className="text-[11px] text-zinc-400 font-normal">{items.length} 条</span>
+                <span className="text-[11px] text-zinc-400 dark:text-zinc-500 font-normal">{items.length} 条</span>
               </div>
             </div>
-            <div className="divide-y divide-zinc-50">
+            <div className="divide-y divide-zinc-50 dark:divide-zinc-800/60">
               {items.map((item) => (
                 <div key={item.id} className="py-3 group">
                   <div className="flex items-center justify-between mb-1.5">
-                    <div className="text-[12px] font-medium text-zinc-700 truncate">{item.voiceName}</div>
+                    <div className="text-[12px] font-medium text-zinc-700 dark:text-zinc-300 truncate">{item.voiceName}</div>
                     <div className="flex items-center gap-3 shrink-0 ml-4">
-                      <span className="text-[11px] text-zinc-400">
+                      <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
                         {item.format.toUpperCase()} · {formatBytes(item.size)} · {timeStr(item.createdAt)}
                       </span>
                       <button
@@ -72,7 +72,7 @@ export default function Library() {
                       </button>
                     </div>
                   </div>
-                  <div className="text-xs text-zinc-400 line-clamp-1 mb-2">“{item.text}”</div>
+                  <div className="text-xs text-zinc-400 dark:text-zinc-500 line-clamp-1 mb-2">“{item.text}”</div>
                   <AudioPlayer
                     path={item.path}
                     compact

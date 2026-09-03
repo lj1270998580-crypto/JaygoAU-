@@ -53,9 +53,12 @@ interface AppState {
   balance: BalanceInfo | null;
   appVersion: string;
   update: UpdateState;
+  theme: 'light' | 'dark';
 
   init: () => Promise<void>;
   setTab: (t: Tab) => void;
+  setTheme: (th: 'light' | 'dark') => void;
+  toggleTheme: () => void;
   setSelectedVoice: (id: string | null) => void;
   setOfficialVoice: (id: string) => void;
   removeLibrary: (path: string) => Promise<void>;
@@ -73,6 +76,28 @@ interface AppState {
   showToast: (msg: string, type?: 'ok' | 'err' | 'info') => void;
 }
 
+function applyTheme(th: 'light' | 'dark') {
+  if (th === 'dark') {
+    document.documentElement.classList.add('dark');
+  } else {
+    document.documentElement.classList.remove('dark');
+  }
+  try {
+    localStorage.setItem('jaygo_theme', th);
+  } catch {}
+}
+
+function getInitialTheme(): 'light' | 'dark' {
+  try {
+    const saved = localStorage.getItem('jaygo_theme');
+    if (saved === 'dark' || saved === 'light') return saved;
+  } catch {}
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+const initialTheme = getInitialTheme();
+applyTheme(initialTheme);
+
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
 export const useStore = create<AppState>((set, get) => ({
@@ -87,8 +112,10 @@ export const useStore = create<AppState>((set, get) => ({
   balance: null,
   appVersion: '',
   update: { checking: false, available: null, downloaded: false, progress: 0, error: null, notAvailable: false },
+  theme: initialTheme,
 
   async init() {
+    applyTheme(get().theme);
     const [settings, hasKey, scanned] = await Promise.all([
       api.getSettings(),
       api.hasApiKey(),
@@ -99,6 +126,17 @@ export const useStore = create<AppState>((set, get) => ({
       await api.saveSettings({ library: merged }).catch(() => {});
     }
     set({ settings: { ...settings, library: merged }, hasKey, library: merged, tab: hasKey ? 'synth' : 'settings' });
+  },
+
+  setTheme(th) {
+    applyTheme(th);
+    set({ theme: th });
+  },
+
+  toggleTheme() {
+    const next = get().theme === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    set({ theme: next });
   },
 
   setTab(t) {
