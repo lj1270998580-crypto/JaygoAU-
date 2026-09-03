@@ -1,6 +1,6 @@
 {
   "name": "jaygo-au",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "Jaygo AU — 火山引擎声音复刻 & 语音合成桌面工具 (简洁 UI)",
   "private": true,
   "author": "Jaygo",
@@ -45,10 +45,9 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "oneClick": false,
-      "useZip": true
+      "oneClick": false
     },
-    "compression": "store"
+    "compression": "normal"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
