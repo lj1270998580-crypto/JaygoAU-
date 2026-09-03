@@ -169,8 +169,8 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, size: buf.length });
     }
 
-    // 下载（GET，供火山 ASR 拉取）
-    if (p.startsWith('/api/jaygo-au/file/') && req.method === 'GET') {
+    // 下载（GET/HEAD，供火山 ASR 拉取与预检）
+    if (p.startsWith('/api/jaygo-au/file/') && (req.method === 'GET' || req.method === 'HEAD')) {
       const key = keyFromPath(p, '/api/jaygo-au/file/');
       const token = q.get('token') || '';
       const t = tickets.get(key);
@@ -185,6 +185,10 @@ const server = http.createServer(async (req, res) => {
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'no-store',
       });
+      if (req.method === 'HEAD') {
+        res.end();
+        return;
+      }
       fs.createReadStream(fp).pipe(res);
       return;
     }

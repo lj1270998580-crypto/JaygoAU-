@@ -70,6 +70,7 @@ export interface JaygoAPI {
   clearApiKey(): Promise<boolean>;
   saveSettings(p: Partial<Settings>): Promise<Settings>;
   pickAudioFile(): Promise<string | null>;
+  getPathForFile(file: File): string;
   chooseOutputDir(): Promise<(Settings & { migrated: number; skipped: number }) | null>;
   openOutputDir(): Promise<boolean>;
   cloneVoice(a: { name: string; filePath: string; language: number; denoise: boolean }): Promise<any>;

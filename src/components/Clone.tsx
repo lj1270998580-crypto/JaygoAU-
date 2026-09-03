@@ -41,7 +41,8 @@ export default function Clone() {
     setDrag(false);
     const f = e.dataTransfer.files?.[0];
     if (!f) return;
-    setFilePath(f.name);
+    const p = api.getPathForFile ? api.getPathForFile(f) : (f as any).path || f.name;
+    setFilePath(p);
     setPreview({ src: URL.createObjectURL(f), size: f.size, name: f.name });
   };
 
