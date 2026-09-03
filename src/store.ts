@@ -116,6 +116,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   async init() {
     applyTheme(get().theme);
+    get().initUpdate();
     const [settings, hasKey, scanned] = await Promise.all([
       api.getSettings(),
       api.hasApiKey(),
@@ -126,6 +127,11 @@ export const useStore = create<AppState>((set, get) => ({
       await api.saveSettings({ library: merged }).catch(() => {});
     }
     set({ settings: { ...settings, library: merged }, hasKey, library: merged, tab: hasKey ? 'synth' : 'settings' });
+
+    // 软件启动 1.5 秒后自动在后台检查云端更新
+    setTimeout(() => {
+      get().checkUpdates();
+    }, 1500);
   },
 
   setTheme(th) {

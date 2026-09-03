@@ -116,10 +116,12 @@ function SystemStatusCapsule() {
         <div className="flex items-center gap-1 shrink-0 font-mono text-[11px] text-zinc-400">
           {hasNewVer ? (
             <span className="inline-flex items-center px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-blue-600 text-white animate-pulse">
-              更新
+              更新 v{update.available?.version}
             </span>
+          ) : update.checking ? (
+            <span className="text-[10px] text-blue-500 animate-pulse">检查中…</span>
           ) : (
-            <span>v{appVersion || '0.2.8'}</span>
+            <span>v{appVersion || '0.3.0'}</span>
           )}
         </div>
       </div>
@@ -162,13 +164,15 @@ function SystemStatusCapsule() {
 
           {/* 版本与升级 */}
           <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-            <span className="text-zinc-400 font-mono text-[11px]">当前版本 v{appVersion}</span>
+            <span className="text-zinc-500 dark:text-zinc-400 font-mono text-[11px]">
+              当前版本：v{appVersion || '0.3.0'}
+            </span>
             {hasNewVer ? (
               update.downloaded ? (
                 <button
                   type="button"
                   onClick={quitInstallUpdate}
-                  className="px-2 py-1 rounded bg-emerald-600 text-white text-[11px] font-medium"
+                  className="px-2 py-1 rounded bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700 transition"
                 >
                   重启完成升级
                 </button>
@@ -176,9 +180,9 @@ function SystemStatusCapsule() {
                 <button
                   type="button"
                   onClick={downloadUpdate}
-                  className="px-2 py-1 rounded bg-blue-600 text-white text-[11px] font-medium"
+                  className="px-2 py-1 rounded bg-blue-600 text-white text-[11px] font-medium hover:bg-blue-700 transition"
                 >
-                  下载新版
+                  {update.progress > 0 ? `下载中 ${Math.round(update.progress)}%` : `下载 v${update.available?.version}`}
                 </button>
               )
             ) : (
@@ -188,10 +192,15 @@ function SystemStatusCapsule() {
                 disabled={update.checking}
                 className="text-blue-600 dark:text-blue-400 hover:underline text-[11px]"
               >
-                {update.checking ? '检查中…' : '检查更新'}
+                {update.checking ? '检查中…' : update.notAvailable ? '已是最新版 (重新检查)' : '检查更新'}
               </button>
             )}
           </div>
+          {update.error && (
+            <div className="text-[10.5px] text-rose-500 pt-1 leading-normal">
+              {update.error}
+            </div>
+          )}
         </div>
       )}
     </div>

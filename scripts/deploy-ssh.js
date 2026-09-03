@@ -87,6 +87,9 @@ async function main() {
   const conn = new Client();
   conn.on('ready', async () => {
     console.log('SSH 连接成功');
+    // 在打开 SFTP 前一次性创建好所有所需远程目录，绝不并发交叉使用 exec 通道
+    await mkdirRemote(conn, `${REMOTE}/updates ${REMOTE}/server`);
+    
     conn.sftp(async (err, sftp) => {
       if (err) {
         console.error('SFTP 初始化失败:', err.message);
@@ -104,20 +107,26 @@ async function main() {
           continue;
         }
         const size = fs.statSync(local).size;
-        process.stdout.write(`上传 ${remoteRel} (${(size / 1048576) | 0}MB)...`);
+        console.log(`\n正在上传: ${remoteRel} (${(size / 1048576).toFixed(1)}MB)`);
         try {
-          await mkdirRemote(conn, path.dirname(remote));
           await new Promise((res, rej) => {
-            sftp.fastPut(local, remote, { concurrency: 64 }, (e) => {
+            sftp.fastPut(local, remote, {
+              concurrency: 64,
+              step: (trans, chunk, total) => {
+                const pct = Math.floor((trans / total) * 100);
+                process.stdout.write(`\r  进度: ${pct}% (${(trans / 1048576).toFixed(1)}/${(total / 1048576).toFixed(1)}MB)`);
+              }
+            }, (e) => {
               if (e) rej(e);
-              else res();
+              else {
+                console.log(' -> 完成');
+                res();
+              }
             });
           });
-          console.log(' OK');
           ok++;
         } catch (e) {
-          console.log(' FAIL');
-          console.error('  ', e.message);
+          console.log('\n  上传失败:', e.message);
           fail++;
         }
       }

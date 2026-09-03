@@ -151,7 +151,7 @@ export default function Clone() {
         </div>
         <label className="flex items-center gap-2 mt-4 cursor-pointer select-none">
           <input type="checkbox" checked={denoise} onChange={(e) => setDenoise(e.target.checked)} className="w-4 h-4" />
-          <span className="text-[13px] text-zinc-700">启用音频降噪</span>
+          <span className="text-[13px] text-zinc-700 dark:text-zinc-200">启用音频降噪</span>
         </label>
       </div>
 
@@ -159,7 +159,7 @@ export default function Clone() {
         {busy ? '复刻任务提交中…' : '开始复刻'}
       </button>
 
-      <p className="text-[11px] text-zinc-400 mt-3 text-center leading-relaxed">
+      <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-3 text-center leading-relaxed">
         复刻后的音色为后付费音色：训练与试听阶段免费，首次正式合成时才收取音色槽位费
       </p>
     </div>
