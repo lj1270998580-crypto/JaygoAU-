@@ -8,7 +8,17 @@
  *   - 部署更新源（latest.yml + exe + blockmap）到 /jaygo-au/updates
  *   - 部署后端代码（server/）到 /jaygo-au/server 供 pm2 启动
  */
-const { Client } = require('ssh2');
+let Client;
+try {
+  Client = require('ssh2').Client;
+} catch {
+  try {
+    Client = require('D:/WorkBuddy/ailabing网站/node_modules/ssh2').Client;
+  } catch (e) {
+    console.error('未找到 ssh2 模块，请先 npm i -D ssh2');
+    process.exit(1);
+  }
+}
 const fs = require('fs');
 const path = require('path');
 
@@ -77,41 +87,61 @@ async function main() {
   const conn = new Client();
   conn.on('ready', async () => {
     console.log('SSH 连接成功');
-    let ok = 0, fail = 0;
-    for (const [localRel, remoteRel] of FILES) {
-      const local = path.join(ROOT, localRel);
-      const remote = `${REMOTE}/${remoteRel}`;
-      if (!fs.existsSync(local)) { console.error('本地缺失:', localRel); fail++; continue; }
-      const size = fs.statSync(local).size;
-      process.stdout.write(`上传 ${remoteRel} (${(size / 1048576) | 0}MB)...`);
-      try {
-        await mkdirRemote(conn, path.dirname(remote));
-        await putFile(conn, local, remote);
-        console.log(' OK');
-        ok++;
-      } catch (e) {
-        console.log(' FAIL');
-        console.error('  ', e.message);
-        fail++;
-      }
-    }
-    console.log(`\n文件同步完成: 成功 ${ok}，失败 ${fail}`);
-    process.stdout.write('正在重载服务端 pm2 jaygo-au 进程...');
-    conn.exec('pm2 reload jaygo-au || pm2 restart jaygo-au', (err, stream) => {
+    conn.sftp(async (err, sftp) => {
       if (err) {
-        console.log(' 重载失败: ' + err.message);
+        console.error('SFTP 初始化失败:', err.message);
         conn.end();
-        process.exit(fail ? 1 : 0);
-      } else {
-        stream.on('close', () => {
+        process.exit(1);
+      }
+      console.log('SFTP 子系统就绪');
+      let ok = 0, fail = 0;
+      for (const [localRel, remoteRel] of FILES) {
+        const local = path.isAbsolute(localRel) ? localRel : path.join(ROOT, localRel);
+        const remote = `${REMOTE}/${remoteRel}`;
+        if (!fs.existsSync(local)) {
+          console.error('本地缺失:', local);
+          fail++;
+          continue;
+        }
+        const size = fs.statSync(local).size;
+        process.stdout.write(`上传 ${remoteRel} (${(size / 1048576) | 0}MB)...`);
+        try {
+          await mkdirRemote(conn, path.dirname(remote));
+          await new Promise((res, rej) => {
+            sftp.fastPut(local, remote, { concurrency: 64 }, (e) => {
+              if (e) rej(e);
+              else res();
+            });
+          });
           console.log(' OK');
+          ok++;
+        } catch (e) {
+          console.log(' FAIL');
+          console.error('  ', e.message);
+          fail++;
+        }
+      }
+      console.log(`\n文件同步完成: 成功 ${ok}，失败 ${fail}`);
+      process.stdout.write('正在重载服务端 pm2 jaygo-au 进程...');
+      conn.exec('pm2 reload jaygo-au || pm2 restart jaygo-au', (err, stream) => {
+        if (err) {
+          console.log(' 重载失败: ' + err.message);
           conn.end();
           process.exit(fail ? 1 : 0);
-        });
-      }
+        } else {
+          stream.on('close', () => {
+            console.log(' OK');
+            conn.end();
+            process.exit(fail ? 1 : 0);
+          });
+        }
+      });
     });
   });
-  conn.on('error', (e) => { console.error('SSH 连接失败:', e.message); process.exit(1); });
+  conn.on('error', (e) => {
+    console.error('SSH 连接失败:', e.message);
+    process.exit(1);
+  });
   conn.connect(SSH);
 }
 
