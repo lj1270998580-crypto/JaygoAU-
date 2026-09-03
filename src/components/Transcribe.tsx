@@ -66,15 +66,15 @@ function buildSpeakerText(utterances: Utterance[]): string {
 
 // 说话人颜色调色板
 const SPEAKER_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  '0': { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-  '1': { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
-  '2': { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
-  '3': { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
+  '0': { bg: 'bg-blue-50 dark:bg-blue-950/60', text: 'text-blue-700 dark:text-blue-300', border: 'border-blue-200 dark:border-blue-800' },
+  '1': { bg: 'bg-emerald-50 dark:bg-emerald-950/60', text: 'text-emerald-700 dark:text-emerald-300', border: 'border-emerald-200 dark:border-emerald-800' },
+  '2': { bg: 'bg-purple-50 dark:bg-purple-950/60', text: 'text-purple-700 dark:text-purple-300', border: 'border-purple-200 dark:border-purple-800' },
+  '3': { bg: 'bg-amber-50 dark:bg-amber-950/60', text: 'text-amber-700 dark:text-amber-300', border: 'border-amber-200 dark:border-amber-800' },
 };
 
 function getSpeakerStyle(speaker?: string) {
-  if (!speaker) return { bg: 'bg-zinc-100', text: 'text-zinc-600', border: 'border-zinc-200' };
-  return SPEAKER_COLORS[speaker] || { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' };
+  if (!speaker) return { bg: 'bg-zinc-100 dark:bg-zinc-800', text: 'text-zinc-600 dark:text-zinc-400', border: 'border-zinc-200 dark:border-zinc-700' };
+  return SPEAKER_COLORS[speaker] || { bg: 'bg-indigo-50 dark:bg-indigo-950/60', text: 'text-indigo-700 dark:text-indigo-300', border: 'border-indigo-200 dark:border-indigo-800' };
 }
 
 export default function Transcribe() {
@@ -192,17 +192,17 @@ export default function Transcribe() {
   const cost = (hours * ASR_PRICE_PER_HOUR).toFixed(2);
 
   return (
-    <div className="w-full max-w-5xl mx-auto px-6 py-6 animate-fade-in">
+    <div className="w-full max-w-5xl mx-auto px-6 py-6 animate-fade-in text-zinc-900 dark:text-zinc-100">
       {/* 标题 */}
-      <div className="pb-4 mb-5 border-b border-zinc-100">
-        <h2 className="text-[17px] font-semibold text-zinc-900 leading-tight">视音频转录工作台</h2>
-        <p className="text-xs text-zinc-400 mt-1">
+      <div className="pb-4 mb-5 border-b border-zinc-100 dark:border-zinc-800/80">
+        <h2 className="text-[17px] font-semibold text-zinc-900 dark:text-white leading-tight">视音频转录工作台</h2>
+        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
           火山引擎 Seed-ASR 2.0 大模型音视频识别，支持智能标点、说话人角色分离与 SRT 字幕生成
         </p>
       </div>
 
       {!hasKey && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3.5 mb-4 text-xs text-amber-800 flex items-center gap-2">
+        <div className="rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/40 p-3.5 mb-4 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
           <span>⚠️</span>
           <span>尚未配置 API Key，请先到「设置」填写，否则无法调用云端转录接口。</span>
         </div>
@@ -212,10 +212,10 @@ export default function Transcribe() {
       <div
         className={`rounded-xl p-6 border-2 border-dashed transition cursor-pointer mb-5 ${
           drag
-            ? 'border-blue-500 bg-blue-50/50'
+            ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/30'
             : filePath
-            ? 'border-zinc-300 bg-zinc-50/40'
-            : 'border-zinc-200 hover:border-zinc-300 bg-white'
+            ? 'border-zinc-300 dark:border-zinc-700 bg-zinc-50/40 dark:bg-[#121215]'
+            : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 bg-white dark:bg-[#121215]'
         }`}
         onClick={pick}
         onDragOver={(e) => {
@@ -227,14 +227,14 @@ export default function Transcribe() {
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3.5 min-w-0">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-50 text-blue-600 shrink-0 text-lg">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 shrink-0 text-lg">
               🎥
             </span>
             <div className="min-w-0">
-              <div className="text-[13px] font-medium text-zinc-900 truncate">
+              <div className="text-[13px] font-medium text-zinc-900 dark:text-zinc-100 truncate">
                 {filePath ? fileName || filePath : '点击选择，或直接拖拽音视频文件到此处'}
               </div>
-              <div className="text-xs text-zinc-400 mt-0.5">
+              <div className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
                 支持 MP4 / MOV / MKV / AVI / WEBM / MP3 / WAV / M4A / AAC 等常见媒体格式（最大 512MB / 5小时）
               </div>
             </div>
@@ -261,15 +261,15 @@ export default function Transcribe() {
         </div>
 
         {filePath && (
-          <div className="mt-3 pt-3 border-t border-zinc-200/60 text-[11px] text-zinc-400 font-mono truncate">
+          <div className="mt-3 pt-3 border-t border-zinc-200/60 dark:border-zinc-800 text-[11px] text-zinc-400 dark:text-zinc-500 font-mono truncate">
             物理路径：{filePath}
           </div>
         )}
       </div>
 
       {/* 参数与开始按钮 */}
-      <div className="rounded-xl border border-zinc-200/90 bg-white p-4 shadow-sm mb-5 space-y-4">
-        <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-zinc-700">
+      <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800/80 bg-white dark:bg-[#121215] p-4 shadow-sm mb-5 space-y-4">
+        <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-zinc-700 dark:text-zinc-300">
           <input
             type="checkbox"
             checked={settings.enableSpeakerInfo ?? false}
@@ -303,15 +303,15 @@ export default function Transcribe() {
 
       {/* 识别结果区域 */}
       {result && !busy && (
-        <div className="rounded-xl border border-zinc-200/90 bg-white shadow-sm overflow-hidden animate-fade-in">
+        <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800/80 bg-white dark:bg-[#121215] shadow-sm overflow-hidden animate-fade-in">
           {/* 头部状态与视图切换 */}
-          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 bg-zinc-50/70 border-b border-zinc-100">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 bg-zinc-50/70 dark:bg-[#16161a] border-b border-zinc-100 dark:border-zinc-800">
             <div className="flex items-center gap-3">
-              <span className="text-[13px] font-semibold text-zinc-900 flex items-center gap-1.5">
+              <span className="text-[13px] font-semibold text-zinc-900 dark:text-white flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-emerald-500" />
                 识别结果
               </span>
-              <span className="text-xs text-zinc-400 font-mono">
+              <span className="text-xs text-zinc-400 dark:text-zinc-500 font-mono">
                 音频时长 {fmtDuration(result.durationMs)} ｜ 约预估 ¥{cost}
               </span>
             </div>
@@ -319,14 +319,14 @@ export default function Transcribe() {
             <div className="flex items-center gap-2">
               {/* 视图切换 */}
               {hasUtterances && (
-                <div className="flex rounded-lg border border-zinc-200 bg-white p-0.5 text-xs">
+                <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-[#1c1c22] p-0.5 text-xs">
                   <button
                     type="button"
                     onClick={() => setViewMode('timeline')}
                     className={`px-2.5 py-1 rounded-md transition ${
                       viewMode === 'timeline'
                         ? 'bg-blue-600 text-white font-medium shadow-xs'
-                        : 'text-zinc-600 hover:text-zinc-900'
+                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
                     }`}
                   >
                     对话时间轴
@@ -337,7 +337,7 @@ export default function Transcribe() {
                     className={`px-2.5 py-1 rounded-md transition ${
                       viewMode === 'doc'
                         ? 'bg-blue-600 text-white font-medium shadow-xs'
-                        : 'text-zinc-600 hover:text-zinc-900'
+                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
                     }`}
                   >
                     纯文本
@@ -350,7 +350,7 @@ export default function Transcribe() {
                 type="button"
                 onClick={() => copy(viewMode === 'timeline' && hasUtterances ? speakerFormattedText : pureText)}
                 className={`btn-ghost !h-7 !px-2.5 !text-xs rounded-md transition ${
-                  copied ? '!border-emerald-300 !text-emerald-700 !bg-emerald-50' : ''
+                  copied ? '!border-emerald-300 !text-emerald-700 !bg-emerald-50 dark:!bg-emerald-950/50' : ''
                 }`}
               >
                 {copied ? '✓ 已复制' : '复制全文'}
@@ -387,25 +387,25 @@ export default function Transcribe() {
                   return (
                     <div
                       key={i}
-                      className="flex items-start gap-3 p-3 rounded-xl border border-zinc-100 bg-zinc-50/40 hover:bg-zinc-50 transition group"
+                      className="flex items-start gap-3 p-3 rounded-xl border border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-[#16161a] hover:bg-zinc-50 dark:hover:bg-[#1a1a20] transition group"
                     >
                       <div className="shrink-0 flex flex-col items-center gap-1 pt-0.5">
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${style.bg} ${style.text} ${style.border}`}>
                           {u.speaker ? `说话人 ${u.speaker}` : '发言'}
                         </span>
-                        <span className="text-[10px] font-mono text-zinc-400">
+                        <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500">
                           {fmtSec(u.startTime)}
                         </span>
                       </div>
 
-                      <div className="flex-1 text-[13.5px] leading-relaxed text-zinc-800">
+                      <div className="flex-1 text-[13.5px] leading-relaxed text-zinc-800 dark:text-zinc-200">
                         {u.text}
                       </div>
 
                       <button
                         type="button"
                         onClick={() => copy(u.text)}
-                        className="opacity-0 group-hover:opacity-100 text-[11px] text-zinc-400 hover:text-zinc-700 transition shrink-0 pt-0.5"
+                        className="opacity-0 group-hover:opacity-100 text-[11px] text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition shrink-0 pt-0.5"
                         title="复制这句"
                       >
                         复制
@@ -417,13 +417,13 @@ export default function Transcribe() {
             ) : (
               <textarea
                 readOnly
-                className="w-full h-80 p-3 rounded-lg border border-zinc-200 text-[13.5px] leading-relaxed text-zinc-800 outline-none resize-y bg-zinc-50/30"
+                className="w-full h-80 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 text-[13.5px] leading-relaxed text-zinc-800 dark:text-zinc-200 outline-none resize-y bg-zinc-50/30 dark:bg-[#16161a]"
                 value={pureText}
               />
             )}
           </div>
 
-          <div className="px-5 py-2.5 bg-zinc-50/50 border-t border-zinc-100 text-[11px] text-zinc-400 flex items-center justify-between">
+          <div className="px-5 py-2.5 bg-zinc-50/50 dark:bg-[#16161a]/60 border-t border-zinc-100 dark:border-zinc-800 text-[11px] text-zinc-400 dark:text-zinc-500 flex items-center justify-between">
             <span>识别文本已完成标点预测、逆文本正则化与字音纠正</span>
             <span>共 {pureText.length} 字</span>
           </div>

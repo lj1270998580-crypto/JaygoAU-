@@ -169,10 +169,10 @@ export default function Synthesize() {
   return (
     <div className="w-full max-w-6xl mx-auto px-6 py-6 animate-fade-in">
       {/* 顶部标题区 */}
-      <div className="flex items-center justify-between pb-4 mb-5 border-b border-zinc-100">
+      <div className="flex items-center justify-between pb-4 mb-5 border-b border-zinc-100 dark:border-zinc-800/80">
         <div>
-          <h2 className="text-[17px] font-semibold text-zinc-900 leading-tight">语音合成工作台</h2>
-          <p className="text-xs text-zinc-400 mt-1">
+          <h2 className="text-[17px] font-semibold text-zinc-900 dark:text-white leading-tight">语音合成工作台</h2>
+          <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
             高拟真豆包大模型语音合成，支持音色切换、语速情感微调与流式生成
           </p>
         </div>
@@ -197,23 +197,23 @@ export default function Synthesize() {
         {/* 左侧：核心脚本编辑区 + 常驻操作与播放 */}
         <div className="flex-1 min-w-0 w-full flex flex-col gap-4">
           {/* 文本卡片 */}
-          <div className="rounded-xl border border-zinc-200/90 bg-white shadow-sm overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-50/70 border-b border-zinc-100 text-xs">
-              <span className="font-medium text-zinc-700 flex items-center gap-1.5">
+          <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800/80 bg-white dark:bg-[#121215] shadow-sm overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-50/70 dark:bg-[#16161a] border-b border-zinc-100 dark:border-zinc-800/80 text-xs">
+              <span className="font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
                 <span>📝</span> 配音文案
               </span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={fillSample}
-                  className="text-zinc-400 hover:text-blue-600 transition"
+                  className="text-zinc-400 dark:text-zinc-500 hover:text-blue-600 dark:hover:text-blue-400 transition"
                   title="随机填入一段示范文本"
                 >
                   填入示例
                 </button>
                 {text && (
                   <>
-                    <span className="text-zinc-300">|</span>
+                    <span className="text-zinc-300 dark:text-zinc-700">|</span>
                     <button
                       type="button"
                       onClick={() => setText('')}
@@ -227,7 +227,7 @@ export default function Synthesize() {
             </div>
 
             <textarea
-              className="w-full p-4 min-h-[280px] h-[340px] resize-y text-[14px] leading-relaxed text-zinc-800 placeholder-zinc-400 outline-none border-0 focus:ring-0 bg-transparent font-normal"
+              className="w-full p-4 min-h-[280px] h-[340px] resize-y text-[14px] leading-relaxed text-zinc-800 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 outline-none border-0 focus:ring-0 bg-transparent font-normal"
               placeholder="在此输入要转为语音的文本...（支持快捷键 Ctrl + Enter 一键合成）"
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -236,14 +236,14 @@ export default function Synthesize() {
               }}
             />
 
-            <div className="flex items-center justify-between px-4 py-2 bg-zinc-50/40 border-t border-zinc-100 text-[11px] text-zinc-400">
+            <div className="flex items-center justify-between px-4 py-2 bg-zinc-50/40 dark:bg-[#16161a]/60 border-t border-zinc-100 dark:border-zinc-800/80 text-[11px] text-zinc-400 dark:text-zinc-500">
               <span>快捷键：Ctrl + Enter 触发合成</span>
               <span className="font-mono">{text.length} 字</span>
             </div>
           </div>
 
           {/* 生成主操作与播放栏 */}
-          <div className="rounded-xl border border-zinc-200/90 bg-white p-4 shadow-sm space-y-3">
+          <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800/80 bg-white dark:bg-[#121215] p-4 shadow-sm space-y-3">
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -270,14 +270,14 @@ export default function Synthesize() {
             {/* 流式生成进度 */}
             {(busy || synth.active) && (
               <div className="space-y-1.5 pt-1">
-                <div className="flex justify-between text-xs text-zinc-400 font-mono">
+                <div className="flex justify-between text-xs text-zinc-400 dark:text-zinc-500 font-mono">
                   <span className="flex items-center gap-1.5">
                     <span className="inline-block h-2 w-2 rounded-full bg-blue-500 animate-ping" />
                     火山引擎语音大模型流式传输中...
                   </span>
                   <span>{synth.pct}%</span>
                 </div>
-                <div className="h-1.5 rounded-full bg-zinc-100 overflow-hidden">
+                <div className="h-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
                   <div
                     className="h-full bg-blue-600 rounded-full transition-all duration-150"
                     style={{ width: `${Math.max(8, synth.pct)}%` }}
@@ -288,13 +288,13 @@ export default function Synthesize() {
 
             {/* 最新生成结果播放器 */}
             {result && !busy && (
-              <div className="pt-3 border-t border-zinc-100 space-y-2">
+              <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800/80 space-y-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium text-zinc-800 flex items-center gap-1.5">
+                  <span className="font-medium text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
                     <span className="h-2 w-2 rounded-full bg-emerald-500" />
                     已生成：{result.voiceName}
                   </span>
-                  <span className="text-zinc-400 font-mono">
+                  <span className="text-zinc-400 dark:text-zinc-500 font-mono">
                     {result.format.toUpperCase()} · {formatBytes(result.size)}
                   </span>
                 </div>
@@ -311,19 +311,19 @@ export default function Synthesize() {
         {/* 右侧：检查器面板 (音色与参数设置) */}
         <div className="w-full lg:w-80 shrink-0 flex flex-col gap-4">
           {/* 当前音色卡片 */}
-          <div className="rounded-xl border border-zinc-200/90 bg-white p-4 shadow-sm space-y-3">
+          <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800/80 bg-white dark:bg-[#121215] p-4 shadow-sm space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-zinc-700">当前配音音色</span>
+              <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">当前配音音色</span>
               <button
                 type="button"
                 onClick={() => setIsPickerOpen(true)}
-                className="text-xs text-blue-600 hover:text-blue-700 font-medium hover:underline flex items-center gap-0.5"
+                className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium hover:underline flex items-center gap-0.5"
               >
                 切换音色 ⮑
               </button>
             </div>
 
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-zinc-50 border border-zinc-200/70">
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-zinc-50 dark:bg-[#16161a] border border-zinc-200/70 dark:border-zinc-800">
               <div
                 className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl text-sm font-bold shadow-xs ${
                   isOfficial
@@ -335,10 +335,10 @@ export default function Synthesize() {
               </div>
 
               <div className="min-w-0 flex-1">
-                <div className="text-[13.5px] font-semibold text-zinc-900 truncate">
+                <div className="text-[13.5px] font-semibold text-zinc-900 dark:text-zinc-100 truncate">
                   {currentVoiceName || '未选择音色'}
                 </div>
-                <div className="text-[11px] text-zinc-400 truncate mt-0.5">
+                <div className="text-[11px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
                   {isOfficial ? (officialInfo?.tag || '官方音色') : '我的克隆声音'}
                 </div>
               </div>
@@ -350,7 +350,7 @@ export default function Synthesize() {
                 className={`grid h-8 w-8 place-items-center rounded-full transition shrink-0 ${
                   previewing
                     ? 'bg-blue-600 text-white'
-                    : 'bg-white text-zinc-600 border border-zinc-200 hover:border-blue-300 hover:text-blue-600'
+                    : 'bg-white dark:bg-[#1c1c22] text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 hover:border-blue-300 dark:hover:border-blue-500 hover:text-blue-600'
                 }`}
                 title={previewing ? '停止试听' : '试听当前音色'}
               >
@@ -366,8 +366,8 @@ export default function Synthesize() {
           </div>
 
           {/* 声音调节面板 */}
-          <div className="rounded-xl border border-zinc-200/90 bg-white p-4 shadow-sm space-y-4 text-xs">
-            <div className="font-semibold text-zinc-700 pb-1 border-b border-zinc-100 flex items-center justify-between">
+          <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800/80 bg-white dark:bg-[#121215] p-4 shadow-sm space-y-4 text-xs">
+            <div className="font-semibold text-zinc-700 dark:text-zinc-300 pb-1 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
               <span>声音微调</span>
               <button
                 type="button"
@@ -377,7 +377,7 @@ export default function Synthesize() {
                   setPitch(0);
                   setEmotion('');
                 }}
-                className="text-[11px] text-zinc-400 hover:text-zinc-600 font-normal"
+                className="text-[11px] text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 font-normal"
               >
                 重置默认
               </button>
@@ -385,9 +385,9 @@ export default function Synthesize() {
 
             {/* 语速 */}
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-zinc-600">
+              <div className="flex items-center justify-between text-zinc-600 dark:text-zinc-400">
                 <span>语速 (Speed)</span>
-                <span className="font-mono font-medium text-zinc-900">{speed.toFixed(1)}x</span>
+                <span className="font-mono font-medium text-zinc-900 dark:text-zinc-100">{speed.toFixed(1)}x</span>
               </div>
               <input
                 type="range"
@@ -402,9 +402,9 @@ export default function Synthesize() {
 
             {/* 音量 */}
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-zinc-600">
+              <div className="flex items-center justify-between text-zinc-600 dark:text-zinc-400">
                 <span>音量 (Volume)</span>
-                <span className="font-mono font-medium text-zinc-900">{volume.toFixed(1)}x</span>
+                <span className="font-mono font-medium text-zinc-900 dark:text-zinc-100">{volume.toFixed(1)}x</span>
               </div>
               <input
                 type="range"
@@ -419,9 +419,9 @@ export default function Synthesize() {
 
             {/* 音调 */}
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-zinc-600">
+              <div className="flex items-center justify-between text-zinc-600 dark:text-zinc-400">
                 <span>音调 (Pitch)</span>
-                <span className="font-mono font-medium text-zinc-900">{pitch > 0 ? `+${pitch}` : pitch}</span>
+                <span className="font-mono font-medium text-zinc-900 dark:text-zinc-100">{pitch > 0 ? `+${pitch}` : pitch}</span>
               </div>
               <input
                 type="range"
@@ -436,7 +436,7 @@ export default function Synthesize() {
 
             {/* 情感 */}
             <div className="space-y-1.5">
-              <label className="text-zinc-600 block">情感色彩（部分音色支持）</label>
+              <label className="text-zinc-600 dark:text-zinc-400 block">情感色彩（部分音色支持）</label>
               <input
                 className="glass-input w-full !h-8 text-xs font-mono"
                 list="emotion-tags"
@@ -466,12 +466,12 @@ export default function Synthesize() {
           </div>
 
           {/* 音频规格 */}
-          <div className="rounded-xl border border-zinc-200/90 bg-white p-4 shadow-sm space-y-3 text-xs">
-            <div className="font-semibold text-zinc-700 pb-1 border-b border-zinc-100">音频参数</div>
+          <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800/80 bg-white dark:bg-[#121215] p-4 shadow-sm space-y-3 text-xs">
+            <div className="font-semibold text-zinc-700 dark:text-zinc-300 pb-1 border-b border-zinc-100 dark:border-zinc-800">音频参数</div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-zinc-500 mb-1 block">导出格式</label>
+                <label className="text-zinc-500 dark:text-zinc-400 mb-1 block">导出格式</label>
                 <select
                   className="glass-input w-full !h-8 text-xs"
                   value={format}
@@ -486,7 +486,7 @@ export default function Synthesize() {
               </div>
 
               <div>
-                <label className="text-zinc-500 mb-1 block">采样率</label>
+                <label className="text-zinc-500 dark:text-zinc-400 mb-1 block">采样率</label>
                 <select
                   className="glass-input w-full !h-8 text-xs"
                   value={sampleRate}

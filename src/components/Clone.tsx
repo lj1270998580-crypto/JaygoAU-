@@ -88,7 +88,9 @@ export default function Clone() {
 
       <div
         className={`rounded-[10px] p-7 mb-4 border-[1.5px] border-dashed transition cursor-pointer ${
-          drag ? 'border-blue-500 bg-blue-50/50' : 'border-zinc-300 hover:border-zinc-400 bg-white'
+          drag
+            ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/30'
+            : 'border-zinc-300 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-600 bg-white dark:bg-[#121215]'
         }`}
         onClick={pick}
         onDragOver={(e) => {
@@ -99,7 +101,7 @@ export default function Clone() {
         onDrop={onDrop}
       >
         <div className="flex items-center gap-4">
-          <span className="grid h-11 w-11 place-items-center rounded-full bg-zinc-50 text-zinc-400 shrink-0">
+          <span className="grid h-11 w-11 place-items-center rounded-full bg-zinc-50 dark:bg-[#18181c] text-zinc-400 dark:text-zinc-500 shrink-0">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="17 8 12 3 7 8" />
@@ -107,16 +109,16 @@ export default function Clone() {
             </svg>
           </span>
           <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-medium text-zinc-900">点击选择，或拖入音频文件</div>
-            <div className="text-xs text-zinc-400 mt-0.5">支持 wav / mp3 / m4a / ogg / aac / pcm</div>
+            <div className="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">点击选择，或拖入音频文件</div>
+            <div className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">支持 wav / mp3 / m4a / ogg / aac / pcm</div>
           </div>
         </div>
 
         {preview && (
-          <div className="mt-5 pt-4 border-t border-zinc-100" onClick={(e) => e.stopPropagation()}>
+          <div className="mt-5 pt-4 border-t border-zinc-100 dark:border-zinc-800" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between text-[13px] mb-2">
-              <span className="text-zinc-800 truncate max-w-[60%]">{preview.name}</span>
-              <span className={`chip ${tooBig ? 'bg-rose-50 text-rose-600' : 'bg-zinc-100 text-zinc-500'}`}>
+              <span className="text-zinc-800 dark:text-zinc-200 truncate max-w-[60%]">{preview.name}</span>
+              <span className={`chip ${tooBig ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-600' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400'}`}>
                 {preview.size ? `${preview.size > 1024 * 1024 ? (preview.size / 1024 / 1024).toFixed(1) + ' MB' : Math.round(preview.size / 1024) + ' KB'}` : ''}
                 {duration ? ` · ${duration.toFixed(1)}s` : ''}
               </span>
