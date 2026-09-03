@@ -1,10 +1,15 @@
-import { app, BrowserWindow, ipcMain, dialog, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, net } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import ffmpegStatic from 'ffmpeg-static';
 import { spawn } from 'node:child_process';
+
+// 主进程出站请求统一走 Chromium 网络栈（net.fetch），自动尊重系统代理（v2rayN/Clash 等）。
+// Node.js 原生 fetch(undici) 默认不读取系统代理，导致中国大陆用户即便开了代理，
+// 调用火山/阿里云/字节点等境外/半境外接口时仍会直连超时或失败。
+const fetch: typeof globalThis.fetch = net.fetch.bind(net) as any;
 
 // Agent / headless 验证模式：禁用 GPU 相关进程，避免无显示环境启动崩溃
 // 正常用户桌面使用时不设置 JAYGO_HEADLESS 即可保持硬件加速
