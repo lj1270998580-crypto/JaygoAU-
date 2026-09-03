@@ -151,23 +151,12 @@ function loadSettings(): Settings {
 
 function persistSettings() {
   fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
-  const { outputDir, resourceId, officialResourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices, library } = settings;
   // 关键：apiKeyEnc 不属于 Settings 结构但存在同一文件里，
   // 这里必须原样带回，否则任何一次持久化（改设置 / 复刻 / 增删音色）都会把 API Key 抹掉。
   const prevApiKeyEnc = loadSettingsRaw().apiKeyEnc;
-  const data: Record<string, unknown> = {
-    outputDir,
-    resourceId,
-    officialResourceId,
-    defaultFormat,
-    defaultSampleRate,
-    speed,
-    volume,
-    language,
-    denoise,
-    voices,
-    library,
-  };
+  // 直接序列化完整 settings（含 volcAccessKeyId / volcSecretKey / asrResourceId / enableSpeakerInfo
+  // 等所有字段），避免硬编码白名单遗漏新增字段导致「输入即失效」。
+  const data: Record<string, unknown> = { ...settings };
   if (prevApiKeyEnc != null) data.apiKeyEnc = prevApiKeyEnc;
   fs.writeFileSync(settingsPath(), JSON.stringify(data, null, 2));
 }
@@ -938,13 +927,24 @@ function sleep(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
 }
 
+// electron 把 ffmpeg-static 解包到 app.asar.unpacked，但 ffmpeg-static 通过 __dirname 拼接的路径
+// 在 electron+asar 下偶尔仍指向 asar 内的虚拟路径，导致 spawn() ENOENT。强制指向 .unpacked 里的真实 exe。
+const FFMPEG_PATH: string = (() => {
+  let p = ffmpegStatic as unknown as string;
+  if (p && p.includes(`${path.sep}app.asar${path.sep}`)) {
+    p = p.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`);
+  }
+  return p;
+})();
+dbg('FFMPEG_PATH resolved to: ' + FFMPEG_PATH);
+
 // 用 ffmpeg 从视频（或不支持的音频格式）中提取单声道 16k wav
 function extractAudio(input: string, output: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (!ffmpegStatic) return reject(new Error('未找到 ffmpeg（ffmpeg-static 未正确安装）'));
+    if (!FFMPEG_PATH) return reject(new Error('未找到 ffmpeg（ffmpeg-static 未正确安装）'));
     const args = ['-i', input, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', output];
     let stderr = '';
-    const proc = spawn(ffmpegStatic, args);
+    const proc = spawn(FFMPEG_PATH, args);
     proc.stderr.on('data', (d) => (stderr += d.toString()));
     proc.on('error', (e) => reject(e));
     proc.on('close', (code) => {
