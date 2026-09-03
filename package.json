@@ -1,6 +1,6 @@
 {
   "name": "jaygo-au",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Jaygo AU — 火山引擎声音复刻 & 语音合成桌面工具 (简洁 UI)",
   "private": true,
   "author": "Jaygo",
@@ -33,7 +33,7 @@
       "node_modules/ffmpeg-static"
     ],
     "directories": {
-      "output": "release-out"
+      "output": "D:/jaygoau_build/release-out"
     },
     "win": {
       "target": "nsis",

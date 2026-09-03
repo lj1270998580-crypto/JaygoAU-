@@ -261,6 +261,25 @@ async function httpPostJson(url: string, headers: Record<string, string>, body: 
   return json;
 }
 
+// 同 httpPostJson，但额外返回原始 status / text，便于排查「200 + 空 body」类问题
+async function httpPostJsonWithRaw(url: string, headers: Record<string, string>, body: any): Promise<{ json: any; status: number; text: string }> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let json: any = {};
+  try {
+    json = JSON.parse(text);
+  } catch {}
+  if (!res.ok) {
+    const msg = json?.message || text || `HTTP ${res.status}`;
+    throw new Error(`请求失败(${res.status}): ${msg}`);
+  }
+  return { json, status: res.status, text };
+}
+
 // ---- 创建窗口 ----
 function createWindow() {
   const win = new BrowserWindow({
@@ -1092,15 +1111,32 @@ ipcMain.handle('transcribe', async (e, args: { filePath: string; enableSpeakerIn
     if (audio.codec) submitBody.audio.codec = audio.codec;
 
     e.sender.send('transcribe-status', '已提交转录任务，等待识别…');
-    const submitRes = await httpPostJson(ASR_SUBMIT, {
+    // 用 Raw 变体拿原始 status/text，便于在「HTTP 200 + 空 body / 无 task_id」时定位真因
+    const reqHeaders = {
       'X-Api-Key': key,
       'X-Api-Resource-Id': settings.asrResourceId || 'volc.seedasr.auc',
       'X-Api-Request-Id': uuid(),
       'X-Api-Sequence': '-1',
-    }, submitBody);
-
-    const taskId = submitRes?.task_id;
-    if (!taskId) throw new Error('提交转录任务失败：' + JSON.stringify(submitRes).slice(0, 220));
+    };
+    dbg(`[ASR submit] headers=${JSON.stringify(reqHeaders)} body=${JSON.stringify(submitBody)}`);
+    let submit: { json: any; status: number; text: string };
+    try {
+      submit = await httpPostJsonWithRaw(ASR_SUBMIT, reqHeaders, submitBody);
+    } catch (e: any) {
+      dbg('[ASR submit] http error: ' + (e?.stack || e));
+      throw e;
+    }
+    dbg(`[ASR submit] status=${submit.status} body=${submit.text.slice(0, 500)}`);
+    const taskId = submit.json?.task_id;
+    if (!taskId) {
+      const sj: any = submit.json || {};
+      const detail =
+        `HTTP ${submit.status}` +
+        ` body=${(submit.text || '(空)').slice(0, 300)}` +
+        (sj['X-Api-Status-Code'] != null ? ` X-Api-Status-Code=${sj['X-Api-Status-Code']}` : '') +
+        (sj.message ? ` message=${sj.message}` : '');
+      throw new Error('提交转录任务失败：' + detail);
+    }
 
     const result = await pollAsr(taskId, key, e);
     return { ...result, url: upload.url };
