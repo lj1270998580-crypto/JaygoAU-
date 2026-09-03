@@ -84,7 +84,13 @@ export default function Transcribe() {
   };
 
   const hasSpeakers = Boolean(result && settings.enableSpeakerInfo && result.utterances?.some((u) => u.speaker));
-  const displayText = result ? (speakerView && hasSpeakers ? buildSpeakerText(result.utterances) : result.text) : '';
+  // 兜底：result.text 为空时，用分句文本拼出全文，避免出现「转录完成但文本框空白」
+  const fallbackText = result?.utterances?.length ? result.utterances.map((u) => u.text).join('') : '';
+  const displayText = result
+    ? speakerView && hasSpeakers
+      ? buildSpeakerText(result.utterances)
+      : result.text || fallbackText
+    : '';
 
   const copy = async (text: string) => {
     try {

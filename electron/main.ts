@@ -280,6 +280,89 @@ async function httpPostJsonWithRaw(url: string, headers: Record<string, string>,
   return { json, status: res.status, text };
 }
 
+// ---- 走 Electron net.request 的 POST：能拿到「原始响应头」----
+// 火山 ASR 把任务状态放在响应头 X-Api-Status-Code / X-Api-Message 里（body 在任务未完成时是 {}），
+// 而 net.fetch 走的是 Chromium fetch 语义，跨域时自定义响应头可能被隐藏，读不到状态码。
+// net.request 是底层客户端请求，headers 一定拿得到，所以 ASR 的 submit/query 专用这一路。
+function netPost(url: string, headers: Record<string, string>, body: any): Promise<{ status: number; headers: Record<string, string>; text: string }> {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const req = net.request({ method: 'POST', url });
+    const outHeaders: Record<string, string> = {};
+    const allHeaders: Record<string, string> = { 'Content-Type': 'application/json', ...headers };
+    req.on('response', (res) => {
+      try {
+        for (const [k, v] of Object.entries(res.headers || {})) {
+          outHeaders[String(k).toLowerCase()] = Array.isArray(v) ? v.join(',') : String(v);
+        }
+      } catch {}
+      let text = '';
+      res.on('data', (c: any) => {
+        text += typeof c === 'string' ? c : c.toString();
+      });
+      res.on('end', () => {
+        if (done) return;
+        done = true;
+        resolve({ status: res.statusCode || 0, headers: outHeaders, text });
+      });
+      res.on('error', (e: any) => {
+        if (done) return;
+        done = true;
+        reject(e);
+      });
+    });
+    req.on('error', (e: any) => {
+      if (done) return;
+      done = true;
+      reject(e);
+    });
+    try {
+      for (const [k, v] of Object.entries(allHeaders)) req.setHeader(k, v);
+      req.end(JSON.stringify(body));
+    } catch (e) {
+      if (!done) {
+        done = true;
+        reject(e);
+      }
+    }
+  });
+}
+
+// 火山 ASR 状态码（来自响应头 X-Api-Status-Code）
+const ASR_STATUS_TEXT: Record<string, string> = {
+  '20000000': '任务完成',
+  '20000001': '任务排队中',
+  '20000002': '任务处理中',
+  '20000003': '静音音频（无需重试，请换一个音频）',
+  '45000001': '请求参数无效',
+  '45000002': '空音频（云端没拿到有效音频数据）',
+  '45000151': '音频格式不正确',
+  '55000031': '服务器繁忙，请稍后重试',
+};
+
+// 从 query 响应里尽量健壮地抽出识别文本与分句
+function extractAsrResult(body: any): { text: string; utterances: any[]; durationMs: number } | null {
+  if (!body || typeof body !== 'object') return null;
+  let r: any = body.result;
+  if (Array.isArray(r)) r = r[0];
+  if (!r || typeof r !== 'object') return null;
+
+  const rawUtt: any[] = Array.isArray(r.utterances) ? r.utterances : Array.isArray(body.result) ? body.result : [];
+  const utterances = rawUtt.map((u: any) => ({
+    text: typeof u?.text === 'string' ? u.text : '',
+    startTime: Number(u?.start_time) || 0,
+    endTime: Number(u?.end_time) || 0,
+    speaker: u?.additions?.speaker,
+  }));
+
+  // 文本优先取 result.text；没有就用全部分句拼起来兜底
+  let text = typeof r.text === 'string' ? r.text : '';
+  if (!text && utterances.length) text = utterances.map((u) => u.text).join('');
+
+  const dur = Number(body?.audio_info?.duration) || Number(r?.additions?.duration) || 0;
+  return { text, utterances, durationMs: dur };
+}
+
 // ---- 创建窗口 ----
 function createWindow() {
   const win = new BrowserWindow({
@@ -961,14 +1044,22 @@ dbg('FFMPEG_PATH resolved to: ' + FFMPEG_PATH);
 function extractAudio(input: string, output: string): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!FFMPEG_PATH) return reject(new Error('未找到 ffmpeg（ffmpeg-static 未正确安装）'));
-    const args = ['-i', input, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', output];
+    const args = ['-y', '-i', input, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', output];
     let stderr = '';
     const proc = spawn(FFMPEG_PATH, args);
     proc.stderr.on('data', (d) => (stderr += d.toString()));
     proc.on('error', (e) => reject(e));
     proc.on('close', (code) => {
-      if (code === 0 && fs.existsSync(output)) resolve();
-      else reject(new Error(`音频提取失败（ffmpeg 退出码 ${code}）：${stderr.slice(-400)}`));
+      if (code === 0 && fs.existsSync(output)) {
+        const size = fs.statSync(output).size;
+        // 44 字节 = 只有 wav 头、没有任何采样数据 → 抽出来的是「空音频」，交给火山必然识别为空
+        if (size <= 44) {
+          dbg(`[extractAudio] 警告：输出仅 ${size} 字节，疑似空音频。stderr=${stderr.slice(-300)}`);
+          return reject(new Error('音频提取结果是空的（该文件可能没有音轨，或音轨格式 ffmpeg 无法解码）'));
+        }
+        dbg(`[extractAudio] ok -> ${output} size=${(size / 1024).toFixed(1)}KB`);
+        resolve();
+      } else reject(new Error(`音频提取失败（ffmpeg 退出码 ${code}）：${stderr.slice(-400)}`));
     });
   });
 }
@@ -1014,6 +1105,7 @@ async function requestOssTicket(): Promise<{ putUrl: string; getUrl: string; key
 async function uploadAudioToOss(localPath: string): Promise<{ url: string; key: string }> {
   const ticket = await requestOssTicket();
   const buf = fs.readFileSync(localPath);
+  dbg(`[OSS] put size=${buf.length}B getUrlHost=${(() => { try { return new URL(ticket.getUrl).host; } catch { return '?'; } })()}`);
   const res = await fetch(ticket.putUrl, {
     method: 'PUT',
     body: buf,
@@ -1022,6 +1114,7 @@ async function uploadAudioToOss(localPath: string): Promise<{ url: string; key: 
     const t = await res.text().catch(() => '');
     throw new Error(`上传到 OSS 失败（${res.status}）：${t.slice(0, 200)}`);
   }
+  dbg(`[OSS] uploaded ok -> ${ticket.getUrl}`);
   return { url: ticket.getUrl, key: ticket.key };
 }
 
@@ -1048,28 +1141,52 @@ async function pollAsr(taskId: string, key: string, e: Electron.IpcMainInvokeEve
   };
   const deadline = Date.now() + 15 * 60 * 1000; // 15 分钟超时
   let n = 0;
+  let lastRaw = '';
   while (Date.now() < deadline) {
     await sleep(3000);
     n += 1;
     e.sender.send('transcribe-status', `识别中（第 ${n} 次查询）…`);
-    const res = await httpPostJson(ASR_QUERY, headers, {});
-    const body = res && res.body ? res.body : res;
-    const result = body?.result;
-    if (result && result.text != null) {
-      const utterances = (result.utterances || []).map((u: any) => ({
-        text: u.text || '',
-        startTime: u.start_time || 0,
-        endTime: u.end_time || 0,
-        speaker: u.additions?.speaker,
-      }));
-      return { text: result.text, utterances, durationMs: body?.audio_info?.duration || 0 };
+
+    const r = await netPost(ASR_QUERY, headers, {});
+    const code = String(r.headers['x-api-status-code'] || '');
+    const apiMsg = r.headers['x-api-message'] || '';
+    lastRaw = (r.text || '').slice(0, 400);
+    dbg(`[ASR query#${n}] http=${r.status} code=${code || '-'} msg=${apiMsg || '-'} body=${(r.text || '').slice(0, 800)}`);
+
+    let json: any = {};
+    try {
+      json = JSON.parse(r.text || '{}');
+    } catch {
+      json = {};
     }
-    const statusCode = res?.['X-Api-Status-Code'] || res?.status;
-    if (statusCode && String(statusCode).startsWith('4')) {
-      throw new Error('转录查询失败：' + JSON.stringify(res).slice(0, 220));
+    const body = json && json.body ? json.body : json;
+    const parsed = extractAsrResult(body);
+
+    // 拿到有效文本 → 直接返回
+    if (parsed && parsed.text) return parsed;
+
+    // 服务端明确说「任务完成」却没有文本 → 直接把原始响应抛出来，方便定位
+    if (code === '20000000') {
+      throw new Error(
+        `识别已结束但结果为空（${
+          ASR_STATUS_TEXT[code] || apiMsg || '可能是静音音频或云端没下载到音频'
+        }）。原始响应：${(r.text || '').slice(0, 300)}`
+      );
+    }
+    // 明确的失败/异常状态码 → 立刻报错，不再空转
+    if (code && code !== '20000001' && code !== '20000002') {
+      throw new Error(`转录失败（${code} ${ASR_STATUS_TEXT[code] || apiMsg || '未知错误'}）`);
+    }
+    if (!code && n === 1) {
+      dbg('[ASR query] 提示：响应头里没有 X-Api-Status-Code，退化为按 body 判断');
+    }
+    if (r.status >= 400 && !code) {
+      throw new Error(`转录查询失败（HTTP ${r.status}）：${(r.text || '').slice(0, 200)}`);
     }
   }
-  throw new Error('转录超时（15 分钟仍未完成，请检查音频时长或网络）');
+  throw new Error(
+    `转录超时（15 分钟仍未完成，请检查音频时长或网络）。最后一次响应：${lastRaw}`
+  );
 }
 
 ipcMain.handle('pickMediaFile', async () => {
@@ -1095,6 +1212,7 @@ ipcMain.handle('transcribe', async (e, args: { filePath: string; enableSpeakerIn
   if (!fs.existsSync(filePath)) throw new Error('文件不存在：' + filePath);
 
   const audio = await resolveAudioForAsr(filePath);
+  dbg(`[ASR prepare] src=${filePath} -> ${audio.localPath} format=${audio.format} codec=${audio.codec || '-'} size=${(fs.statSync(audio.localPath).size / 1024).toFixed(1)}KB`);
   e.sender.send('transcribe-status', '正在上传到云端临时存储…');
   const upload = await uploadAudioToOss(audio.localPath);
   try {
@@ -1119,20 +1237,36 @@ ipcMain.handle('transcribe', async (e, args: { filePath: string; enableSpeakerIn
       'X-Api-Sequence': '-1',
     };
     dbg(`[ASR submit] headers=${JSON.stringify(reqHeaders)} body=${JSON.stringify(submitBody)}`);
-    let submit: { json: any; status: number; text: string };
+    // 用 netPost 拿到「原始响应头」：火山把成败放在 X-Api-Status-Code 里，body 常常是字面 {}
+    let submit: { status: number; headers: Record<string, string>; text: string };
     try {
-      submit = await httpPostJsonWithRaw(ASR_SUBMIT, reqHeaders, submitBody);
+      submit = await netPost(ASR_SUBMIT, reqHeaders, submitBody);
     } catch (e: any) {
       dbg('[ASR submit] http error: ' + (e?.stack || e));
       throw e;
     }
-    dbg(`[ASR submit] status=${submit.status} body=${submit.text.slice(0, 500)}`);
+    const subCode = String(submit.headers['x-api-status-code'] || '');
+    const subMsg = submit.headers['x-api-message'] || '';
+    dbg(`[ASR submit] http=${submit.status} code=${subCode || '-'} msg=${subMsg || '-'} body=${submit.text.slice(0, 500)}`);
+
+    // 提交阶段的错误码（45000001 参数无效等）必须拦下来，否则会拿一个不存在的任务 ID 空转 15 分钟
+    if (subCode && subCode !== '20000000' && subCode !== '20000001' && subCode !== '20000002') {
+      throw new Error(`提交转录任务失败（${subCode} ${ASR_STATUS_TEXT[subCode] || subMsg || '未知错误'}）`);
+    }
+    if (submit.status >= 400 && !subCode) {
+      throw new Error(`提交转录任务失败（HTTP ${submit.status}）：${submit.text.slice(0, 200)}`);
+    }
+
     // 火山 ASR 大模型（bigmodel）实测坑：提交成功响应常常是字面 `{}`，
     // 任务 ID 不在 body 里 —— 任务标识就是我们自己发的 X-Api-Request-Id UUID，
     // 后面轮询也用同一个 UUID（pollAsr 已把它当作 X-Api-Request-Id 发出去）。
     // 优先取 body 里的 task_id（部分账户/变体官方文档示例中有），回退用 header UUID，
     // 这样无论响应是 `{}` 还是带 task_id，都能正确进入轮询。
-    const taskId = submit.json?.task_id || reqHeaders['X-Api-Request-Id'];
+    let submitJson: any = {};
+    try {
+      submitJson = JSON.parse(submit.text || '{}');
+    } catch {}
+    const taskId = submitJson?.task_id || reqHeaders['X-Api-Request-Id'];
 
     const result = await pollAsr(taskId, key, e);
     return { ...result, url: upload.url };
