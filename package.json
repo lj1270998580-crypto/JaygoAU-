@@ -1,6 +1,6 @@
 {
   "name": "jaygo-au",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "description": "Jaygo AU — 火山引擎声音复刻 & 语音合成桌面工具 (简洁 UI)",
   "private": true,
   "author": "Jaygo",
@@ -32,6 +32,18 @@
     ],
     "asarUnpack": [
       "node_modules/ffmpeg-static"
+    ],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://ailabing.cn/jaygo-au/updates"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "build/app-update.yml",
+        "to": "app-update.yml"
+      }
     ],
     "directories": {
       "output": "D:/jaygoau_build/release-out"

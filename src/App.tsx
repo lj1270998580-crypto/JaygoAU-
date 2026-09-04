@@ -8,6 +8,7 @@ import Synthesize from './components/Synthesize';
 import Library from './components/Library';
 import Settings from './components/Settings';
 import Transcribe from './components/Transcribe';
+import AvatarStudio from './components/AvatarStudio';
 
 const Icon = {
   synth: (
@@ -46,6 +47,14 @@ const Icon = {
       <line x1="8" y1="17" x2="12" y2="17" />
     </svg>
   ),
+  avatar: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
+      <polygon points="10 8 16 11.5 10 15 10 8" fill="currentColor" />
+    </svg>
+  ),
   settings: (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
@@ -54,13 +63,14 @@ const Icon = {
   ),
 };
 
-// 5 个主功能导航项（设置移至左下角独立常驻）
+// 6 个主功能导航项（设置移至左下角独立常驻）
 const MAIN_NAV: { key: Tab; label: string; icon: JSX.Element }[] = [
   { key: 'synth', label: '语音合成', icon: Icon.synth },
   { key: 'clone', label: '声音复刻', icon: Icon.clone },
   { key: 'voices', label: '音色中心', icon: Icon.voices },
   { key: 'library', label: '本地音频', icon: Icon.library },
   { key: 'transcribe', label: '视音频转录', icon: Icon.transcribe },
+  { key: 'avatar', label: '蝉镜数字人', icon: Icon.avatar },
 ];
 
 // 左下角三合一系统状态胶囊
@@ -354,6 +364,7 @@ export default function App() {
                 {tab === 'synth' && <Synthesize />}
                 {tab === 'library' && <Library />}
                 {tab === 'transcribe' && <Transcribe />}
+                {tab === 'avatar' && <AvatarStudio />}
               </>
             )}
           </div>

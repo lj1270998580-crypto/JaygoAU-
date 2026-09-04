@@ -29,6 +29,13 @@ export default function Settings() {
     message: string;
   } | null>(null);
 
+  const [cjTesting, setCjTesting] = useState(false);
+  const [cjTestResult, setCjTestResult] = useState<{
+    ok: boolean;
+    message: string;
+    accessToken?: string;
+  } | null>(null);
+
   if (!settings) return null;
 
   const saveKey = async () => {
@@ -59,6 +66,29 @@ export default function Settings() {
       setTestResult({ ok: false, status: 0, keyValid: null, resourceGranted: null, message: e?.message || '测试失败' });
     } finally {
       setTesting(false);
+    }
+  };
+
+  const testChanJing = async () => {
+    if (!settings.chanjingAppId?.trim() || !settings.chanjingSecretKey?.trim()) {
+      showToast('请先填写 App ID 与 Secret Key', 'err');
+      return;
+    }
+    setCjTesting(true);
+    setCjTestResult(null);
+    try {
+      const res = await api.chanjingAuth();
+      setCjTestResult(res);
+      if (res.ok) {
+        showToast('蝉镜开放平台连接成功', 'ok');
+      } else {
+        showToast(res.message || '连接失败', 'err');
+      }
+    } catch (e: any) {
+      setCjTestResult({ ok: false, message: e?.message || '连接异常' });
+      showToast(e?.message || '连接异常', 'err');
+    } finally {
+      setCjTesting(false);
     }
   };
 
@@ -141,6 +171,76 @@ export default function Settings() {
             <input type={showSecrets ? 'text' : 'password'} className="glass-input w-full font-mono" value={settings.volcSecretKey || ''} onChange={(e) => patchSettings({ volcSecretKey: e.target.value })} />
           </div>
         </div>
+      </Section>
+
+      <Section
+        title="蝉镜开放平台（数字人视频生成）"
+        desc="用于在「蝉镜数字人」工坊中生成数字人口播视频。请在蝉镜 AI 开放平台创建应用获取凭证。"
+      >
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label">App ID</label>
+            <input
+              type="text"
+              className="glass-input w-full font-mono"
+              placeholder="如：app_xxxxxxxxxxxx"
+              value={settings.chanjingAppId || ''}
+              onChange={(e) => {
+                patchSettings({ chanjingAppId: e.target.value });
+                setCjTestResult(null);
+              }}
+            />
+          </div>
+          <div>
+            <label className="label">Secret Key</label>
+            <input
+              type={showSecrets ? 'text' : 'password'}
+              className="glass-input w-full font-mono"
+              placeholder="如：sk_xxxxxxxxxxxxxxxx"
+              value={settings.chanjingSecretKey || ''}
+              onChange={(e) => {
+                patchSettings({ chanjingSecretKey: e.target.value });
+                setCjTestResult(null);
+              }}
+            />
+          </div>
+        </div>
+        <div className="mt-3 flex items-center justify-between">
+          <div className="text-[11.5px] text-zinc-400 dark:text-zinc-500">
+            开放接口文档：
+            <a
+              href="https://doc.chanjing.cc/api/open-api-common-knowledge.html"
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-0.5 ml-1"
+            >
+              doc.chanjing.cc
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </a>
+          </div>
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={testChanJing}
+            disabled={cjTesting || !settings.chanjingAppId || !settings.chanjingSecretKey}
+          >
+            {cjTesting ? '验证凭证中…' : '测试连接蝉镜'}
+          </button>
+        </div>
+        {cjTestResult && (
+          <div
+            className={`mt-3 p-3 rounded-lg text-[12.5px] leading-relaxed border ${
+              cjTestResult.ok
+                ? 'border-emerald-200 bg-emerald-50/60 text-emerald-800 dark:bg-emerald-950/30 dark:border-emerald-800/50 dark:text-emerald-300'
+                : 'border-rose-200 bg-rose-50/60 text-rose-800 dark:bg-rose-950/30 dark:border-rose-800/50 dark:text-rose-300'
+            }`}
+          >
+            <div className="font-semibold mb-0.5">
+              {cjTestResult.ok ? '✓ 凭证验证通过，已成功获取 AccessToken' : '✕ 凭证验证未通过'}
+            </div>
+            <div>{cjTestResult.message}</div>
+          </div>
+        )}
       </Section>
 
       <Section title="合成默认参数" desc="复刻语种、资源 ID，以及每次合成时的默认格式与采样率。">

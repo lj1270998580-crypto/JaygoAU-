@@ -27,6 +27,9 @@ export interface Settings {
   // ---- 火山 AK/SK（账户余额实时查询用，独立于 X-Api-Key） ----
   volcAccessKeyId?: string;
   volcSecretKey?: string;
+  // ---- 蝉镜开放平台（数字人视频生成） ----
+  chanjingAppId?: string;
+  chanjingSecretKey?: string;
 }
 
 export interface SynthProgress {
@@ -133,6 +136,63 @@ export interface JaygoAPI {
   onUpdateEvent(cb: (e: UpdateEvent) => void): () => void;
   onTranscribeStatus(cb: (msg: string) => void): () => void;
   onSynthProgress(cb: (p: SynthProgress) => void): () => void;
+  // ---- 蝉镜开放平台（数字人） ----
+  chanjingAuth(): Promise<{ ok: boolean; message: string; accessToken?: string }>;
+  chanjingListAvatars(a?: { page?: number; size?: number }): Promise<{ list: AvatarItem[]; total: number }>;
+  chanjingCreateVideo(params: CreateAvatarVideoParams): Promise<{ videoId: string }>;
+  chanjingQueryVideo(id: string): Promise<AvatarVideoTask>;
+  chanjingListVideos(a?: { page?: number; size?: number }): Promise<{ list: AvatarVideoTask[]; total: number }>;
+  chanjingDownloadVideo(a: { url: string; defaultName?: string }): Promise<{ canceled: boolean; filePath?: string }>;
+}
+
+export interface AvatarFigure {
+  type: string; // whole_body, sit_body, circle_view
+  cover: string;
+  pic_path?: string;
+  width: number;
+  height: number;
+  preview_video_url?: string;
+  bg_replace?: boolean;
+}
+
+export interface AvatarItem {
+  id: string;
+  name: string;
+  gender?: string;
+  figures: AvatarFigure[];
+  audio_name?: string;
+  audio_man_id?: string;
+  audio_preview?: string;
+  audio_lang?: string;
+  tag_ids?: number[];
+  tag_names?: string[];
+}
+
+export interface AvatarVideoTask {
+  id: string;
+  status: number; // 10生成中，30成功，4X/5X异常
+  progress: number; // 0-100
+  msg?: string;
+  video_url?: string;
+  subtitle_data_url?: string;
+  create_time?: number;
+  preview_url?: string;
+  duration?: number;
+  queue_status?: 'queued' | 'processing' | 'completed' | 'failed' | 'other';
+  queue_desc?: string;
+}
+
+export interface CreateAvatarVideoParams {
+  personId: string;
+  figureType?: string;
+  driveType: 'tts' | 'audio';
+  text?: string;
+  speed?: number;
+  audioMan?: string;
+  wavUrl?: string;
+  aspectRatio: '9:16' | '16:9';
+  model?: number; // 0基础版, 1高质版
+  showSubtitle?: boolean;
 }
 
 declare global {

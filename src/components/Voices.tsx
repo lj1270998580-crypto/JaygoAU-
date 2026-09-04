@@ -2,9 +2,9 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useStore } from '../store';
 import { api } from '../lib/ipc';
 import { statusText, statusColor, modelTypeText, voiceReady } from '../lib/format';
-import { groupOfficialVoices } from '../lib/officialVoices';
+import { groupOfficialVoices, OFFICIAL_VOICES_V2, OFFICIAL_VOICES_V1 } from '../lib/officialVoices';
 
-/* 试听小按钮：播放/停止/加载中 三态 */
+/* 试听按钮组件 */
 function PreviewButton({
   active,
   loading,
@@ -18,14 +18,14 @@ function PreviewButton({
 }) {
   if (size === 'xs') {
     return (
-      <span
-        role="button"
-        className={`h-5 min-w-5 px-1 rounded-full text-[9px] inline-flex items-center justify-center shrink-0 select-none cursor-pointer transition ${
+      <button
+        type="button"
+        className={`h-6 min-w-6 px-1.5 rounded-full text-[10px] inline-flex items-center justify-center shrink-0 select-none cursor-pointer transition ${
           active
-            ? 'bg-blue-600 text-white'
+            ? 'bg-blue-600 text-white shadow-sm'
             : loading
-            ? 'bg-zinc-100 text-zinc-400'
-            : 'text-zinc-400 hover:bg-blue-50 hover:text-blue-600'
+            ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-400'
+            : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 hover:text-blue-600 dark:hover:text-blue-300'
         }`}
         onClick={(e) => {
           e.stopPropagation();
@@ -34,13 +34,14 @@ function PreviewButton({
         title={active ? '停止试听' : '试听音色'}
       >
         {loading && !active ? '…' : active ? '■' : '▶'}
-      </span>
+      </button>
     );
   }
   return (
     <button
+      type="button"
       className={`btn-ghost !h-7 !px-2.5 !text-xs !rounded-md ${
-        active ? '!text-blue-600 !border-blue-300 !bg-blue-50' : ''
+        active ? '!text-blue-600 !border-blue-300 !bg-blue-50 dark:!bg-blue-950/40 dark:!text-blue-400' : ''
       }`}
       onClick={(e) => {
         e.stopPropagation();
@@ -56,8 +57,12 @@ function PreviewButton({
 
 export default function Voices() {
   const { settings, refreshSettings, setTab, setSelectedVoice, setOfficialVoice, showToast } = useStore();
+  const [topTab, setTopTab] = useState<'my' | 'official'>('my');
+  const [versionTab, setVersionTab] = useState<'2.0' | '1.0'>('2.0');
+  const [officialCategory, setOfficialCategory] = useState('全部');
+
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [showAdd, setShowAdd] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
   const [importText, setImportText] = useState('');
   const [importing, setImporting] = useState(false);
   const [manualId, setManualId] = useState('');
@@ -65,8 +70,17 @@ export default function Voices() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
 
-  // Hook 必须在任何条件早退之前调用（React Hooks 规则）
-  const officialGroups = useMemo(() => groupOfficialVoices(), []);
+  // 官方音色分组
+  const officialGroups = useMemo(() => groupOfficialVoices(versionTab), [versionTab]);
+  const categories = useMemo(() => {
+    return ['全部', ...officialGroups.map((g) => g.category)];
+  }, [officialGroups]);
+
+  // 当切换版本时，重置分类
+  const handleVersionChange = (ver: '2.0' | '1.0') => {
+    setVersionTab(ver);
+    setOfficialCategory('全部');
+  };
 
   // ---- 音色试听 ----
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -82,7 +96,6 @@ export default function Voices() {
     setPreviewId(null);
   };
 
-  // 组件卸载时停止播放
   useEffect(() => {
     return () => {
       if (audioRef.current) {
@@ -93,7 +106,6 @@ export default function Voices() {
   }, []);
 
   const preview = async (id: string, official: boolean) => {
-    // 同一音色正在播放 -> 停止
     if (previewId === id) {
       stopPreview();
       return;
@@ -118,7 +130,7 @@ export default function Voices() {
   };
 
   if (!settings) return null;
-  const voices = settings.voices;
+  const voices = settings.voices || [];
 
   const startRename = (v: { id: string; name: string }) => {
     setEditingId(v.id);
@@ -177,9 +189,10 @@ export default function Voices() {
   };
 
   const remove = async (id: string) => {
+    if (!window.confirm('确定从本地列表中移除此音色吗？')) return;
     await api.removeVoice(id);
     await refreshSettings();
-    showToast('已删除音色', 'info');
+    showToast('已移除音色', 'info');
   };
 
   const addManual = async () => {
@@ -237,193 +250,424 @@ export default function Voices() {
     };
   }, [settings.voices.some((v) => v.status === 1)]);
 
+  const copyId = (id: string) => {
+    navigator.clipboard.writeText(id);
+    showToast('音色 ID 已复制', 'ok');
+  };
+
   return (
     <div className="page">
-      <div className="page-head">
-        <div className="flex items-center justify-between">
-          <h2 className="page-title">音色库</h2>
-          <span className="text-xs text-zinc-400">{voices.length} 个我的音色 · 76 个官方音色</span>
-        </div>
-        <p className="page-desc">训练中的音色会自动刷新状态；官方音色可直接用于合成</p>
-      </div>
+      {/* 头部与主导航 Tabs */}
+      <div className="page-head pb-4 border-b border-zinc-100 dark:border-zinc-800/80">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="page-title">音色库</h2>
+            <p className="page-desc mt-0.5">
+              管理专属复刻音色与浏览火山引擎精品音色（支持 2.0 / 1.0 随时选用）
+            </p>
+          </div>
 
-      {voices.length === 0 && (
-        <div className="text-center py-14 mb-4">
-          <div className="text-[13px] text-zinc-500 mb-3">还没有音色</div>
-          <div className="flex items-center justify-center gap-2">
-            <button className="btn-ghost !h-8 !text-xs" onClick={() => setTab('clone')}>去复刻</button>
-            <button className="btn-primary !h-8 !text-xs" onClick={() => setShowAdd(true)}>导入已有音色</button>
+          {/* 顶层选项卡：专属复刻 vs 官方音色 */}
+          <div className="flex items-center p-1 rounded-xl bg-zinc-100 dark:bg-[#18181c] border border-zinc-200/80 dark:border-zinc-800 shrink-0 select-none">
+            <button
+              type="button"
+              onClick={() => setTopTab('my')}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                topTab === 'my'
+                  ? 'bg-white dark:bg-[#23232b] text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              <span>🎙️ 我的专属复刻</span>
+              <span className="text-[11px] px-1.5 py-0.2 rounded-full bg-zinc-200/80 dark:bg-zinc-700/80 text-zinc-700 dark:text-zinc-300">
+                {voices.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setTopTab('official')}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                topTab === 'official'
+                  ? 'bg-white dark:bg-[#23232b] text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              <span>🌟 官方音色库</span>
+              <span className="text-[11px] px-1.5 py-0.2 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-normal">
+                2.0 / 1.0
+              </span>
+            </button>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* 我的音色列表 */}
-      {voices.length > 0 && (
-        <div className="mb-6">
-          <div className="text-[12px] font-medium text-zinc-900 dark:text-white mb-2">我的音色</div>
-          {voices.map((v) => (
-            <div
-              key={v.id}
-              className="group flex items-center gap-3 py-3 px-3 -mx-3 rounded-lg hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40 transition"
-            >
-              <div className="flex-1 min-w-0">
-                {editingId === v.id ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      className="glass-input !h-8 flex-1"
-                      value={editName}
-                      autoFocus
-                      onChange={(e) => setEditName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') submitRename(v.id);
-                        if (e.key === 'Escape') setEditingId(null);
-                      }}
-                    />
-                    <button className="btn-primary !h-8 !px-3 !text-xs" onClick={() => submitRename(v.id)}>保存</button>
-                    <button className="btn-ghost !h-8 !px-3 !text-xs" onClick={() => setEditingId(null)}>取消</button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="text-[13px] font-medium text-zinc-900 dark:text-zinc-100 truncate">{v.name}</span>
-                    <span className={`chip ${statusColor(v.status)}`}>{statusText(v.status)}</span>
-                    {v.modelType != null && (
-                      <span className="chip bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">{modelTypeText(v.modelType)}</span>
-                    )}
-                    <span className="text-[11px] text-zinc-400 dark:text-zinc-500 font-mono truncate hidden sm:inline">{v.id}</span>
-                  </div>
-                )}
-              </div>
-
-              {editingId !== v.id && (
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                  {voiceReady(v) && (
-                    <PreviewButton
-                      active={previewId === v.id}
-                      loading={previewLoading === v.id}
-                      onClick={() => preview(v.id, false)}
-                    />
-                  )}
-                  {voiceReady(v) && (
-                    <button
-                      className="btn-primary !h-7 !px-2.5 !text-xs !rounded-md"
-                      onClick={() => {
-                        setOfficialVoice('');
-                        setSelectedVoice(v.id);
-                        setTab('synth');
-                      }}
-                    >
-                      去合成
-                    </button>
-                  )}
-                  <button
-                    className="btn-ghost !h-7 !px-2.5 !text-xs !rounded-md"
-                    onClick={() => query(v.id)}
-                    disabled={busyId === v.id}
-                  >
-                    {busyId === v.id ? '刷新中…' : '刷新'}
-                  </button>
-                  <button
-                    className="btn-ghost !h-7 !px-2.5 !text-xs !rounded-md"
-                    onClick={() => startRename(v)}
-                  >
-                    重命名
-                  </button>
-                  <button className="btn-danger !h-7 !px-2.5 !text-xs !rounded-md" onClick={() => remove(v.id)}>
-                    删除
-                  </button>
-                </div>
-              )}
+      {/* ===================== Tab 1: 我的专属复刻 ===================== */}
+      {topTab === 'my' && (
+        <div className="mt-5 space-y-5 animate-fade-in">
+          {/* 工具栏：复刻按钮与导入入口 */}
+          <div className="flex items-center justify-between gap-3 bg-zinc-50 dark:bg-[#16161a] p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-800">
+            <div className="text-xs text-zinc-500 dark:text-zinc-400">
+              包含通过声音复刻训练出的专属音色，训练就绪后可一键用于文本配音
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* 添加音色：默认展开 */}
-      <div className="border-t border-zinc-100 dark:border-zinc-800/80 pt-4 mb-6">
-        <button
-          type="button"
-          onClick={() => setShowAdd((s) => !s)}
-          className="text-[12px] text-zinc-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition flex items-center gap-1"
-        >
-          <span>{showAdd ? '收起导入' : '＋ 导入已有音色 ID（用于跨设备或恢复已复刻音色）'}</span>
-        </button>
-
-        {showAdd && (
-          <div className="mt-3 space-y-4">
-            <div>
-              <label className="label">批量导入音色 ID</label>
-              <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mb-2 leading-relaxed">
-                火山接口无法直接列出账号下的音色，请从控制台复制音色 ID 粘贴到这里（支持换行 / 逗号 / 空格分隔），导入时会自动逐个查询训练状态。
-              </p>
-              <textarea
-                className="glass-input w-full h-20 font-mono text-xs resize-none"
-                placeholder={'S_xxxxxxxxxxxx\nzh_female_vv_uranus_bigtts'}
-                value={importText}
-                onChange={(e) => setImportText(e.target.value)}
-              />
-              <button className="btn-primary !h-8 !text-xs mt-2" onClick={runImport} disabled={importing}>
-                {importing ? '导入中…' : '批量导入'}
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowAdd((s) => !s)}
+                className="btn-ghost !h-8 !px-3 !text-xs rounded-lg flex items-center gap-1"
+              >
+                <span>{showAdd ? '✕ 收起导入' : '＋ 导入已有音色'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('clone')}
+                className="btn-primary !h-8 !px-3.5 !text-xs rounded-lg flex items-center gap-1.5 font-medium shadow-sm"
+              >
+                <span>🎙️</span>
+                <span>复刻新音色</span>
               </button>
             </div>
+          </div>
 
-            <div className="pt-3 border-t border-zinc-100">
-              <label className="label">手动添加单个音色</label>
-              <div className="flex gap-2">
+          {/* 展开的导入区域 */}
+          {showAdd && (
+            <div className="p-4 rounded-xl bg-white dark:bg-[#16161a] border border-blue-200 dark:border-blue-900/50 shadow-sm space-y-4 animate-fade-in">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold text-zinc-900 dark:text-white flex items-center gap-1.5">
+                  <span>📥 导入已有音色 ID</span>
+                  <span className="text-[11px] font-normal text-zinc-400">（用于跨设备或恢复已复刻音色）</span>
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setShowAdd(false)}
+                  className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div>
+                <label className="label text-xs">批量导入音色 ID</label>
+                <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mb-2 leading-relaxed">
+                  火山引擎接口无法直接列出账号名下所有音色，请从火山控制台复制音色 ID 粘贴到这里（支持多行换行 / 逗号 / 空格分隔），导入时会自动逐个查询训练状态。
+                </p>
+                <textarea
+                  className="glass-input w-full h-20 font-mono text-xs resize-none"
+                  placeholder={'S_xxxxxxxxxxxx\nzh_female_vv_uranus_bigtts'}
+                  value={importText}
+                  onChange={(e) => setImportText(e.target.value)}
+                />
+                <div className="flex justify-end mt-2">
+                  <button className="btn-primary !h-8 !px-4 !text-xs" onClick={runImport} disabled={importing}>
+                    {importing ? '导入中…' : '开始批量导入'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <div className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0">快捷单条添加：</div>
                 <input
-                  className="glass-input flex-1"
-                  placeholder="音色 ID"
+                  className="glass-input !h-8 flex-1 text-xs"
+                  placeholder="音色 ID (如 S_xxx)"
                   value={manualId}
                   onChange={(e) => setManualId(e.target.value)}
                 />
                 <input
-                  className="glass-input w-44"
-                  placeholder="显示名称（可选）"
+                  className="glass-input !h-8 w-40 text-xs"
+                  placeholder="备注名称 (可选)"
                   value={manualName}
                   onChange={(e) => setManualName(e.target.value)}
                 />
-                <button className="btn-ghost !h-8 !text-xs shrink-0" onClick={addManual}>添加</button>
+                <button className="btn-ghost !h-8 !px-3 !text-xs shrink-0" onClick={addManual}>
+                  添加
+                </button>
               </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
 
-      {/* 官方音色 */}
-      <div className="border-t border-zinc-100 dark:border-zinc-800/80 pt-5">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <div className="text-[12px] font-medium text-zinc-900 dark:text-white">官方音色</div>
-            <div className="text-[11px] text-zinc-400 dark:text-zinc-500">共 {officialGroups.reduce((s, g) => s + g.voices.length, 0)} 个，点击即可在「语音合成」中使用</div>
-          </div>
-        </div>
+          {/* 音色卡片列表 */}
+          {voices.length === 0 ? (
+            <div className="text-center py-16 bg-zinc-50/50 dark:bg-[#141417] rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800">
+              <div className="text-4xl mb-3">🎙️</div>
+              <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">暂无专属复刻音色</div>
+              <p className="text-xs text-zinc-400 dark:text-zinc-500 max-w-sm mx-auto mb-4">
+                只需上传一段 5~10 秒的高清人声音频，即可快速复刻属于你的独家声音模型。
+              </p>
+              <div className="flex items-center justify-center gap-2.5">
+                <button className="btn-primary !h-8 !px-4 !text-xs" onClick={() => setTab('clone')}>
+                  立即去复刻
+                </button>
+                <button className="btn-ghost !h-8 !px-3.5 !text-xs" onClick={() => setShowAdd(true)}>
+                  导入已有音色
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {voices.map((v) => {
+                const isReady = voiceReady(v);
+                const isEditing = editingId === v.id;
 
-        <div className="space-y-5">
-          {officialGroups.map((g) => (
-            <div key={g.category}>
-              <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-2 sticky top-0 bg-white dark:bg-[#0c0c0e] py-1">{g.category}</div>
-              <div className="flex flex-wrap gap-2">
-                {g.voices.map((v) => (
+                return (
                   <div
                     key={v.id}
-                    className="h-8 pl-3 pr-1.5 rounded-full text-[12px] border border-zinc-200 dark:border-zinc-700/80 bg-white dark:bg-[#16161a] text-zinc-700 dark:text-zinc-300 hover:border-blue-400 dark:hover:border-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition select-none flex items-center gap-1.5 cursor-pointer"
-                    onClick={() => useOfficial(v.id)}
-                    title={v.id}
+                    className="flex flex-col justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#16161a] hover:border-blue-300 dark:hover:border-blue-600/70 hover:shadow-md transition-all group"
                   >
-                    <span>{v.name}</span>
-                    {v.tag && <span className="text-[10px] text-zinc-400">· {v.tag}</span>}
-                    <PreviewButton
-                      size="xs"
-                      active={previewId === v.id}
-                      loading={previewLoading === v.id}
-                      onClick={() => preview(v.id, true)}
-                    />
+                    <div>
+                      {/* 头部：头像 + 状态 */}
+                      <div className="flex items-start justify-between gap-2.5 mb-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white font-bold text-sm shadow-sm">
+                            {v.name.slice(0, 1) || '声'}
+                          </div>
+                          <div className="min-w-0">
+                            {isEditing ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  className="glass-input !h-7 text-xs w-28"
+                                  value={editName}
+                                  autoFocus
+                                  onChange={(e) => setEditName(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') submitRename(v.id);
+                                    if (e.key === 'Escape') setEditingId(null);
+                                  }}
+                                />
+                                <button
+                                  className="btn-primary !h-7 !px-2 !text-xs"
+                                  onClick={() => submitRename(v.id)}
+                                >
+                                  ✓
+                                </button>
+                                <button
+                                  className="btn-ghost !h-7 !px-1.5 !text-xs"
+                                  onClick={() => setEditingId(null)}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate">
+                                  {v.name}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => startRename(v)}
+                                  className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition text-xs"
+                                  title="重命名"
+                                >
+                                  ✏️
+                                </button>
+                              </div>
+                            )}
+                            <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5 flex items-center gap-1 font-mono">
+                              <span className="truncate max-w-[120px]">{v.id}</span>
+                              <button
+                                type="button"
+                                onClick={() => copyId(v.id)}
+                                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                                title="复制 ID"
+                              >
+                                📋
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 状态 Chip */}
+                        <span className={`chip shrink-0 ${statusColor(v.status)}`}>
+                          {statusText(v.status)}
+                        </span>
+                      </div>
+
+                      {/* 模型类型与信息 */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-[11px] px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+                          {modelTypeText(v.modelType)}
+                        </span>
+                        {v.status === 1 && (
+                          <span className="text-[11px] text-blue-600 dark:text-blue-400 animate-pulse">
+                            系统训练中，每 5 秒自动同步…
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 卡片底栏操作按钮 */}
+                    <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1">
+                        {isReady && (
+                          <PreviewButton
+                            active={previewId === v.id}
+                            loading={previewLoading === v.id}
+                            onClick={() => preview(v.id, false)}
+                          />
+                        )}
+                        <button
+                          className="btn-ghost !h-7 !px-2 !text-xs !rounded-md"
+                          onClick={() => query(v.id)}
+                          disabled={busyId === v.id}
+                          title="从火山服务器查询最新状态"
+                        >
+                          {busyId === v.id ? '…' : '刷新'}
+                        </button>
+                        <button
+                          className="btn-ghost !h-7 !px-2 !text-xs !rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40"
+                          onClick={() => remove(v.id)}
+                          title="从列表中移除"
+                        >
+                          删除
+                        </button>
+                      </div>
+
+                      {isReady && (
+                        <button
+                          className="btn-primary !h-7 !px-3 !text-xs !rounded-md font-medium"
+                          onClick={() => {
+                            setOfficialVoice('');
+                            setSelectedVoice(v.id);
+                            setTab('synth');
+                          }}
+                        >
+                          去合成
+                        </button>
+                      )}
+                    </div>
                   </div>
-                ))}
-              </div>
+                );
+              })}
             </div>
-          ))}
+          )}
         </div>
-      </div>
+      )}
+
+      {/* ===================== Tab 2: 官方精品音色库 ===================== */}
+      {topTab === 'official' && (
+        <div className="mt-5 space-y-5 animate-fade-in">
+          {/* 版本切换栏与价格说明 */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-zinc-50 dark:bg-[#16161a] border border-zinc-200/80 dark:border-zinc-800">
+            {/* 2.0 vs 1.0 分段切换器 */}
+            <div className="flex items-center p-1 rounded-xl bg-zinc-200/80 dark:bg-zinc-800/90 shrink-0 select-none">
+              <button
+                type="button"
+                onClick={() => handleVersionChange('2.0')}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                  versionTab === '2.0'
+                    ? 'bg-white dark:bg-[#202028] text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
+                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                }`}
+              >
+                <span>🌟 2.0 大模型音色</span>
+                <span className="text-[10px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-1 py-0.2 rounded font-normal">
+                  推荐 · {OFFICIAL_VOICES_V2.length}个
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleVersionChange('1.0')}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                  versionTab === '1.0'
+                    ? 'bg-white dark:bg-[#202028] text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
+                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                }`}
+              >
+                <span>📻 1.0 经典音色</span>
+                <span className="text-[10px] px-1 py-0.2 text-zinc-500">
+                  {OFFICIAL_VOICES_V1.length}个
+                </span>
+              </button>
+            </div>
+
+            {/* 计费提示 */}
+            <div className="text-xs text-zinc-500 dark:text-zinc-400">
+              {versionTab === '2.0' ? (
+                <span className="text-blue-600 dark:text-blue-400">
+                  💡 Seed-TTS 2.0 大模型音色，按量计费 5.0 元/万字（购买资源包低至 2.8 元/万字）
+                </span>
+              ) : (
+                <span className="text-zinc-600 dark:text-zinc-400">
+                  💡 BigTTS 1.0 经典基础音色，按量计费约 0.20 元/万字（经典高性价比）
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* 分类胶囊标签筛选 */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+            {categories.map((cat) => {
+              const active = officialCategory === cat;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setOfficialCategory(cat)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition shrink-0 ${
+                    active
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-white dark:bg-[#16161a] text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700'
+                  }`}
+                >
+                  {cat}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 音色卡片渲染 */}
+          <div className="space-y-6">
+            {officialGroups.map((g) => {
+              if (officialCategory !== '全部' && officialCategory !== g.category) return null;
+
+              return (
+                <div key={g.category} className="space-y-2.5">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                    <span>{g.category}</span>
+                    <span className="text-zinc-400 font-normal">({g.voices.length})</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
+                    {g.voices.map((v) => {
+                      const isV2 = v.version === '2.0';
+                      return (
+                        <div
+                          key={v.id}
+                          onClick={() => useOfficial(v.id)}
+                          className="flex items-center justify-between p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#16161a] hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-sm cursor-pointer select-none transition group"
+                          title={`点击在语音合成中使用此音色\nID: ${v.id}`}
+                        >
+                          <div className="min-w-0 flex-1 pr-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate">
+                                {v.name}
+                              </span>
+                              {isV2 && (
+                                <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-medium shrink-0">
+                                  2.0
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
+                              {v.gender ? `${v.gender}声` : ''} {v.tag ? `· ${v.tag}` : ''}
+                            </div>
+                          </div>
+
+                          <PreviewButton
+                            size="xs"
+                            active={previewId === v.id}
+                            loading={previewLoading === v.id}
+                            onClick={() => preview(v.id, true)}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

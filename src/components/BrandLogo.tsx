@@ -13,75 +13,55 @@ export default function BrandLogo({
 }: BrandLogoProps) {
   return (
     <div className={`flex items-center gap-2.5 select-none ${className}`}>
-      {/* 矢量图形徽标 */}
+      {/* 极简矢量图形徽标 */}
       <div
-        className="relative shrink-0 flex items-center justify-center rounded-xl overflow-hidden shadow-sm shadow-indigo-500/20 group"
+        className="relative shrink-0 flex items-center justify-center rounded-xl overflow-hidden shadow-sm shadow-blue-500/10 group"
         style={{ width: size, height: size }}
       >
         <svg
-          viewBox="0 0 36 36"
+          viewBox="0 0 512 512"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
           className="w-full h-full transform transition-transform duration-300 group-hover:scale-105"
         >
           <defs>
-            {/* 品牌主渐变：深靛蓝到电光青 */}
-            <linearGradient id="jaygo-grad-primary" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#4f46e5" />
-              <stop offset="60%" stopColor="#3b82f6" />
-              <stop offset="100%" stopColor="#06b6d4" />
+            <clipPath id="logoSquircle">
+              <rect x="32" y="32" width="448" height="448" rx="104" />
+            </clipPath>
+            <linearGradient id="logoBg" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#0e1017" />
+              <stop offset="100%" stopColor="#06070a" />
             </linearGradient>
-            {/* 声波渐变 */}
-            <linearGradient id="jaygo-grad-wave" x1="0%" y1="100%" x2="0%" y2="0%">
-              <stop offset="0%" stopColor="#ffffff" stopOpacity="0.85" />
-              <stop offset="100%" stopColor="#ffffff" stopOpacity="1" />
+            <linearGradient id="logoJGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#00f2fe" />
+              <stop offset="50%" stopColor="#3b82f6" />
+              <stop offset="100%" stopColor="#8b5cf6" />
             </linearGradient>
-            {/* 幽光滤镜 */}
-            <filter id="jaygo-glow" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="1.5" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
+            <radialGradient id="logoGlow" cx="45%" cy="40%" r="55%">
+              <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.18" />
+              <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+            </radialGradient>
           </defs>
 
-          {/* 背景圆角矩形 */}
-          <rect width="36" height="36" rx="9" fill="url(#jaygo-grad-primary)" />
+          <g clipPath="url(#logoSquircle)">
+            <rect x="32" y="32" width="448" height="448" fill="url(#logoBg)" />
+            <circle cx="230" cy="220" r="220" fill="url(#logoGlow)" />
 
-          {/* 微光暗纹背景 */}
-          <circle cx="28" cy="8" r="12" fill="#ffffff" fillOpacity="0.12" />
+            {/* J型声学音叉/声波图腾 */}
+            <path
+              d="M 236 120 L 236 308 A 76 76 0 0 1 84 308 L 84 270"
+              fill="none"
+              stroke="url(#logoJGrad)"
+              strokeWidth="38"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
 
-          {/* 字母 J 与 动态音频波形融合图腾 */}
-          {/* 左侧弧线：J 的下半身钩形与声波律动 */}
-          <path
-            d="M20 7v13a6 6 0 1 1-12 0"
-            stroke="url(#jaygo-grad-wave)"
-            strokeWidth="3.2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            filter="url(#jaygo-glow)"
-          />
-
-          {/* 右侧声波频谱柱（象征声音生成与 AI 律动） */}
-          {/* 第1根柱子 */}
-          <line
-            x1="24"
-            y1="14"
-            x2="24"
-            y2="22"
-            stroke="#ffffff"
-            strokeWidth="2.4"
-            strokeLinecap="round"
-            strokeOpacity="0.9"
-          />
-          {/* 第2根柱子（高柱） */}
-          <line
-            x1="28"
-            y1="10"
-            x2="28"
-            y2="26"
-            stroke="#ffffff"
-            strokeWidth="2.4"
-            strokeLinecap="round"
-          />
+            {/* 两根动态音频声谱谐波柱 */}
+            <line x1="316" y1="180" x2="316" y2="340" stroke="#60a5fa" strokeWidth="38" strokeLinecap="round" />
+            <line x1="396" y1="228" x2="396" y2="292" stroke="#a78bfa" strokeWidth="38" strokeLinecap="round" />
+          </g>
+          <rect x="32" y="32" width="448" height="448" rx="104" fill="none" stroke="#222638" strokeWidth="6" />
         </svg>
       </div>
 
@@ -90,9 +70,9 @@ export default function BrandLogo({
         <div className="flex flex-col leading-none min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="text-[14px] font-bold tracking-tight text-zinc-900 dark:text-white">
-              Jaygo <span className="bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">AU</span>
+              Jaygo <span className="bg-gradient-to-r from-blue-500 via-cyan-400 to-indigo-500 bg-clip-text text-transparent">AU</span>
             </span>
-            <span className="text-[9px] font-semibold px-1 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/60">
+            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200/60 dark:border-blue-800/60">
               PRO
             </span>
           </div>

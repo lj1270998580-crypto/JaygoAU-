@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useStore } from '../store';
 import { api } from '../lib/ipc';
-import { OFFICIAL_VOICES, groupOfficialVoices } from '../lib/officialVoices';
+import { OFFICIAL_VOICES, groupOfficialVoices, OfficialVoice } from '../lib/officialVoices';
 import { statusText, statusColor, voiceReady } from '../lib/format';
 
 interface Props {
@@ -14,7 +14,8 @@ interface Props {
 export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoiceId }: Props) {
   const { settings, showToast } = useStore();
   const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState('全部');
+  const [versionTab, setVersionTab] = useState<'2.0' | '1.0'>('2.0');
+  const [activeCategory, setActiveCategory] = useState('全部');
 
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState<string | null>(null);
@@ -68,15 +69,23 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
   };
 
   const myVoices = settings?.voices || [];
-  const officialGroups = useMemo(() => groupOfficialVoices(), []);
+  const officialGroups = useMemo(() => groupOfficialVoices(versionTab), [versionTab]);
 
   const categories = useMemo(() => {
-    const list = ['全部', '我的克隆'];
+    const list = ['全部', '我的专属复刻'];
     for (const g of officialGroups) {
       if (!list.includes(g.category)) list.push(g.category);
     }
     return list;
   }, [officialGroups]);
+
+  // 当切换版本时，如果当前选中的分类不在新分类列表中，重置为全部
+  const handleVersionChange = (ver: '2.0' | '1.0') => {
+    setVersionTab(ver);
+    if (activeCategory !== '全部' && activeCategory !== '我的专属复刻') {
+      setActiveCategory('全部');
+    }
+  };
 
   // 合并筛选
   const filteredList = useMemo(() => {
@@ -88,25 +97,27 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
       tag?: string;
       gender?: string;
       category: string;
+      version?: '1.0' | '2.0';
       ready: boolean;
       status?: number;
     }> = [];
 
     // 1. 我的音色
-    if (activeTab === '全部' || activeTab === '我的克隆') {
+    if (activeCategory === '全部' || activeCategory === '我的专属复刻') {
       for (const v of myVoices) {
         const matchSearch =
           !q ||
           v.name.toLowerCase().includes(q) ||
           v.id.toLowerCase().includes(q) ||
+          '专属复刻'.includes(q) ||
           '我的克隆'.includes(q);
         if (matchSearch) {
           results.push({
             id: v.id,
             name: v.name,
             isOfficial: false,
-            tag: '克隆音色',
-            category: '我的克隆',
+            tag: '专属复刻',
+            category: '我的专属复刻',
             ready: voiceReady(v),
             status: v.status,
           });
@@ -114,10 +125,10 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
       }
     }
 
-    // 2. 官方音色
-    if (activeTab !== '我的克隆') {
+    // 2. 官方音色（根据选中的 2.0 / 1.0）
+    if (activeCategory !== '我的专属复刻') {
       for (const g of officialGroups) {
-        if (activeTab !== '全部' && activeTab !== g.category) continue;
+        if (activeCategory !== '全部' && activeCategory !== g.category) continue;
         for (const v of g.voices) {
           const matchSearch =
             !q ||
@@ -134,6 +145,7 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
               tag: v.tag || g.category,
               gender: v.gender,
               category: g.category,
+              version: v.version,
               ready: true,
             });
           }
@@ -142,26 +154,26 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
     }
 
     return results;
-  }, [search, activeTab, myVoices, officialGroups]);
+  }, [search, activeCategory, myVoices, officialGroups]);
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
       <div
-        className="flex flex-col w-full max-w-3xl h-[640px] max-h-[90vh] rounded-2xl bg-white dark:bg-[#121215] shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden text-zinc-900 dark:text-zinc-100"
+        className="flex flex-col w-full max-w-3xl h-[660px] max-h-[92vh] rounded-2xl bg-white dark:bg-[#121215] shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden text-zinc-900 dark:text-zinc-100"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 弹窗头部 */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 dark:border-zinc-800/80 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="grid h-8 w-8 place-items-center rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-semibold text-sm">
+            <div className="grid h-9 w-9 place-items-center rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-semibold text-base shadow-sm">
               🎙️
             </div>
             <div>
               <h3 className="text-[15px] font-semibold text-zinc-900 dark:text-white leading-tight">选择配音音色</h3>
               <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-                {myVoices.length} 个我的克隆 · {OFFICIAL_VOICES.length} 个官方精品音色
+                {myVoices.length} 个专属复刻 · 官方支持 2.0 大模型音色与 1.0 经典音色自由切换
               </p>
             </div>
           </div>
@@ -177,46 +189,77 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
           </button>
         </div>
 
-        {/* 搜索栏与分类 Tab */}
-        <div className="px-6 py-3 border-b border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/50 dark:bg-[#16161a] shrink-0 space-y-2.5">
-          {/* 搜索框 */}
-          <div className="relative">
-            <svg
-              className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400 dark:text-zinc-500"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            <input
-              type="text"
-              placeholder="搜索音色名称、标签、性别（如：灿灿、解说、女声）..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="glass-input w-full !pl-9 !pr-8 !h-9 text-xs rounded-lg"
-              autoFocus
-            />
-            {search && (
-              <button
-                onClick={() => setSearch('')}
-                className="absolute right-2.5 top-2.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 text-xs"
+        {/* 搜索栏与版本/分类切换 */}
+        <div className="px-6 py-3.5 border-b border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/70 dark:bg-[#16161a] shrink-0 space-y-3">
+          {/* 第一行：搜索框 + 2.0/1.0 切换 */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+            <div className="relative flex-1">
+              <svg
+                className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400 dark:text-zinc-500"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
               >
-                ✕
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                type="text"
+                placeholder="搜索音色名称、分类或标签（如：Vivi、灿灿、解说、女声）..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="glass-input w-full !pl-9 !pr-8 !h-9 text-xs rounded-lg"
+                autoFocus
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch('')}
+                  className="absolute right-2.5 top-2.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 text-xs"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* 官方音色版本切换分段器 */}
+            <div className="flex items-center p-1 rounded-xl bg-zinc-200/80 dark:bg-zinc-800/90 shrink-0 select-none">
+              <button
+                type="button"
+                onClick={() => handleVersionChange('2.0')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition ${
+                  versionTab === '2.0'
+                    ? 'bg-white dark:bg-[#202028] text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
+                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                }`}
+              >
+                <span>🌟 2.0 大模型音色</span>
+                <span className="text-[10px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-1 py-0.2 rounded font-normal">
+                  最新
+                </span>
               </button>
-            )}
+              <button
+                type="button"
+                onClick={() => handleVersionChange('1.0')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition ${
+                  versionTab === '1.0'
+                    ? 'bg-white dark:bg-[#202028] text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
+                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                }`}
+              >
+                <span>📻 1.0 经典音色</span>
+              </button>
+            </div>
           </div>
 
-          {/* 分类胶囊标签 */}
+          {/* 第二行：分类胶囊标签 */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
             {categories.map((cat) => {
-              const active = activeTab === cat;
+              const active = activeCategory === cat;
               return (
                 <button
                   key={cat}
-                  onClick={() => setActiveTab(cat)}
+                  onClick={() => setActiveCategory(cat)}
                   className={`px-3 py-1 rounded-full text-xs font-medium transition shrink-0 ${
                     active
                       ? 'bg-blue-600 text-white shadow-sm'
@@ -265,8 +308,10 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
                       <div
                         className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg text-xs font-bold ${
                           item.isOfficial
-                            ? 'bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-950/50 dark:to-blue-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/50'
-                            : 'bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50 text-amber-600 dark:text-amber-400 border border-amber-100 dark:border-amber-900/50'
+                            ? item.version === '2.0'
+                              ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-sm'
+                              : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700'
+                            : 'bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-sm'
                         }`}
                       >
                         {item.gender === '女' ? '♀' : item.gender === '男' ? '♂' : item.name.slice(0, 1)}
@@ -286,6 +331,11 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
                         </div>
                         <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5 truncate flex items-center gap-1.5">
                           <span>{item.tag || item.category}</span>
+                          {item.isOfficial && item.version === '2.0' && (
+                            <span className="text-[10px] px-1 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-medium">
+                              2.0
+                            </span>
+                          )}
                           {!item.ready && item.status != null && (
                             <span className={`chip ${statusColor(item.status)}`}>
                               {statusText(item.status)}
@@ -326,7 +376,13 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
 
         {/* 底部信息栏 */}
         <div className="px-6 py-3 border-t border-zinc-100 dark:border-zinc-800/80 bg-zinc-50 dark:bg-[#16161a] flex items-center justify-between text-xs text-zinc-400 dark:text-zinc-500 shrink-0">
-          <span>单击卡片即可选择并应用到语音合成</span>
+          <div className="flex items-center gap-3">
+            <span>单击卡片即可选择并应用到语音合成</span>
+            <span className="text-zinc-300 dark:text-zinc-700">|</span>
+            <span className="text-blue-600 dark:text-blue-400">
+              {versionTab === '2.0' ? '当前浏览：2.0 大模型音色（Seed-TTS 2.0，约 5.0 元/万字）' : '当前浏览：1.0 经典音色（BigTTS，约 0.20 元/万字）'}
+            </span>
+          </div>
           <button
             onClick={onClose}
             className="btn-ghost !h-7 !px-3 !text-xs rounded-md"

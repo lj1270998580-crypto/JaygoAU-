@@ -46,6 +46,9 @@ export type Settings = {
   // ---- 火山 AK/SK ----
   volcAccessKeyId: string;
   volcSecretKey: string;
+  // ---- 蝉镜开放平台 ----
+  chanjingAppId?: string;
+  chanjingSecretKey?: string;
 };
 
 export type SynthProgress = { stage: 'streaming' | 'done'; pct: number; bytes: number };
@@ -158,6 +161,17 @@ const api = {
     ipcRenderer.on('update-event', listener);
     return () => ipcRenderer.removeListener('update-event', listener);
   },
+
+  // ---- 蝉镜开放平台（数字人） ----
+  chanjingAuth: () => ipcRenderer.invoke('chanjing-auth'),
+  chanjingListAvatars: (args?: { page?: number; size?: number }) =>
+    ipcRenderer.invoke('chanjing-list-avatars', args),
+  chanjingCreateVideo: (params: any) => ipcRenderer.invoke('chanjing-create-video', params),
+  chanjingQueryVideo: (id: string) => ipcRenderer.invoke('chanjing-query-video', id),
+  chanjingListVideos: (args?: { page?: number; size?: number }) =>
+    ipcRenderer.invoke('chanjing-list-videos', args),
+  chanjingDownloadVideo: (args: { url: string; defaultName?: string }) =>
+    ipcRenderer.invoke('chanjing-download-video', args),
 };
 
 contextBridge.exposeInMainWorld('JaygoAPI', api);

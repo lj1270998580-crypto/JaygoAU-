@@ -1,0 +1,38 @@
+<!DOCTYPE html><html><body style="margin:0;background:transparent;width:1024px;height:1024px;overflow:hidden;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <clipPath id="squircle">
+      <rect x="64" y="64" width="896" height="896" rx="208"/>
+    </clipPath>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0e1017"/>
+      <stop offset="100%" stop-color="#06070a"/>
+    </linearGradient>
+    <linearGradient id="jGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe"/>
+      <stop offset="50%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="45%" cy="40%" r="55%">
+      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <g clip-path="url(#squircle)">
+    <rect x="64" y="64" width="896" height="896" fill="url(#bg)"/>
+    <circle cx="460" cy="440" r="440" fill="url(#glow)"/>
+
+    <!-- J Audio Monogram (Double thickness for 1024px) -->
+    <path d="M 472 240 L 472 616 A 152 152 0 0 1 168 616 L 168 540" 
+          fill="none" stroke="url(#jGrad)" stroke-width="76" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- 2 Complementary Audio Pulse Bars -->
+    <!-- Bar 1: Medium (harmonic wave) -->
+    <line x1="632" y1="360" x2="632" y2="680" stroke="#60a5fa" stroke-width="76" stroke-linecap="round"/>
+
+    <!-- Bar 2: Short (ambient resonance) -->
+    <line x1="792" y1="456" x2="792" y2="584" stroke="#a78bfa" stroke-width="76" stroke-linecap="round"/>
+  </g>
+  <!-- Subtle border for squircle -->
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="none" stroke="#222638" stroke-width="12"/>
+</svg></body></html>
