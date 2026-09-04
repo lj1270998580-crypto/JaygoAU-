@@ -85,18 +85,15 @@ function putFile(conn, local, remote) {
 
 async function main() {
   const conn = new Client();
-  conn.on('ready', async () => {
+  conn.on('ready', () => {
     console.log('SSH 连接成功');
-    // 在打开 SFTP 前一次性创建好所有所需远程目录，绝不并发交叉使用 exec 通道
-    await mkdirRemote(conn, `${REMOTE}/updates ${REMOTE}/server`);
-    
     conn.sftp(async (err, sftp) => {
       if (err) {
         console.error('SFTP 初始化失败:', err.message);
         conn.end();
         process.exit(1);
       }
-      console.log('SFTP 子系统就绪');
+      console.log('SFTP 子系统就绪，开始上传更新文件:');
       let ok = 0, fail = 0;
       for (const [localRel, remoteRel] of FILES) {
         const local = path.isAbsolute(localRel) ? localRel : path.join(ROOT, localRel);
@@ -112,6 +109,7 @@ async function main() {
           await new Promise((res, rej) => {
             sftp.fastPut(local, remote, {
               concurrency: 64,
+              chunkSize: 65536,
               step: (trans, chunk, total) => {
                 const pct = Math.floor((trans / total) * 100);
                 process.stdout.write(`\r  进度: ${pct}% (${(trans / 1048576).toFixed(1)}/${(total / 1048576).toFixed(1)}MB)`);
@@ -130,21 +128,9 @@ async function main() {
           fail++;
         }
       }
-      console.log(`\n文件同步完成: 成功 ${ok}，失败 ${fail}`);
-      process.stdout.write('正在重载服务端 pm2 jaygo-au 进程...');
-      conn.exec('pm2 reload jaygo-au || pm2 restart jaygo-au', (err, stream) => {
-        if (err) {
-          console.log(' 重载失败: ' + err.message);
-          conn.end();
-          process.exit(fail ? 1 : 0);
-        } else {
-          stream.on('close', () => {
-            console.log(' OK');
-            conn.end();
-            process.exit(fail ? 1 : 0);
-          });
-        }
-      });
+      console.log(`\n全部文件上传完成: 成功 ${ok}，失败 ${fail}`);
+      conn.end();
+      process.exit(fail ? 1 : 0);
     });
   });
   conn.on('error', (e) => {
