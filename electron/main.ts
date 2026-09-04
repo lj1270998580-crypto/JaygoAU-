@@ -96,6 +96,9 @@ type Settings = {
   // ---- 火山 AK/SK（账户余额实时查询用，独立于 X-Api-Key） ----
   volcAccessKeyId: string;
   volcSecretKey: string;
+  // ---- 蝉镜开放平台（数字人视频生成） ----
+  chanjingAppId?: string;
+  chanjingSecretKey?: string;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -114,6 +117,8 @@ const DEFAULT_SETTINGS: Settings = {
   enableSpeakerInfo: false,
   volcAccessKeyId: '',
   volcSecretKey: '',
+  chanjingAppId: '',
+  chanjingSecretKey: '',
 };
 
 const settingsPath = () => path.join(app.getPath('userData'), 'jaygo-settings.json');
@@ -665,7 +670,7 @@ ipcMain.handle('synthesize', async (e, args: {
   const key = getApiKey();
   const isOfficial = args.official === true;
   const resourceId = isOfficial
-    ? (args.speakerId.includes('uranus') ? 'seed-tts-2.0' : (settings.officialResourceId || 'seed-tts-2.0'))
+    ? (args.speakerId.includes('uranus') ? 'seed-tts-2.0' : 'seed-tts-1.0')
     : (args.resourceId || settings.resourceId || 'seed-icl-2.0');
   const format = args.format || settings.defaultFormat;
   const speechRate = Math.round((args.speed - 1) * 100);
@@ -769,7 +774,7 @@ ipcMain.handle('previewVoice', async (_e, args: { speakerId: string; official?: 
   const key = getApiKey();
   const isOfficial = args.official === true;
   const resourceId = isOfficial
-    ? (args.speakerId.includes('uranus') ? 'seed-tts-2.0' : (settings.officialResourceId || 'seed-tts-2.0'))
+    ? (args.speakerId.includes('uranus') ? 'seed-tts-2.0' : 'seed-tts-1.0')
     : (settings.resourceId || 'seed-icl-2.0');
 
   const reqParams: any = {
@@ -1214,7 +1219,7 @@ ipcMain.handle('transcribe', async (e, args: { filePath: string; enableSpeakerIn
         enable_punc: true,
         enable_itn: true,
         enable_speaker_info: enableSpeakerInfo,
-        show_utterances: enableSpeakerInfo,
+        show_utterances: true,
       },
     };
     if (audio.codec) submitBody.audio.codec = audio.codec;
@@ -1396,6 +1401,26 @@ function broadcastUpdate(payload: any) {
 }
 
 function initAutoUpdater() {
+  const defaultYml = path.join(process.resourcesPath, 'app-update.yml');
+  const yamlContent = `provider: generic\nurl: ${APP_CONFIG.updateFeedUrl}\nupdaterCacheDirName: jaygo-au-updater\n`;
+
+  if (!fs.existsSync(defaultYml)) {
+    try {
+      fs.writeFileSync(defaultYml, yamlContent, 'utf-8');
+      dbg('自动修复写入 resources/app-update.yml 成功');
+    } catch (e: any) {
+      dbg('写入 resources/app-update.yml 受权限限制，转用 userData: ' + (e?.message || e));
+      try {
+        const fallbackYml = path.join(app.getPath('userData'), 'app-update.yml');
+        fs.writeFileSync(fallbackYml, yamlContent, 'utf-8');
+        autoUpdater.updateConfigPath = fallbackYml;
+        dbg('自动修复设置 autoUpdater.updateConfigPath=' + fallbackYml);
+      } catch (err: any) {
+        dbg('自动修复 app-update.yml 彻底失败: ' + (err?.message || err));
+      }
+    }
+  }
+
   try {
     autoUpdater.setFeedURL({ provider: 'generic', url: APP_CONFIG.updateFeedUrl });
   } catch (e: any) {
@@ -1423,6 +1448,18 @@ ipcMain.handle('get-app-version', () => app.getVersion());
 
 ipcMain.handle('check-updates', async () => {
   try {
+    const defaultYml = path.join(process.resourcesPath, 'app-update.yml');
+    if (!fs.existsSync(defaultYml)) {
+      const fallbackYml = path.join(app.getPath('userData'), 'app-update.yml');
+      if (!fs.existsSync(fallbackYml)) {
+        fs.writeFileSync(
+          fallbackYml,
+          `provider: generic\nurl: ${APP_CONFIG.updateFeedUrl}\nupdaterCacheDirName: jaygo-au-updater\n`,
+          'utf-8'
+        );
+      }
+      autoUpdater.updateConfigPath = fallbackYml;
+    }
     await autoUpdater.checkForUpdates();
     return { ok: true };
   } catch (e: any) {
@@ -1444,4 +1481,227 @@ ipcMain.handle('quit-install-update', () => {
   autoUpdater.quitAndInstall(true, true);
   return { ok: true };
 });
+
+// ============================================================
+// 蝉镜开放平台（数字人视频生成）
+// ============================================================
+
+let cjTokenCache: { token: string; expiresAt: number } | null = null;
+
+async function getChanJingToken(forceRefresh = false): Promise<string> {
+  const appId = settings.chanjingAppId?.trim();
+  const secretKey = settings.chanjingSecretKey?.trim();
+  if (!appId || !secretKey) {
+    throw new Error('未配置蝉镜开放平台凭证，请先在「设置」中填写 App ID 和 Secret Key');
+  }
+
+  const now = Date.now();
+  if (!forceRefresh && cjTokenCache && cjTokenCache.expiresAt > now + 60 * 1000) {
+    return cjTokenCache.token;
+  }
+
+  dbg(`[ChanJing Auth] 请求 access_token: appId=${appId.slice(0, 6)}...`);
+  const res = await fetch('https://open-api.chanjing.cc/open/v1/access_token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ app_id: appId, secret_key: secretKey }),
+  });
+
+  const json: any = await res.json().catch(() => ({}));
+  if (json.code !== 0 || !json.data?.access_token) {
+    throw new Error(`获取蝉镜 AccessToken 失败（code ${json.code || res.status}）：${json.msg || '凭证无效，请检查 App ID 与 Secret Key'}`);
+  }
+
+  const token = json.data.access_token;
+  let expiresAt = now + 23 * 3600 * 1000;
+  if (typeof json.data.expire_in === 'number') {
+    if (json.data.expire_in > 1000000000) {
+      expiresAt = json.data.expire_in * 1000;
+    } else {
+      expiresAt = now + json.data.expire_in * 1000;
+    }
+  }
+
+  cjTokenCache = { token, expiresAt };
+  dbg(`[ChanJing Auth] 鉴权成功，token 有效期至: ${new Date(expiresAt).toLocaleTimeString()}`);
+  return token;
+}
+
+ipcMain.handle('chanjing-auth', async () => {
+  try {
+    const token = await getChanJingToken(true);
+    return { ok: true, message: '认证成功', accessToken: token.slice(0, 8) + '...' };
+  } catch (e: any) {
+    return { ok: false, message: e?.message || '认证失败' };
+  }
+});
+
+ipcMain.handle('chanjing-list-avatars', async (_e, args?: { page?: number; size?: number }) => {
+  const token = await getChanJingToken();
+  const page = args?.page || 1;
+  const size = args?.size || 50;
+  dbg(`[ChanJing] 拉取公共形象库: page=${page} size=${size}`);
+  const res = await fetch(`https://open-api.chanjing.cc/open/v1/list_common_dp?page=${page}&size=${size}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      access_token: token,
+    },
+  });
+  const json: any = await res.json().catch(() => ({}));
+  if (json.code !== 0) {
+    throw new Error(json.msg || `拉取公共数字人形象失败（${json.code || res.status}）`);
+  }
+  return {
+    list: json.data?.list || [],
+    total: json.data?.page_info?.total_count || 0,
+  };
+});
+
+ipcMain.handle('chanjing-create-video', async (_e, params: any) => {
+  const token = await getChanJingToken();
+  const {
+    personId,
+    figureType = 'whole_body',
+    driveType = 'tts',
+    text = '',
+    speed = 1.0,
+    audioMan,
+    wavUrl,
+    aspectRatio = '9:16',
+    model = 0,
+    showSubtitle = true,
+  } = params;
+
+  const isVertical = aspectRatio === '9:16';
+  const screen_width = isVertical ? 1080 : 1920;
+  const screen_height = isVertical ? 1920 : 1080;
+
+  const body: any = {
+    person: {
+      id: personId,
+      figure_type: figureType,
+      x: 0,
+      y: 0,
+      width: screen_width,
+      height: screen_height,
+      drive_mode: 'random',
+    },
+    audio: {
+      type: driveType,
+    },
+    screen_width,
+    screen_height,
+    model: Number(model) || 0,
+    add_compliance_watermark: true,
+  };
+
+  if (driveType === 'tts') {
+    if (!text || !text.trim()) {
+      throw new Error('请输入数字人播报文案');
+    }
+    body.audio.tts = {
+      text: [text.trim()],
+      speed: Math.max(0.5, Math.min(2.0, Number(speed) || 1.0)),
+      audio_man: audioMan,
+    };
+    body.audio.type = 'tts';
+  } else {
+    if (!wavUrl || !wavUrl.trim()) {
+      throw new Error('请提供驱动数字人的音频 URL 地址');
+    }
+    body.audio.wav_url = wavUrl.trim();
+    body.audio.type = 'audio';
+  }
+
+  if (showSubtitle) {
+    body.subtitle_config = {
+      show: true,
+      x: isVertical ? 31 : 60,
+      y: isVertical ? 1521 : 880,
+      width: isVertical ? 1000 : 1800,
+      height: 200,
+      font_size: isVertical ? 64 : 52,
+    };
+  } else {
+    body.hide_subtitle = true;
+  }
+
+  dbg('[ChanJing create_video] payload: ' + JSON.stringify(body));
+
+  const res = await fetch('https://open-api.chanjing.cc/open/v1/create_video', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      access_token: token,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const json: any = await res.json().catch(() => ({}));
+  if (json.code !== 0 || !json.data) {
+    throw new Error(`创建视频合成任务失败（code ${json.code || res.status}）：${json.msg || '参数错误或余额不足'}`);
+  }
+
+  dbg('[ChanJing create_video] 成功创建任务 ID: ' + json.data);
+  return { videoId: json.data };
+});
+
+ipcMain.handle('chanjing-query-video', async (_e, id: string) => {
+  const token = await getChanJingToken();
+  const res = await fetch(`https://open-api.chanjing.cc/open/v1/video?id=${encodeURIComponent(id)}`, {
+    method: 'GET',
+    headers: {
+      access_token: token,
+    },
+  });
+  const json: any = await res.json().catch(() => ({}));
+  if (json.code !== 0) {
+    throw new Error(json.msg || `查询视频状态失败（code ${json.code || res.status}）`);
+  }
+  return json.data;
+});
+
+ipcMain.handle('chanjing-list-videos', async (_e, args?: { page?: number; size?: number }) => {
+  const token = await getChanJingToken();
+  const page = args?.page || 1;
+  const page_size = args?.size || 20;
+  const res = await fetch('https://open-api.chanjing.cc/open/v1/video_list', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      access_token: token,
+    },
+    body: JSON.stringify({ page, page_size }),
+  });
+  const json: any = await res.json().catch(() => ({}));
+  if (json.code !== 0) {
+    throw new Error(json.msg || `拉取视频列表失败（code ${json.code || res.status}）`);
+  }
+  return {
+    list: json.data?.List || [],
+    total: json.data?.PageInfo?.total_count || 0,
+  };
+});
+
+ipcMain.handle('chanjing-download-video', async (_e, args: { url: string; defaultName?: string }) => {
+  const { url, defaultName } = args;
+  const saveRes = await dialog.showSaveDialog({
+    title: '保存数字人视频',
+    defaultPath: path.join(app.getPath('downloads'), defaultName || `chanjing_avatar_${Date.now()}.mp4`),
+    filters: [{ name: 'MP4 视频文件', extensions: ['mp4'] }],
+  });
+  if (saveRes.canceled || !saveRes.filePath) {
+    return { canceled: true };
+  }
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`下载视频文件失败（HTTP ${res.status}）`);
+  }
+  const arrayBuffer = await res.arrayBuffer();
+  fs.writeFileSync(saveRes.filePath, Buffer.from(arrayBuffer));
+  return { canceled: false, filePath: saveRes.filePath };
+});
+
 

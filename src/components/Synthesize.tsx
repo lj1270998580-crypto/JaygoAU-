@@ -54,12 +54,12 @@ export default function Synthesize() {
 
   const voices = settings.voices || [];
   const myCurrent = voices.find((v) => v.id === selectedVoiceId);
-  const isOfficial = Boolean(officialVoiceId);
-  const effectiveVoiceId = officialVoiceId || myCurrent?.id || selectedVoiceId || (voices[0]?.id ?? '');
-  const officialInfo = officialVoiceById(officialVoiceId);
+  const isOfficial = Boolean(officialVoiceId) || (!myCurrent && voices.length === 0);
+  const effectiveVoiceId = officialVoiceId || myCurrent?.id || selectedVoiceId || (voices[0]?.id ?? 'zh_female_vv_uranus_bigtts');
+  const officialInfo = officialVoiceById(isOfficial ? (officialVoiceId || effectiveVoiceId) : officialVoiceId);
   const currentVoiceName = isOfficial
-    ? officialInfo?.name ?? officialVoiceId
-    : myCurrent?.name ?? effectiveVoiceId;
+    ? (officialInfo?.name ?? (effectiveVoiceId === 'zh_female_vv_uranus_bigtts' ? 'Vivi 2.0' : effectiveVoiceId))
+    : (myCurrent?.name ?? effectiveVoiceId);
 
   const stopPreview = () => {
     if (audioRef.current) {

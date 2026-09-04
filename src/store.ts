@@ -22,7 +22,8 @@ function mergeLibrary(existing: LibraryItem[], scanned: ScannedAudio[]): Library
   return Array.from(byPath.values()).sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export type Tab = 'settings' | 'clone' | 'voices' | 'synth' | 'library' | 'transcribe';
+export type Tab = 'settings' | 'clone' | 'voices' | 'synth' | 'library' | 'transcribe' | 'avatar';
+export type { LibraryItem } from './types';
 
 export interface BalanceInfo {
   available: number;
@@ -105,7 +106,7 @@ export const useStore = create<AppState>((set, get) => ({
   hasKey: false,
   tab: 'clone',
   selectedVoiceId: null,
-  officialVoiceId: '',
+  officialVoiceId: 'zh_female_vv_uranus_bigtts',
   library: [],
   synth: { active: false, pct: 0, stage: '' },
   toast: null,
