@@ -151,7 +151,7 @@ function getSpeakerStyle(speaker?: string) {
 }
 
 export default function Transcribe() {
-  const { settings, hasKey, patchSettings, showToast } = useStore();
+  const { settings, hasKey, patchSettings, showToast, pendingTranscribe, setPendingTranscribe } = useStore();
   const [filePath, setFilePath] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('');
   const [fileSize, setFileSize] = useState<number | null>(null);
@@ -162,6 +162,8 @@ export default function Transcribe() {
   const [viewMode, setViewMode] = useState<'timeline' | 'paragraphs' | 'doc'>('paragraphs');
   const [copied, setCopied] = useState(false);
   const [playbackRate, setPlaybackRate] = useState<number>(1.0);
+  const [linkInput, setLinkInput] = useState('');
+  const [linkExtracting, setLinkExtracting] = useState(false);
 
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
 
@@ -170,14 +172,60 @@ export default function Transcribe() {
     return off;
   }, []);
 
-  if (!settings) return null;
-
   const isVideo = (path: string) => /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(path);
 
   const mediaUrl = useMemo(() => {
     if (!filePath) return '';
     return `file:///${filePath.replace(/\\/g, '/')}`;
   }, [filePath]);
+
+  const startTranscribeWithFile = async (targetPath: string) => {
+    if (!hasKey) {
+      showToast('请先在「设置」中填写 API Key', 'err');
+      return;
+    }
+    if (!targetPath) {
+      showToast('请先选择音视频文件', 'err');
+      return;
+    }
+    setBusy(true);
+    setStatus('准备中…');
+    setResult(null);
+    try {
+      const r = await api.transcribe({ filePath: targetPath, enableSpeakerInfo: settings?.enableSpeakerInfo ?? false });
+      setResult(r);
+      const effective = getEffectiveUtterances(r);
+      setViewMode(effective.length > 0 ? 'paragraphs' : 'doc');
+      setStatus('转录完成');
+      showToast('转录完成', 'ok');
+      api.showNotification?.({
+        title: '📝 视音频转录已完成',
+        body: '识别文本与说话人时间轴已提取完毕，点击前往查看与导出',
+        tab: 'transcribe',
+      });
+    } catch (e: any) {
+      setStatus('');
+      showToast(e?.message || '转录失败', 'err');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // 监听来自其他模块（如媒体提取器）的一键转录请求
+  useEffect(() => {
+    if (pendingTranscribe) {
+      const { filePath: p, fileName: n, autoStart } = pendingTranscribe;
+      setPendingTranscribe(null);
+      setFilePath(p);
+      setFileName(n);
+      setResult(null);
+      if (autoStart) {
+        startTranscribeWithFile(p);
+      }
+    }
+  }, [pendingTranscribe]);
+
+  if (!settings) return null;
 
   const pick = async () => {
     const p = await api.pickMediaFile();
@@ -201,29 +249,47 @@ export default function Transcribe() {
   };
 
   const start = async () => {
+    if (filePath) {
+      await startTranscribeWithFile(filePath);
+    } else {
+      showToast('请先选择音视频文件或输入链接', 'err');
+    }
+  };
+
+  // 直接解析短视频链接并全自动提取转录
+  const extractAndTranscribeLink = async () => {
+    const raw = linkInput.trim();
+    if (!raw) {
+      showToast('请先粘贴短视频/媒体链接', 'err');
+      return;
+    }
     if (!hasKey) {
       showToast('请先在「设置」中填写 API Key', 'err');
       return;
     }
-    if (!filePath) {
-      showToast('请先选择音视频文件', 'err');
-      return;
-    }
+
+    setLinkExtracting(true);
     setBusy(true);
-    setStatus('准备中…');
+    setStatus('正在解析短视频链接…');
     setResult(null);
+
     try {
-      const r = await api.transcribe({ filePath, enableSpeakerInfo: settings.enableSpeakerInfo ?? false });
-      setResult(r);
-      const effective = getEffectiveUtterances(r);
-      setViewMode(effective.length > 0 ? 'paragraphs' : 'doc');
-      setStatus('转录完成');
-      showToast('转录完成', 'ok');
-    } catch (e: any) {
+      const media = await api.extractMedia(raw);
+      setStatus(`已解析「${media.platformName}」: ${media.title.slice(0, 15)}… 正在提取原声`);
+      const extracted = await api.extractMediaForTranscribe({ mediaInfo: media });
+      setFilePath(extracted.filePath);
+      setFileName(extracted.fileName);
+      setLinkInput('');
+
+      // 启动 ASR 大模型识别
+      setStatus('正在提交火山引擎大模型识别…');
+      await startTranscribeWithFile(extracted.filePath);
+    } catch (err: any) {
       setStatus('');
-      showToast(e?.message || '转录失败', 'err');
-    } finally {
+      showToast(err?.message || '短视频解析或提取失败', 'err');
       setBusy(false);
+    } finally {
+      setLinkExtracting(false);
     }
   };
 
@@ -331,6 +397,59 @@ export default function Transcribe() {
       <div className="flex flex-col lg:flex-row gap-6 items-start">
         {/* 左栏：媒体控制台 (380px) */}
         <div className="w-full lg:w-[380px] shrink-0 flex flex-col gap-4">
+          {/* 在线短视频/媒体链接直接转录 */}
+          <div className="rounded-xl border border-blue-200/80 dark:border-blue-900/60 bg-blue-50/40 dark:bg-blue-950/20 p-3.5 shadow-2xs">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
+                <span>🔗</span>
+                <span>短视频 / 网络链接直接转录</span>
+              </span>
+              <span className="text-[10.5px] text-blue-600 dark:text-blue-400 font-medium">
+                抖音 · B站 · 快手 · 小红书
+              </span>
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={linkInput}
+                onChange={(e) => setLinkInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    extractAndTranscribeLink();
+                  }
+                }}
+                placeholder="粘贴分享口令或作品链接…"
+                className="flex-1 min-w-0 px-3 py-1.5 rounded-lg bg-white dark:bg-[#141418] border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              />
+              <button
+                type="button"
+                disabled={linkExtracting || !linkInput.trim()}
+                onClick={() => extractAndTranscribeLink()}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition shrink-0 flex items-center gap-1 shadow-xs"
+              >
+                {linkExtracting ? (
+                  <>
+                    <span className="inline-block h-3 w-3 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                    <span>提取中…</span>
+                  </>
+                ) : (
+                  <>
+                    <span>⚡</span>
+                    <span>提取转录</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 my-0.5">
+            <div className="h-px flex-1 bg-zinc-200/80 dark:bg-zinc-800/80" />
+            <span className="text-[11px] text-zinc-400">或选择本地文件</span>
+            <div className="h-px flex-1 bg-zinc-200/80 dark:bg-zinc-800/80" />
+          </div>
+
           {/* 文件选择 / 上传卡片 */}
           <div
             className={`rounded-xl p-4 border-2 border-dashed transition cursor-pointer ${

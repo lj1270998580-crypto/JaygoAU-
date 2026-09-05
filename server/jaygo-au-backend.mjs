@@ -126,7 +126,9 @@ function sniffContentType(buf) {
 }
 
 function keyFromPath(pathname, prefix) {
-  const k = pathname.slice(prefix.length).replace(/^\/+/, '').replace(/\/+$/, '');
+  let k = pathname.slice(prefix.length).replace(/^\/+/, '').replace(/\/+$/, '');
+  // 支持带文件扩展名的访问（如 key.wav, key.mp3, key.mp4），剥离后缀后匹配内部票据 key
+  k = k.replace(/\.[a-zA-Z0-9]+$/, '');
   return k && !k.includes('/') && !k.includes('..') ? k : '';
 }
 
@@ -140,12 +142,14 @@ const server = http.createServer(async (req, res) => {
     // 票据发放
     if (p === '/api/jaygo-au/oss-token' && req.method === 'POST') {
       if (!checkAppToken(req)) return sendJson(res, 403, { error: 'forbidden' });
+      const body = await readJsonBody(req).catch(() => ({}));
+      const ext = typeof body?.ext === 'string' && body.ext ? '.' + body.ext.replace(/^\./, '') : '.wav';
       const key = randomUUID();
       const token = randomUUID();
       tickets.set(key, { token, expiresAt: Date.now() + CFG.tokenTtl * 1000, contentType: 'application/octet-stream' });
       return sendJson(res, 200, {
         putUrl: `${CFG.publicBaseUrl}/api/jaygo-au/upload/${key}?token=${token}`,
-        getUrl: `${CFG.publicBaseUrl}/api/jaygo-au/file/${key}?token=${token}`,
+        getUrl: `${CFG.publicBaseUrl}/api/jaygo-au/file/${key}${ext}?token=${token}`,
         key,
         expiresIn: CFG.tokenTtl,
       });

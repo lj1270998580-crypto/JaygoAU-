@@ -4,3 +4,9 @@
 !macro customInit
   StrCpy $INSTDIR "D:\JaygoAU"
 !macroend
+
+!macro customInstall
+  ; 强制刷新桌面图标缓存与外壳通知
+  System::Call 'shell32.dll::SHChangeNotify(i, i, i, i) v (0x08000000, 0, 0, 0)'
+  ExecWait 'ie4uinit.exe -show'
+!macroend

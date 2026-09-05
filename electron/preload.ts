@@ -49,6 +49,9 @@ export type Settings = {
   // ---- 蝉镜开放平台 ----
   chanjingAppId?: string;
   chanjingSecretKey?: string;
+  // ---- 用户上次使用的音色记忆 ----
+  lastSelectedVoiceId?: string | null;
+  lastOfficialVoiceId?: string;
 };
 
 export type SynthProgress = { stage: 'streaming' | 'done'; pct: number; bytes: number };
@@ -166,12 +169,39 @@ const api = {
   chanjingAuth: () => ipcRenderer.invoke('chanjing-auth'),
   chanjingListAvatars: (args?: { page?: number; size?: number }) =>
     ipcRenderer.invoke('chanjing-list-avatars', args),
+  chanjingListCustomAvatars: () => ipcRenderer.invoke('chanjing-list-custom-avatars'),
+  chanjingGetFontList: () => ipcRenderer.invoke('chanjing-get-font-list'),
   chanjingCreateVideo: (params: any) => ipcRenderer.invoke('chanjing-create-video', params),
   chanjingQueryVideo: (id: string) => ipcRenderer.invoke('chanjing-query-video', id),
   chanjingListVideos: (args?: { page?: number; size?: number }) =>
     ipcRenderer.invoke('chanjing-list-videos', args),
+  chanjingDeleteVideo: (id: string) => ipcRenderer.invoke('chanjing-delete-video', id),
   chanjingDownloadVideo: (args: { url: string; defaultName?: string }) =>
     ipcRenderer.invoke('chanjing-download-video', args),
+  chanjingUploadTempAudio: (args: { localPath: string }) =>
+    ipcRenderer.invoke('chanjing-upload-temp-audio', args),
+  chanjingDeleteTempAudio: (args: { key: string }) =>
+    ipcRenderer.invoke('chanjing-delete-temp-audio', args),
+  // ---- 系统与桌面图标自愈 ----
+  refreshDesktopIconCache: (args?: { deep?: boolean }) =>
+    ipcRenderer.invoke('refresh-desktop-icon-cache', args),
+  // ---- 系统托盘与原生桌面通知 ----
+  showNotification: (args: { title: string; body: string; tab?: string }) =>
+    ipcRenderer.invoke('show-notification', args),
+  appQuit: () => ipcRenderer.invoke('app-quit'),
+  onNavigateTab: (cb: (tab: string) => void) => {
+    const listener = (_e: any, tab: string) => cb(tab);
+    ipcRenderer.on('navigate-tab', listener);
+    return () => ipcRenderer.removeListener('navigate-tab', listener);
+  },
+  // ---- 多平台媒体/短视频无水印提取 ----
+  extractMedia: (input: string) => ipcRenderer.invoke('extract-media', input),
+  downloadExtractedMedia: (args: { mediaInfo: any; type: 'video' | 'audio' }) =>
+    ipcRenderer.invoke('download-extracted-media', args),
+  extractMediaForTranscribe: (args: { mediaInfo: any }) =>
+    ipcRenderer.invoke('extract-media-for-transcribe', args),
+  showItemInFolder: (filePath: string) =>
+    ipcRenderer.invoke('showItemInFolder', filePath),
 };
 
 contextBridge.exposeInMainWorld('JaygoAPI', api);

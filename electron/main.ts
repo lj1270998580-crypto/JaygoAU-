@@ -1,10 +1,13 @@
-import { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, net } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, net, Tray, Menu, Notification } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import * as os from 'node:os';
+import * as child_process from 'node:child_process';
 import ffmpegStatic from 'ffmpeg-static';
 import { spawn } from 'node:child_process';
+import { extractMedia, downloadMediaFile, extractAudioWithFfmpeg, type ParsedMediaInfo } from './mediaExtractor';
 
 // 主进程出站请求统一走 Chromium 网络栈（net.fetch），自动尊重系统代理（v2rayN/Clash 等）。
 // Node.js 原生 fetch(undici) 默认不读取系统代理，导致中国大陆用户即便开了代理，
@@ -99,6 +102,12 @@ type Settings = {
   // ---- 蝉镜开放平台（数字人视频生成） ----
   chanjingAppId?: string;
   chanjingSecretKey?: string;
+  // ---- 用户上次使用的音色记忆 ----
+  lastSelectedVoiceId?: string | null;
+  lastOfficialVoiceId?: string;
+  // ---- 系统托盘与任务通知偏好 ----
+  closeToTray?: boolean;
+  notifyOnTaskComplete?: boolean;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -119,6 +128,10 @@ const DEFAULT_SETTINGS: Settings = {
   volcSecretKey: '',
   chanjingAppId: '',
   chanjingSecretKey: '',
+  lastSelectedVoiceId: null,
+  lastOfficialVoiceId: 'zh_female_vv_uranus_bigtts',
+  closeToTray: true,
+  notifyOnTaskComplete: true,
 };
 
 const settingsPath = () => path.join(app.getPath('userData'), 'jaygo-settings.json');
@@ -198,21 +211,12 @@ function setApiKey(key: string) {
 }
 
 function stripVoices(raw: any) {
-  const {
-    outputDir, resourceId, officialResourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices, library,
-    asrResourceId, enableSpeakerInfo, ossRegion, ossBucket, ossEndpoint, ossAccessKeyId, ossAccessKeySecret, volcAccessKeyId, volcSecretKey,
-  } = raw;
+  const cloned = { ...raw };
   return {
-    outputDir, resourceId, officialResourceId, defaultFormat, defaultSampleRate, speed, volume, language, denoise, voices: voices ?? [], library: library ?? [],
-    asrResourceId: asrResourceId ?? 'volc.seedasr.auc',
-    enableSpeakerInfo: enableSpeakerInfo ?? false,
-    ossRegion: ossRegion ?? '',
-    ossBucket: ossBucket ?? '',
-    ossEndpoint: ossEndpoint ?? '',
-    ossAccessKeyId: ossAccessKeyId ?? '',
-    ossAccessKeySecret: ossAccessKeySecret ?? '',
-    volcAccessKeyId: volcAccessKeyId ?? '',
-    volcSecretKey: volcSecretKey ?? '',
+    ...DEFAULT_SETTINGS,
+    ...cloned,
+    voices: cloned.voices ?? [],
+    library: cloned.library ?? [],
   };
 }
 
@@ -357,6 +361,71 @@ function extractAsrResult(body: any): { text: string; utterances: any[]; duratio
   return { text, utterances, durationMs: dur };
 }
 
+let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let isQuitting = false;
+
+function getAppIconPath(): string | undefined {
+  const candidates = [
+    path.join(__dirname, 'icon.ico'),
+    path.join(process.resourcesPath, 'build', 'icon.ico'),
+    path.join(app.getAppPath(), 'dist-electron', 'icon.ico'),
+    path.join(app.getAppPath(), 'build', 'icon.ico'),
+  ];
+  return candidates.find(p => fs.existsSync(p));
+}
+
+function createTray() {
+  if (tray) return;
+  const iconPath = getAppIconPath();
+  if (!iconPath) {
+    dbg('未找到系统托盘图标文件');
+    return;
+  }
+
+  try {
+    tray = new Tray(iconPath);
+    tray.setToolTip('Jaygo AU — 豆包语音工作室');
+
+    const showWin = (targetTab?: string) => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+        if (targetTab) {
+          mainWindow.webContents.send('navigate-tab', targetTab);
+        }
+      }
+    };
+
+    tray.on('click', () => showWin());
+    tray.on('double-click', () => showWin());
+
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: '显示主界面',
+        click: () => showWin(),
+      },
+      {
+        label: '偏好设置',
+        click: () => showWin('settings'),
+      },
+      { type: 'separator' },
+      {
+        label: '退出 Jaygo AU',
+        click: () => {
+          isQuitting = true;
+          app.quit();
+        },
+      },
+    ]);
+    tray.setContextMenu(contextMenu);
+    dbg('系统托盘已成功创建');
+  } catch (err: any) {
+    dbg('创建系统托盘异常: ' + (err?.stack || err));
+  }
+}
+
 // ---- 创建窗口 ----
 function createWindow() {
   const iconPath = path.join(__dirname, 'icon.ico');
@@ -383,10 +452,34 @@ function createWindow() {
     },
   });
 
+  mainWindow = win;
+
   dbg('BrowserWindow 已创建');
   win.webContents.on('did-fail-load', (_e, code, desc) => dbg('did-fail-load: ' + code + ' ' + desc));
   win.webContents.on('render-process-gone', (_e, d) => dbg('render-process-gone: ' + JSON.stringify(d)));
-  win.on('closed', () => dbg('window closed'));
+  win.on('closed', () => {
+    dbg('window closed');
+    mainWindow = null;
+  });
+
+  // 拦截关闭事件：若开启了最小化至托盘且未显式退出，则隐藏窗口保活后台任务
+  let hasShownBalloon = false;
+  win.on('close', (e) => {
+    if (!isQuitting && settings.closeToTray !== false) {
+      e.preventDefault();
+      win.hide();
+      if (tray && !hasShownBalloon) {
+        hasShownBalloon = true;
+        try {
+          tray.displayBalloon({
+            title: 'Jaygo AU',
+            content: '已最小化到系统托盘，后台任务将继续运行。单击托盘图标可重新打开。',
+          });
+        } catch {}
+      }
+      return false;
+    }
+  });
 
   const html = path.join(__dirname, '../dist/index.html');
   if (process.env.DEV) {
@@ -407,17 +500,35 @@ app.whenReady().then(() => {
     dbg('createWindow 抛错: ' + (e?.stack || e));
   }
   try {
+    createTray();
+    dbg('createTray 完成');
+  } catch (e: any) {
+    dbg('createTray 抛错: ' + (e?.stack || e));
+  }
+  try {
     initAutoUpdater();
   } catch (e: any) {
     dbg('initAutoUpdater 抛错: ' + (e?.stack || e));
   }
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    else {
+      mainWindow?.show();
+      mainWindow?.focus();
+    }
   });
 });
 
+app.on('before-quit', () => {
+  isQuitting = true;
+});
+
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin') {
+    if (isQuitting || settings.closeToTray === false) {
+      app.quit();
+    }
+  }
 });
 
 // ---- IPC: 设置与密钥 ----
@@ -868,10 +979,52 @@ ipcMain.handle('windowClose', (e) => {
 });
 ipcMain.handle('windowIsMaximized', (e) => winOf(e)?.isMaximized() ?? false);
 
+// ---- 原生系统通知与应用退出 ----
+ipcMain.handle('show-notification', (_e, args: { title: string; body: string; tab?: string }) => {
+  if (settings.notifyOnTaskComplete === false) return;
+  if (!Notification.isSupported()) return;
+  const iconPath = getAppIconPath();
+  const notif = new Notification({
+    title: args.title,
+    body: args.body,
+    icon: iconPath,
+  });
+  notif.on('click', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      if (args.tab) {
+        mainWindow.webContents.send('navigate-tab', args.tab);
+      }
+    }
+  });
+  notif.show();
+});
+
+ipcMain.handle('app-quit', () => {
+  isQuitting = true;
+  app.quit();
+});
+
 // ---- 试听：读取音频为 dataURL ----
 ipcMain.handle('readAudio', async (_e, p: string) => {
-  const buf = fs.readFileSync(p);
-  const ext = path.extname(p).slice(1).toLowerCase();
+  let targetPath = path.normalize(p);
+  if (!fs.existsSync(targetPath)) {
+    // 尝试在当前 outputDir 或 userData/audio 目录下按文件名兜底查找
+    const fileName = path.basename(p);
+    const candidate1 = settings.outputDir ? path.join(settings.outputDir, fileName) : '';
+    const candidate2 = path.join(app.getPath('userData'), 'audio', fileName);
+    if (candidate1 && fs.existsSync(candidate1)) {
+      targetPath = candidate1;
+    } else if (fs.existsSync(candidate2)) {
+      targetPath = candidate2;
+    } else {
+      throw new Error(`音频文件不存在: ${fileName}`);
+    }
+  }
+  const buf = fs.readFileSync(targetPath);
+  const ext = path.extname(targetPath).slice(1).toLowerCase();
   const mime = ext === 'wav' ? 'audio/wav' : ext === 'ogg' ? 'audio/ogg' : ext === 'pcm' ? 'audio/basic' : 'audio/mpeg';
   return `data:${mime};base64,${buf.toString('base64')}`;
 });
@@ -1079,13 +1232,13 @@ async function resolveAudioForAsr(filePath: string): Promise<{ localPath: string
 // ---- 托管式 OSS：真实 AK/SK 仅存于服务端，客户端只拿临时预签名 URL ----
 // 安全要点：① 全程 HTTPS；② 预签名 URL 限单次 PUT/GET、绑定随机对象 key、短时有效；
 //          ③ 客户端不持有任何长期密匙；④ 任务结束后由服务端删除临时对象。
-async function requestOssTicket(): Promise<{ putUrl: string; getUrl: string; key: string; expiresIn: number }> {
+async function requestOssTicket(ext?: string): Promise<{ putUrl: string; getUrl: string; key: string; expiresIn: number }> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (APP_CONFIG.appToken) headers['x-app-token'] = APP_CONFIG.appToken;
   const res = await fetch(APP_CONFIG.ossTokenEndpoint, {
     method: 'POST',
     headers,
-    body: JSON.stringify({}),
+    body: JSON.stringify({ ext: ext || 'wav' }),
   });
   if (!res.ok) {
     const t = await res.text().catch(() => '');
@@ -1098,8 +1251,8 @@ async function requestOssTicket(): Promise<{ putUrl: string; getUrl: string; key
   return data;
 }
 
-async function uploadAudioToOss(localPath: string): Promise<{ url: string; key: string }> {
-  const ticket = await requestOssTicket();
+async function uploadAudioToOss(localPath: string, ext: string = 'wav'): Promise<{ url: string; key: string }> {
+  const ticket = await requestOssTicket(ext);
   const buf = fs.readFileSync(localPath);
   dbg(`[OSS] put size=${buf.length}B getUrlHost=${(() => { try { return new URL(ticket.getUrl).host; } catch { return '?'; } })()}`);
   const res = await fetch(ticket.putUrl, {
@@ -1200,6 +1353,90 @@ ipcMain.handle('pickMediaFile', async () => {
   });
   if (res.canceled || !res.filePaths.length) return null;
   return res.filePaths[0];
+});
+
+// ---- 多平台媒体/短视频无水印提取 ----
+ipcMain.handle('extract-media', async (_e, input: string) => {
+  dbg('[MediaExtractor] 开始解析: ' + (input || '').slice(0, 100));
+  return await extractMedia(input);
+});
+
+ipcMain.handle(
+  'download-extracted-media',
+  async (e, args: { mediaInfo: ParsedMediaInfo; type: 'video' | 'audio' }) => {
+    const { mediaInfo, type } = args;
+    const safeTitle = (mediaInfo.title || 'media').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
+    const defaultExt = type === 'video' ? 'mp4' : 'mp3';
+    const defaultPath = path.join(settings.outputDir || app.getPath('downloads'), `${safeTitle}.${defaultExt}`);
+
+    const win = winOf(e) || mainWindow;
+    const saveRes = await dialog.showSaveDialog(win!, {
+      title: type === 'video' ? '保存无水印视频' : '保存原声音频',
+      defaultPath,
+      filters: [
+        type === 'video'
+          ? { name: 'MP4 视频', extensions: ['mp4'] }
+          : { name: 'MP3 音频', extensions: ['mp3'] },
+      ],
+    });
+    if (saveRes.canceled || !saveRes.filePath) return null;
+    const targetPath = saveRes.filePath;
+
+    if (type === 'video') {
+      if (!mediaInfo.videoUrl) throw new Error('该作品未解析出视频流');
+      await downloadMediaFile(mediaInfo.videoUrl, targetPath, mediaInfo.headers);
+      return { path: targetPath, size: fs.statSync(targetPath).size };
+    } else {
+      // 提取音频
+      if (mediaInfo.audioUrl) {
+        const tempAudio = path.join(app.getPath('temp'), `jaygo-extract-audio-${Date.now()}`);
+        await downloadMediaFile(mediaInfo.audioUrl, tempAudio, mediaInfo.headers);
+        await extractAudioWithFfmpeg(FFMPEG_PATH, tempAudio, targetPath, 'mp3');
+        fs.unlink(tempAudio, () => {});
+        return { path: targetPath, size: fs.statSync(targetPath).size };
+      } else if (mediaInfo.videoUrl) {
+        const tempVideo = path.join(app.getPath('temp'), `jaygo-extract-vid-${Date.now()}.mp4`);
+        await downloadMediaFile(mediaInfo.videoUrl, tempVideo, mediaInfo.headers);
+        await extractAudioWithFfmpeg(FFMPEG_PATH, tempVideo, targetPath, 'mp3');
+        fs.unlink(tempVideo, () => {});
+        return { path: targetPath, size: fs.statSync(targetPath).size };
+      } else {
+        throw new Error('未解析出可用的音频或视频流');
+      }
+    }
+  }
+);
+
+ipcMain.handle('extract-media-for-transcribe', async (e, args: { mediaInfo: ParsedMediaInfo }) => {
+  const { mediaInfo } = args;
+  const safeTitle = (mediaInfo.title || 'transcribe').replace(/[\\/:*?"<>|]/g, '_').slice(0, 40);
+  const tempWav = path.join(app.getPath('temp'), `jaygo-asr-media-${Date.now()}.wav`);
+
+  e.sender.send('transcribe-status', '正在下载并提取高质量原声音频…');
+
+  if (mediaInfo.audioUrl) {
+    const tempRaw = path.join(app.getPath('temp'), `jaygo-asr-raw-${Date.now()}`);
+    await downloadMediaFile(mediaInfo.audioUrl, tempRaw, mediaInfo.headers);
+    await extractAudioWithFfmpeg(FFMPEG_PATH, tempRaw, tempWav, 'wav');
+    fs.unlink(tempRaw, () => {});
+    return { filePath: tempWav, fileName: `${safeTitle}.wav` };
+  } else if (mediaInfo.videoUrl) {
+    const tempVideo = path.join(app.getPath('temp'), `jaygo-asr-vid-${Date.now()}.mp4`);
+    await downloadMediaFile(mediaInfo.videoUrl, tempVideo, mediaInfo.headers);
+    await extractAudioWithFfmpeg(FFMPEG_PATH, tempVideo, tempWav, 'wav');
+    fs.unlink(tempVideo, () => {});
+    return { filePath: tempWav, fileName: `${safeTitle}.wav` };
+  } else {
+    throw new Error('该链接未解析出可用的音视频媒体流');
+  }
+});
+
+ipcMain.handle('showItemInFolder', (_e, filePath: string) => {
+  if (filePath && fs.existsSync(filePath)) {
+    shell.showItemInFolder(filePath);
+    return true;
+  }
+  return false;
 });
 
 ipcMain.handle('transcribe', async (e, args: { filePath: string; enableSpeakerInfo: boolean }) => {
@@ -1487,6 +1724,7 @@ ipcMain.handle('quit-install-update', () => {
 // ============================================================
 
 let cjTokenCache: { token: string; expiresAt: number } | null = null;
+let cjTokenPromise: Promise<string> | null = null;
 
 async function getChanJingToken(forceRefresh = false): Promise<string> {
   const appId = settings.chanjingAppId?.trim();
@@ -1500,31 +1738,72 @@ async function getChanJingToken(forceRefresh = false): Promise<string> {
     return cjTokenCache.token;
   }
 
-  dbg(`[ChanJing Auth] 请求 access_token: appId=${appId.slice(0, 6)}...`);
-  const res = await fetch('https://open-api.chanjing.cc/open/v1/access_token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ app_id: appId, secret_key: secretKey }),
-  });
-
-  const json: any = await res.json().catch(() => ({}));
-  if (json.code !== 0 || !json.data?.access_token) {
-    throw new Error(`获取蝉镜 AccessToken 失败（code ${json.code || res.status}）：${json.msg || '凭证无效，请检查 App ID 与 Secret Key'}`);
+  // 如果当前已有在途的换票请求，直接复用该 Promise，防止并发请求互相踩踏导致旧 Token 被服务端吊销 (10400)
+  if (cjTokenPromise) {
+    return cjTokenPromise;
   }
 
-  const token = json.data.access_token;
-  let expiresAt = now + 23 * 3600 * 1000;
-  if (typeof json.data.expire_in === 'number') {
-    if (json.data.expire_in > 1000000000) {
-      expiresAt = json.data.expire_in * 1000;
-    } else {
-      expiresAt = now + json.data.expire_in * 1000;
+  cjTokenPromise = (async () => {
+    try {
+      dbg(`[ChanJing Auth] 请求 access_token: appId=${appId.slice(0, 6)}... (forceRefresh=${forceRefresh})`);
+      const res = await fetch('https://open-api.chanjing.cc/open/v1/access_token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ app_id: appId, secret_key: secretKey }),
+      });
+
+      const json: any = await res.json().catch(() => ({}));
+      if (json.code !== 0 || !json.data?.access_token) {
+        throw new Error(`获取蝉镜 AccessToken 失败（code ${json.code || res.status}）：${json.msg || '凭证无效，请检查 App ID 与 Secret Key'}`);
+      }
+
+      const token = json.data.access_token;
+      let expiresAt = Date.now() + 23 * 3600 * 1000;
+      if (typeof json.data.expire_in === 'number') {
+        if (json.data.expire_in > 1000000000) {
+          expiresAt = json.data.expire_in * 1000;
+        } else {
+          expiresAt = Date.now() + json.data.expire_in * 1000;
+        }
+      }
+
+      cjTokenCache = { token, expiresAt };
+      dbg(`[ChanJing Auth] 鉴权成功，token 有效期至: ${new Date(expiresAt).toLocaleTimeString()}`);
+      return token;
+    } finally {
+      cjTokenPromise = null;
     }
+  })();
+
+  return cjTokenPromise;
+}
+
+// 统一封装蝉镜 API 请求器：自动附带 access_token，并在遇到 10400 或 401 时自动强制换票重试 1 次
+async function chanjingFetch(url: string, init: RequestInit = {}): Promise<{ res: Response; json: any }> {
+  let token = await getChanJingToken();
+  const buildHeaders = (t: string) => {
+    const h: Record<string, string> = {
+      'Content-Type': 'application/json',
+      access_token: t,
+    };
+    if (init.headers) {
+      Object.assign(h, init.headers);
+    }
+    return h;
+  };
+
+  let res = await fetch(url, { ...init, headers: buildHeaders(token) });
+  let json: any = await res.json().catch(() => ({}));
+
+  // 如果遇到 10400 (AccessToken验证失败) 或 HTTP 401，尝试强制刷新 token 一次并重试
+  if (json.code === 10400 || res.status === 401) {
+    dbg(`[ChanJing] 检测到 AccessToken 失效 (code: ${json.code})，正在重新换取 token 并重试...`);
+    token = await getChanJingToken(true);
+    res = await fetch(url, { ...init, headers: buildHeaders(token) });
+    json = await res.json().catch(() => ({}));
   }
 
-  cjTokenCache = { token, expiresAt };
-  dbg(`[ChanJing Auth] 鉴权成功，token 有效期至: ${new Date(expiresAt).toLocaleTimeString()}`);
-  return token;
+  return { res, json };
 }
 
 ipcMain.handle('chanjing-auth', async () => {
@@ -1537,18 +1816,12 @@ ipcMain.handle('chanjing-auth', async () => {
 });
 
 ipcMain.handle('chanjing-list-avatars', async (_e, args?: { page?: number; size?: number }) => {
-  const token = await getChanJingToken();
   const page = args?.page || 1;
   const size = args?.size || 50;
   dbg(`[ChanJing] 拉取公共形象库: page=${page} size=${size}`);
-  const res = await fetch(`https://open-api.chanjing.cc/open/v1/list_common_dp?page=${page}&size=${size}`, {
+  const { res, json } = await chanjingFetch(`https://open-api.chanjing.cc/open/v1/list_common_dp?page=${page}&size=${size}`, {
     method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      access_token: token,
-    },
   });
-  const json: any = await res.json().catch(() => ({}));
   if (json.code !== 0) {
     throw new Error(json.msg || `拉取公共数字人形象失败（${json.code || res.status}）`);
   }
@@ -1558,11 +1831,86 @@ ipcMain.handle('chanjing-list-avatars', async (_e, args?: { page?: number; size?
   };
 });
 
+ipcMain.handle('chanjing-list-custom-avatars', async () => {
+  dbg('[ChanJing] 拉取用户定制数字人形象列表 (source 0 & 1)');
+
+  const fetchBySource = async (source: 0 | 1) => {
+    try {
+      const { json } = await chanjingFetch('https://open-api.chanjing.cc/open/v1/list_customised_person', {
+        method: 'POST',
+        body: JSON.stringify({ page: 1, page_size: 50, source }),
+      });
+      if (json.code === 0 && Array.isArray(json.data?.list)) {
+        return json.data.list.map((item: any) => {
+          // 蝉镜 status 状态码说明：
+          // 2: 制作完成/已就绪 (可直接驱动生成视频)
+          // 1: 制作中/训练中
+          // 0: 排队中
+          // 3 / -1: 制作失败
+          // progress: 进度 0-100，100 表示完成
+          const rawStatus = Number(item.status);
+          const progress = typeof item.progress === 'number' ? item.progress : (rawStatus === 2 ? 100 : 0);
+          const isReady = rawStatus === 2 || progress >= 100;
+          return {
+            id: String(item.id || item.person_id || ''),
+            name: item.name || '专属克隆形象',
+            pic_url: item.pic_url || item.cover || item.avatar || '',
+            preview_url: item.preview_url,
+            audio_man_id: item.audio_man_id,
+            status: isReady ? 2 : (rawStatus || 1),
+            progress,
+            is_ready: isReady,
+            source,
+            support_4k: Boolean(item.support_4k),
+            create_time: item.create_time,
+          };
+        });
+      }
+    } catch (err: any) {
+      dbg(`[ChanJing] 拉取定制形象 source=${source} 失败: ${err?.message}`);
+    }
+    return [];
+  };
+
+  // 分别获取 API定制 (0) 与 蝉镜主站定制 (1)
+  const [list0, list1] = await Promise.all([fetchBySource(0), fetchBySource(1)]);
+
+  // 当用户在主站已有克隆形象时，过滤 source: 0 中平台默认返回的测试样例模特（如“晓洁”）
+  // 防止官方模特混入专属克隆形象中导致排版错乱与串行
+  const realList0 = list0.filter((item: any) => {
+    if (list1.length > 0 && (item.name === '晓洁' || item.id === 'xiaojie')) {
+      return false;
+    }
+    return true;
+  });
+
+  // 主站克隆形象 (source: 1) 优先展示在前
+  const map = new Map<string, any>();
+  for (const item of [...list1, ...realList0]) {
+    if (item.id && !map.has(item.id)) {
+      map.set(item.id, item);
+    }
+  }
+  return Array.from(map.values());
+});
+
+ipcMain.handle('chanjing-get-font-list', async () => {
+  dbg('[ChanJing] 获取字体列表');
+  const { res, json } = await chanjingFetch('https://open-api.chanjing.cc/open/v1/font_list', {
+    method: 'GET',
+  });
+  if (json.code !== 0) {
+    throw new Error(json.msg || `获取字体列表失败（code ${json.code || res.status}）`);
+  }
+  return json.data || [];
+});
+
 ipcMain.handle('chanjing-create-video', async (_e, params: any) => {
-  const token = await getChanJingToken();
   const {
     personId,
     figureType = 'whole_body',
+    isCustom = false,
+    source,
     driveType = 'tts',
     text = '',
     speed = 1.0,
@@ -1571,24 +1919,32 @@ ipcMain.handle('chanjing-create-video', async (_e, params: any) => {
     aspectRatio = '9:16',
     model = 0,
     showSubtitle = true,
+    subtitleConfig,
   } = params;
 
   const isVertical = aspectRatio === '9:16';
   const screen_width = isVertical ? 1080 : 1920;
   const screen_height = isVertical ? 1920 : 1080;
 
+  const personConfig: any = {
+    id: personId,
+    x: 0,
+    y: 0,
+    width: screen_width,
+    height: screen_height,
+    drive_mode: 'random',
+  };
+  // 仅公共模特传递 figure_type，定制形象不需要传
+  if (!isCustom && figureType) {
+    personConfig.figure_type = figureType;
+  }
+
   const body: any = {
-    person: {
-      id: personId,
-      figure_type: figureType,
-      x: 0,
-      y: 0,
-      width: screen_width,
-      height: screen_height,
-      drive_mode: 'random',
-    },
+    person: personConfig,
     audio: {
       type: driveType,
+      volume: 100, // 必传：默认 100。若缺省则会被开放平台服务端解析为 0 导致渲染出静音无声的视频！
+      language: 'cn',
     },
     screen_width,
     screen_height,
@@ -1596,16 +1952,32 @@ ipcMain.handle('chanjing-create-video', async (_e, params: any) => {
     add_compliance_watermark: true,
   };
 
+  // 定制数字人如果来自主站，传入 source: 1
+  if (isCustom && source === 1) {
+    body.source = 1;
+  }
+
   if (driveType === 'tts') {
     if (!text || !text.trim()) {
       throw new Error('请输入数字人播报文案');
     }
+    // 确定音色 ID：若形象本身绑定了音色则使用之；若未绑定（如仅形象定制），使用官方经典真人音色保底
+    const DEFAULT_AUDIO_MAN = 'C-CASE-d8dfe5838e774124b04e0ad41c194847';
+    const effectiveAudioMan = audioMan?.trim() || DEFAULT_AUDIO_MAN;
+
     body.audio.tts = {
       text: [text.trim()],
       speed: Math.max(0.5, Math.min(2.0, Number(speed) || 1.0)),
-      audio_man: audioMan,
+      audio_man: effectiveAudioMan,
     };
     body.audio.type = 'tts';
+    body.audio.wav_url = '';
+
+    // 蝉镜开放平台规范：如果使用的是主站个人定制音色（source=1），创建视频任务时必须传顶层参数 audio_source = 1
+    // 如果是官方兜底音色（API 渠道）或官方模特音色，则保持 audio_source 为 0
+    if (isCustom && source === 1 && effectiveAudioMan === audioMan?.trim()) {
+      body.audio_source = 1;
+    }
   } else {
     if (!wavUrl || !wavUrl.trim()) {
       throw new Error('请提供驱动数字人的音频 URL 地址');
@@ -1614,14 +1986,19 @@ ipcMain.handle('chanjing-create-video', async (_e, params: any) => {
     body.audio.type = 'audio';
   }
 
-  if (showSubtitle) {
+  const isSubShow = showSubtitle && subtitleConfig?.show !== false;
+  if (isSubShow) {
     body.subtitle_config = {
       show: true,
+      font_id: subtitleConfig?.fontId || undefined,
+      font_size: subtitleConfig?.fontSize || (isVertical ? 64 : 52),
+      color: subtitleConfig?.color || '#FFFFFF',
+      stroke_color: subtitleConfig?.strokeColor || '#000000',
+      stroke_width: subtitleConfig?.strokeWidth ?? 3,
       x: isVertical ? 31 : 60,
       y: isVertical ? 1521 : 880,
       width: isVertical ? 1000 : 1800,
       height: 200,
-      font_size: isVertical ? 64 : 52,
     };
   } else {
     body.hide_subtitle = true;
@@ -1629,16 +2006,11 @@ ipcMain.handle('chanjing-create-video', async (_e, params: any) => {
 
   dbg('[ChanJing create_video] payload: ' + JSON.stringify(body));
 
-  const res = await fetch('https://open-api.chanjing.cc/open/v1/create_video', {
+  const { res, json } = await chanjingFetch('https://open-api.chanjing.cc/open/v1/create_video', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      access_token: token,
-    },
     body: JSON.stringify(body),
   });
 
-  const json: any = await res.json().catch(() => ({}));
   if (json.code !== 0 || !json.data) {
     throw new Error(`创建视频合成任务失败（code ${json.code || res.status}）：${json.msg || '参数错误或余额不足'}`);
   }
@@ -1648,14 +2020,9 @@ ipcMain.handle('chanjing-create-video', async (_e, params: any) => {
 });
 
 ipcMain.handle('chanjing-query-video', async (_e, id: string) => {
-  const token = await getChanJingToken();
-  const res = await fetch(`https://open-api.chanjing.cc/open/v1/video?id=${encodeURIComponent(id)}`, {
+  const { res, json } = await chanjingFetch(`https://open-api.chanjing.cc/open/v1/video?id=${encodeURIComponent(id)}`, {
     method: 'GET',
-    headers: {
-      access_token: token,
-    },
   });
-  const json: any = await res.json().catch(() => ({}));
   if (json.code !== 0) {
     throw new Error(json.msg || `查询视频状态失败（code ${json.code || res.status}）`);
   }
@@ -1663,18 +2030,12 @@ ipcMain.handle('chanjing-query-video', async (_e, id: string) => {
 });
 
 ipcMain.handle('chanjing-list-videos', async (_e, args?: { page?: number; size?: number }) => {
-  const token = await getChanJingToken();
   const page = args?.page || 1;
   const page_size = args?.size || 20;
-  const res = await fetch('https://open-api.chanjing.cc/open/v1/video_list', {
+  const { res, json } = await chanjingFetch('https://open-api.chanjing.cc/open/v1/video_list', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      access_token: token,
-    },
     body: JSON.stringify({ page, page_size }),
   });
-  const json: any = await res.json().catch(() => ({}));
   if (json.code !== 0) {
     throw new Error(json.msg || `拉取视频列表失败（code ${json.code || res.status}）`);
   }
@@ -1682,6 +2043,21 @@ ipcMain.handle('chanjing-list-videos', async (_e, args?: { page?: number; size?:
     list: json.data?.List || [],
     total: json.data?.PageInfo?.total_count || 0,
   };
+});
+
+ipcMain.handle('chanjing-delete-video', async (_e, id: string) => {
+  if (!id) {
+    throw new Error('缺少要删除的视频任务 ID');
+  }
+  dbg(`[ChanJing] 删除视频任务: ${id}`);
+  const { res, json } = await chanjingFetch('https://open-api.chanjing.cc/open/v1/delete_video', {
+    method: 'POST',
+    body: JSON.stringify({ id }),
+  });
+  if (json.code !== 0) {
+    throw new Error(json.msg || `删除视频失败（code ${json.code || res.status}）`);
+  }
+  return true;
 });
 
 ipcMain.handle('chanjing-download-video', async (_e, args: { url: string; defaultName?: string }) => {
@@ -1702,6 +2078,116 @@ ipcMain.handle('chanjing-download-video', async (_e, args: { url: string; defaul
   const arrayBuffer = await res.arrayBuffer();
   fs.writeFileSync(saveRes.filePath, Buffer.from(arrayBuffer));
   return { canceled: false, filePath: saveRes.filePath };
+});
+
+ipcMain.handle('chanjing-upload-temp-audio', async (_e, args: { localPath: string }) => {
+  if (!args?.localPath || !fs.existsSync(args.localPath)) {
+    throw new Error('未找到指定的本地音频文件');
+  }
+  dbg(`[ChanJing] 准备标准化并上传驱动音频: ${args.localPath}`);
+  // 蝉镜开放平台严格规范：音频格式以 16000Hz 单声道 WAV 最优，且 URL 后缀必须带有文件扩展名（.wav）
+  const tempWav = path.join(app.getPath('temp'), `chanjing-drive-${crypto.randomBytes(6).toString('hex')}.wav`);
+  try {
+    // 统一通过 ffmpeg 标准化转码为 16000Hz 单声道 16-bit PCM WAV，确保开放平台唇形算法与字幕打轴 100% 成功解析
+    await extractAudio(args.localPath, tempWav);
+    const res = await uploadAudioToOss(tempWav, 'wav');
+    let finalUrl = res.url;
+    try {
+      const u = new URL(finalUrl);
+      if (!u.pathname.endsWith('.wav')) {
+        u.pathname = u.pathname + '.wav';
+        finalUrl = u.toString();
+      }
+    } catch {}
+    dbg(`[ChanJing] 驱动音频处理完成并上传，URL: ${finalUrl}`);
+    return { url: finalUrl, key: res.key };
+  } finally {
+    if (fs.existsSync(tempWav)) {
+      try { fs.unlinkSync(tempWav); } catch {}
+    }
+  }
+});
+
+ipcMain.handle('chanjing-delete-temp-audio', async (_e, args: { key: string }) => {
+  if (!args?.key) return false;
+  dbg(`[ChanJing] 任务结束，删除 OSS 临时音频: ${args.key}`);
+  await deleteOssObject(args.key);
+  return true;
+});
+
+ipcMain.handle('refresh-desktop-icon-cache', async (_e, args?: { deep?: boolean }) => {
+  try {
+    const desktopPath = path.join(os.homedir(), 'Desktop');
+    const shortcutPath = path.join(desktopPath, 'Jaygo AU.lnk');
+    const exePath = app.getPath('exe');
+
+    // 1. 如果桌面快捷方式存在，更新其 IconLocation 和修改时间
+    if (fs.existsSync(shortcutPath)) {
+      try {
+        const script = `
+          $sh = New-Object -ComObject WScript.Shell
+          $sc = $sh.CreateShortcut('${shortcutPath.replace(/'/g, "''")}')
+          $sc.TargetPath = '${exePath.replace(/'/g, "''")}'
+          $sc.WorkingDirectory = '${path.dirname(exePath).replace(/'/g, "''")}'
+          $sc.IconLocation = '${exePath.replace(/'/g, "''")},0'
+          $sc.Save()
+          (Get-Item '${shortcutPath.replace(/'/g, "''")}').LastWriteTime = Get-Date
+        `;
+        child_process.execSync(`powershell -NoProfile -Command "${script.replace(/\r?\n/g, ' ')}"`, { windowsHide: true });
+      } catch (err) {
+        dbg(`[IconCache] 更新快捷方式失败: ${err}`);
+      }
+    }
+
+    // 2. Win32 SHChangeNotify 广播图标缓存变更
+    try {
+      const notifyScript = `
+        $code = @'
+        using System;
+        using System.Runtime.InteropServices;
+        public class WinShell {
+            [DllImport("shell32.dll")]
+            public static extern void SHChangeNotify(int wEventId, int uFlags, IntPtr dwItem1, IntPtr dwItem2);
+        }
+'@
+        Add-Type -TypeDefinition $code
+        [WinShell]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
+      `;
+      child_process.execSync(`powershell -NoProfile -Command "${notifyScript.replace(/\r?\n/g, ' ')}"`, { windowsHide: true });
+    } catch (err) {
+      dbg(`[IconCache] SHChangeNotify 失败: ${err}`);
+    }
+
+    // 3. 执行 ie4uinit.exe -show
+    try {
+      child_process.exec('ie4uinit.exe -show', { windowsHide: true });
+    } catch {
+      /* ignore */
+    }
+
+    // 4. 如果用户请求深度清理
+    if (args?.deep) {
+      try {
+        const deepScript = `
+          Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Milliseconds 500
+          Remove-Item -Path "$env:LOCALAPPDATA\\IconCache.db" -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "$env:LOCALAPPDATA\\Microsoft\\Windows\\Explorer\\iconcache*" -Force -ErrorAction SilentlyContinue
+          if (-not (Get-Process -Name explorer -ErrorAction SilentlyContinue)) {
+              Start-Process explorer
+          }
+        `;
+        child_process.exec(`powershell -NoProfile -Command "${deepScript.replace(/\r?\n/g, ' ')}"`, { windowsHide: true });
+        return { ok: true, message: '已执行深度清理并重启资源管理器，桌面图标已全面刷新！' };
+      } catch (err: any) {
+        return { ok: false, message: `深度刷新失败: ${err?.message}` };
+      }
+    }
+
+    return { ok: true, message: '桌面图标缓存刷新指令已发送！' };
+  } catch (e: any) {
+    return { ok: false, message: e?.message || '刷新失败' };
+  }
 });
 
 

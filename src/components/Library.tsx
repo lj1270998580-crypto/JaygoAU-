@@ -38,6 +38,7 @@ export default function Library() {
   useEffect(() => {
     return () => {
       if (audioRef.current) {
+        audioRef.current.onerror = null;
         audioRef.current.pause();
         audioRef.current.src = '';
       }
@@ -77,9 +78,13 @@ export default function Library() {
 
       if (!audioRef.current) {
         audioRef.current = new Audio();
+      } else {
+        audioRef.current.onerror = null;
+        audioRef.current.pause();
       }
 
       const a = audioRef.current;
+      a.onerror = null;
       a.src = audioUrl;
       a.playbackRate = SPEEDS[speedIdx];
 
@@ -97,7 +102,9 @@ export default function Library() {
 
       a.onerror = () => {
         setIsPlaying(false);
-        showToast('音频文件损坏或路径不存在', 'err');
+        if (a.src && a.src !== 'about:blank' && !a.src.endsWith('/')) {
+          showToast('音频文件损坏或路径不存在', 'err');
+        }
       };
 
       await a.play();
@@ -129,6 +136,7 @@ export default function Library() {
 
   const stopAndClosePlayer = () => {
     if (audioRef.current) {
+      audioRef.current.onerror = null;
       audioRef.current.pause();
       audioRef.current.src = '';
     }
