@@ -17,6 +17,8 @@ const PROVIDER_ORDER: ModelProviderType[] = [
   'zhipu',
   'moonshot',
   'openai',
+  'claude',
+  'minimax',
   'custom',
 ];
 
@@ -257,10 +259,16 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
             </div>
 
             {/* 模型选择 */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                驱动模型选择
-              </label>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                  驱动模型选择
+                </label>
+                <span className="text-[11px] text-zinc-400">
+                  内置 2025/2026 最新官方模型矩阵
+                </span>
+              </div>
+
               {activeTab === 'custom' ? (
                 <input
                   type="text"
@@ -270,17 +278,47 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
                   className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 font-mono"
                 />
               ) : (
-                <select
-                  value={currentProvider.selectedModel}
-                  onChange={e => handleModelSelect(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 cursor-pointer"
-                >
-                  {preset.models.map(m => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="space-y-2">
+                  <select
+                    value={currentProvider.selectedModel}
+                    onChange={e => handleModelSelect(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 cursor-pointer font-sans"
+                  >
+                    {preset.models.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.badge ? `[${m.badge}] ` : ''}{m.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* 选定模型的详细说明 */}
+                  {(() => {
+                    const currentModelObj = preset.models.find(m => m.id === currentProvider.selectedModel);
+                    return currentModelObj?.description ? (
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 px-1">
+                        💡 {currentModelObj.description}
+                      </p>
+                    ) : null;
+                  })()}
+
+                  {/* 支持手动输入 Model ID 或火山方舟 Endpoint ID 覆盖 */}
+                  <div className="pt-1.5">
+                    <label className="text-[11px] text-zinc-400 block mb-1">
+                      自定义模型覆盖 / 接入点 ID (可选，若填写将优先使用)：
+                    </label>
+                    <input
+                      type="text"
+                      value={currentProvider.customModelName || ''}
+                      onChange={e => handleCustomModelNameChange(e.target.value)}
+                      placeholder={
+                        activeTab === 'doubao'
+                          ? '例如火山方舟接入点 ID: ep-20250101-xxxx（填入则优先走此端点）'
+                          : '例如最新发布但暂未收录的模型版本 ID'
+                      }
+                      className="w-full px-3 py-2 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/30 text-xs text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 font-mono focus:outline-hidden focus:border-blue-500"
+                    />
+                  </div>
+                </div>
               )}
             </div>
 
