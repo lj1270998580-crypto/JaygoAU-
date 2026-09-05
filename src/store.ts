@@ -51,8 +51,10 @@ function mergeLibrary(existing: LibraryItem[], scanned: ScannedAudio[]): Library
   return updatedExisting.sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export type Tab = 'settings' | 'clone' | 'voices' | 'synth' | 'library' | 'transcribe' | 'avatar' | 'extractor';
+export type Tab = 'settings' | 'clone' | 'voices' | 'synth' | 'library' | 'transcribe' | 'avatar' | 'extractor' | 'script' | 'workflow';
 export type { LibraryItem } from './types';
+import type { ModelHubSettings } from './lib/modelHubTypes';
+import { DEFAULT_MODEL_HUB_SETTINGS } from './lib/modelHubTypes';
 
 export interface BalanceInfo {
   available: number;
@@ -108,6 +110,20 @@ interface AppState {
   setPendingTranscribe: (p: { filePath: string; fileName: string; autoStart?: boolean } | null) => void;
   sidebarCollapsed: boolean;
   toggleSidebarCollapsed: () => void;
+  modelHubSettings: ModelHubSettings;
+  setModelHubSettings: (s: ModelHubSettings) => void;
+  pendingSynthText: { text: string; voiceId?: string } | null;
+  setPendingSynthText: (p: { text: string; voiceId?: string } | null) => void;
+  pendingAvatarText: string | null;
+  setPendingAvatarText: (t: string | null) => void;
+}
+
+function getInitialModelHubSettings(): ModelHubSettings {
+  try {
+    const raw = localStorage.getItem('jaygo_model_hub_settings_v1');
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return DEFAULT_MODEL_HUB_SETTINGS;
 }
 
 function applyTheme(th: 'light' | 'dark') {
@@ -165,6 +181,17 @@ export const useStore = create<AppState>((set, get) => ({
       localStorage.setItem('jaygo_sidebar_collapsed', String(next));
     } catch {}
   },
+  modelHubSettings: getInitialModelHubSettings(),
+  setModelHubSettings: (s) => {
+    set({ modelHubSettings: s });
+    try {
+      localStorage.setItem('jaygo_model_hub_settings_v1', JSON.stringify(s));
+    } catch {}
+  },
+  pendingSynthText: null,
+  setPendingSynthText: (p) => set({ pendingSynthText: p }),
+  pendingAvatarText: null,
+  setPendingAvatarText: (t) => set({ pendingAvatarText: t }),
 
   async init() {
     applyTheme(get().theme);

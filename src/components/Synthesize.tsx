@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store';
 import { api } from '../lib/ipc';
 import { FORMATS, SAMPLE_RATES, formatBytes } from '../lib/format';
@@ -24,9 +24,21 @@ export default function Synthesize() {
     addLibrary,
     showToast,
     setTab,
+    pendingSynthText,
+    setPendingSynthText,
   } = useStore();
 
   const [text, setText] = useState('');
+
+  useEffect(() => {
+    if (pendingSynthText) {
+      setText(pendingSynthText.text);
+      if (pendingSynthText.voiceId) {
+        setOfficialVoice(pendingSynthText.voiceId);
+      }
+      setPendingSynthText(null);
+    }
+  }, [pendingSynthText, setOfficialVoice, setPendingSynthText]);
   const [format, setFormat] = useState(settings?.defaultFormat ?? 'mp3');
   const [sampleRate, setSampleRate] = useState(settings?.defaultSampleRate ?? 24000);
   const [speed, setSpeed] = useState(settings?.speed ?? 1);

@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import { api } from '../lib/ipc';
 import { FORMATS, SAMPLE_RATES, RESOURCE_IDS, LANGUAGES } from '../lib/format';
 import { PRICING } from '../lib/pricing';
+import { ModelHubModal } from './ModelHubModal';
 
 function Section({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
   return (
@@ -15,7 +16,8 @@ function Section({ title, desc, children }: { title: string; desc?: string; chil
 }
 
 export default function Settings() {
-  const { settings, hasKey, setApiKey, clearApiKey, patchSettings, showToast } = useStore();
+  const { settings, hasKey, setApiKey, clearApiKey, patchSettings, showToast, modelHubSettings, setModelHubSettings } = useStore();
+  const [modelModalOpen, setModelModalOpen] = useState(false);
   const [keyInput, setKeyInput] = useState('');
   const [show, setShow] = useState(false);
   const [showSecrets, setShowSecrets] = useState(false);
@@ -96,8 +98,31 @@ export default function Settings() {
     <div className="page">
       <div className="page-head">
         <h2 className="page-title">设置</h2>
-        <p className="page-desc">填入火山引擎 API Key，即可使用全部功能</p>
+        <p className="page-desc">配置火山引擎、统一大模型中心与自媒体服务凭证</p>
       </div>
+
+      <Section title="统一大模型中心 (Model Hub)" desc="集中管理火山豆包、DeepSeek、阿里通义千问、智谱清言、Kimi 及自定义大模型，统一驱动「AI 文案工坊」与「定时工作流」。">
+        <div className="flex items-center justify-between p-4 rounded-xl border border-blue-500/30 bg-blue-50/40 dark:bg-blue-950/20">
+          <div>
+            <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+              <span>⚡ 当前统一模型中心状态</span>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/80 text-blue-600 dark:text-blue-400 font-mono font-bold">
+                {modelHubSettings.defaultProvider.toUpperCase()} 默认驱动
+              </span>
+            </div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+              支持多供应商模型自由切换与连通性延时测试，无需在各模块重复配置 Key
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setModelModalOpen(true)}
+            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-xs shadow-blue-500/20 transition flex items-center gap-1.5"
+          >
+            <span>⚙️</span> 打开统一模型设置中心
+          </button>
+        </div>
+      </Section>
 
       <Section title="API Key" desc="从火山引擎控制台「API Key 管理」获取；本机加密存储，不会出现在前端代码中。">
         <div className="flex gap-2">
@@ -525,6 +550,13 @@ export default function Settings() {
           声音复刻为后付费音色，<b className="text-zinc-900 dark:text-zinc-100">首次调用合成接口即视为「转正」并收取音色槽位费</b>。请在复刻完成、试听满意后再正式合成。
         </div>
       </Section>
+
+      <ModelHubModal
+        open={modelModalOpen}
+        onClose={() => setModelModalOpen(false)}
+        settings={modelHubSettings}
+        onSave={(s) => setModelHubSettings(s)}
+      />
     </div>
   );
 }

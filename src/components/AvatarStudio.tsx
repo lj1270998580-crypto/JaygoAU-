@@ -24,7 +24,7 @@ const isAvatarReady = (item?: CustomAvatarItem | null): boolean => {
 };
 
 export default function AvatarStudio() {
-  const { settings, patchSettings, showToast, setTab, library } = useStore();
+  const { settings, patchSettings, showToast, setTab, library, pendingAvatarText, setPendingAvatarText } = useStore();
 
   // 凭证配置
   const hasCredentials = Boolean(settings?.chanjingAppId?.trim() && settings?.chanjingSecretKey?.trim());
@@ -64,6 +64,14 @@ export default function AvatarStudio() {
   // 生成参数
   const [driveType, setDriveType] = useState<'tts' | 'audio'>('tts');
   const [scriptText, setScriptText] = useState('');
+
+  useEffect(() => {
+    if (pendingAvatarText) {
+      setDriveType('tts');
+      setScriptText(pendingAvatarText);
+      setPendingAvatarText(null);
+    }
+  }, [pendingAvatarText, setPendingAvatarText]);
   const [speed, setSpeed] = useState<number>(1.0);
 
   // 音频驱动三模式：history (语音合成历史) | local (本地文件) | url (网络直链)

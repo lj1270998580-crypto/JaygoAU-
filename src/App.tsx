@@ -10,8 +10,28 @@ import Settings from './components/Settings';
 import Transcribe from './components/Transcribe';
 import AvatarStudio from './components/AvatarStudio';
 import MediaExtractor from './components/MediaExtractor';
+import { ScriptStudio } from './components/ScriptStudio';
+import { WorkflowStudio } from './components/WorkflowStudio';
+import { ModelHubModal } from './components/ModelHubModal';
 
 const Icon = {
+  script: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+    </svg>
+  ),
+  workflow: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <path d="M10 6.5h4" />
+      <path d="M17.5 10v4" />
+      <path d="M14 17.5H10" />
+    </svg>
+  ),
   synth: (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10" />
@@ -88,6 +108,8 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: '视听创作',
     items: [
+      { key: 'script', label: 'AI 文案工坊', icon: Icon.script },
+      { key: 'workflow', label: '定时流水线', icon: Icon.workflow },
       { key: 'avatar', label: '蝉镜数字人', icon: Icon.avatar },
       { key: 'extractor', label: '媒体提取', icon: Icon.extractor },
       { key: 'transcribe', label: '视音频转录', icon: Icon.transcribe },
@@ -105,6 +127,8 @@ const TAB_BREADCRUMBS: Record<Tab, { group: string; label: string }> = {
   synth: { group: '音频生产', label: '语音合成' },
   clone: { group: '音频生产', label: '声音复刻' },
   voices: { group: '音频生产', label: '音色中心' },
+  script: { group: '视听创作', label: 'AI 文案工坊' },
+  workflow: { group: '视听创作', label: '定时流水线' },
   avatar: { group: '视听创作', label: '蝉镜数字人' },
   extractor: { group: '视听创作', label: '媒体提取' },
   transcribe: { group: '视听创作', label: '视音频转录' },
@@ -269,8 +293,13 @@ export default function App() {
     showToast,
     sidebarCollapsed,
     toggleSidebarCollapsed,
+    modelHubSettings,
+    setModelHubSettings,
+    setPendingSynthText,
+    setPendingAvatarText,
   } = useStore();
   const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(() => new Set([tab]));
+  const [modelHubOpen, setModelHubOpen] = useState(false);
 
   useEffect(() => {
     setVisitedTabs((prev) => {
@@ -514,6 +543,30 @@ export default function App() {
                   <AvatarStudio />
                 </div>
               )}
+              {visitedTabs.has('script') && (
+                <div className={`h-full ${tab === 'script' ? 'flex flex-col' : 'hidden'}`}>
+                  <ScriptStudio
+                    modelSettings={modelHubSettings}
+                    onOpenModelHub={() => setModelHubOpen(true)}
+                    onPushToSynth={(text, voiceId) => {
+                      setPendingSynthText({ text, voiceId });
+                      setTab('synth');
+                    }}
+                    onPushToAvatar={(text) => {
+                      setPendingAvatarText(text);
+                      setTab('avatar');
+                    }}
+                  />
+                </div>
+              )}
+              {visitedTabs.has('workflow') && (
+                <div className={`h-full ${tab === 'workflow' ? 'flex flex-col' : 'hidden'}`}>
+                  <WorkflowStudio
+                    modelSettings={modelHubSettings}
+                    onOpenModelHub={() => setModelHubOpen(true)}
+                  />
+                </div>
+              )}
               {visitedTabs.has('settings') && (
                 <div className={`h-full overflow-y-auto ${tab === 'settings' ? 'block' : 'hidden'}`}>
                   <Settings />
@@ -523,6 +576,14 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* 统一模型设置中心 Modal */}
+      <ModelHubModal
+        open={modelHubOpen}
+        onClose={() => setModelHubOpen(false)}
+        settings={modelHubSettings}
+        onSave={(s) => setModelHubSettings(s)}
+      />
 
       {/* 悬浮 Toast */}
       {toast && (
