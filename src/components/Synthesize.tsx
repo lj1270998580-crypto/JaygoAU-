@@ -171,9 +171,15 @@ export default function Synthesize() {
       {/* 顶部标题区 */}
       <div className="flex items-center justify-between pb-4 mb-5 border-b border-zinc-100 dark:border-zinc-800/80">
         <div>
-          <h2 className="text-[17px] font-semibold text-zinc-900 dark:text-white leading-tight">语音合成工作台</h2>
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-[17px] font-semibold text-zinc-900 dark:text-white leading-tight">语音合成工作台</h2>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200/60 dark:border-blue-900/60">
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+              模型：Seed-TTS 2.0 / BigTTS
+            </span>
+          </div>
           <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-            高拟真豆包大模型语音合成，支持音色切换、语速情感微调与流式生成
+            搭载字节跳动火山引擎豆包语音大模型，支持超拟真多音色生成与情感微调
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -335,11 +341,28 @@ export default function Synthesize() {
               </div>
 
               <div className="min-w-0 flex-1">
-                <div className="text-[13.5px] font-semibold text-zinc-900 dark:text-zinc-100 truncate">
-                  {currentVoiceName || '未选择音色'}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[13.5px] font-semibold text-zinc-900 dark:text-zinc-100 truncate">
+                    {currentVoiceName || '未选择音色'}
+                  </span>
+                  <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200/50 dark:border-blue-900/50">
+                    {isOfficial
+                      ? officialInfo?.version === '2.0'
+                        ? 'Seed-TTS 2.0'
+                        : 'BigTTS 1.0'
+                      : 'Seed-Clone 2.0'}
+                  </span>
                 </div>
                 <div className="text-[11px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
-                  {isOfficial ? (officialInfo?.tag || '官方音色') : '我的克隆声音'}
+                  {isOfficial ? (officialInfo?.tag || '官方音色') : '我的专属声音'}
+                  <span className="mx-1 text-zinc-300 dark:text-zinc-700">·</span>
+                  <span className="text-zinc-500 dark:text-zinc-400 font-medium">
+                    {isOfficial
+                      ? officialInfo?.version === '2.0'
+                        ? '豆包大模型 2.0'
+                        : '经典大模型 1.0'
+                      : '声音复刻大模型'}
+                  </span>
                 </div>
               </div>
 
