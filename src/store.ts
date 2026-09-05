@@ -106,6 +106,10 @@ interface AppState {
   showToast: (msg: string, type?: 'ok' | 'err' | 'info') => void;
   pendingTranscribe: { filePath: string; fileName: string; autoStart?: boolean } | null;
   setPendingTranscribe: (p: { filePath: string; fileName: string; autoStart?: boolean } | null) => void;
+  sidebarCollapsed: boolean;
+  toggleSidebarCollapsed: () => void;
+  sidebarGrouped: boolean;
+  toggleSidebarGrouped: () => void;
 }
 
 function applyTheme(th: 'light' | 'dark') {
@@ -125,6 +129,22 @@ function getInitialTheme(): 'light' | 'dark' {
     if (saved === 'dark' || saved === 'light') return saved;
   } catch {}
   return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function getInitialSidebarCollapsed(): boolean {
+  try {
+    return localStorage.getItem('jaygo_sidebar_collapsed') === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function getInitialSidebarGrouped(): boolean {
+  try {
+    const saved = localStorage.getItem('jaygo_sidebar_grouped');
+    if (saved !== null) return saved === 'true';
+  } catch {}
+  return true; // 默认开启清晰的工作流分组
 }
 
 const initialTheme = getInitialTheme();
@@ -147,6 +167,22 @@ export const useStore = create<AppState>((set, get) => ({
   theme: initialTheme,
   pendingTranscribe: null,
   setPendingTranscribe: (p) => set({ pendingTranscribe: p }),
+  sidebarCollapsed: getInitialSidebarCollapsed(),
+  toggleSidebarCollapsed: () => {
+    const next = !get().sidebarCollapsed;
+    set({ sidebarCollapsed: next });
+    try {
+      localStorage.setItem('jaygo_sidebar_collapsed', String(next));
+    } catch {}
+  },
+  sidebarGrouped: getInitialSidebarGrouped(),
+  toggleSidebarGrouped: () => {
+    const next = !get().sidebarGrouped;
+    set({ sidebarGrouped: next });
+    try {
+      localStorage.setItem('jaygo_sidebar_grouped', String(next));
+    } catch {}
+  },
 
   async init() {
     applyTheme(get().theme);
