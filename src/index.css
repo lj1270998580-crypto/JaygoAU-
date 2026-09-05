@@ -177,7 +177,7 @@ html.dark .app-bg {
 
   /* ---------- 侧边栏 ---------- */
   .rail {
-    @apply w-[184px] shrink-0 flex flex-col pt-2.5 pb-3 px-2.5 gap-1 transition-all duration-200 ease-in-out;
+    @apply w-[196px] shrink-0 flex flex-col pt-2 pb-3 px-2.5 gap-1 transition-all duration-200 ease-in-out;
     background: #fafbfc;
     border-right: 1px solid #e4e4e7;
   }

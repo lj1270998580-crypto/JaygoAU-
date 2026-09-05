@@ -101,6 +101,17 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   },
 ];
 
+const TAB_BREADCRUMBS: Record<Tab, { group: string; label: string }> = {
+  synth: { group: '音频生产', label: '语音合成' },
+  clone: { group: '音频生产', label: '声音复刻' },
+  voices: { group: '音频生产', label: '音色中心' },
+  avatar: { group: '视听创作', label: '蝉镜数字人' },
+  extractor: { group: '视听创作', label: '媒体提取' },
+  transcribe: { group: '视听创作', label: '视音频转录' },
+  library: { group: '资产管理', label: '本地音频' },
+  settings: { group: '系统管理', label: '偏好设置' },
+};
+
 // 左下角三合一系统状态胶囊
 function SystemStatusCapsule() {
   const { hasKey, balance, refreshBalance, appVersion, update, checkUpdates, downloadUpdate, quitInstallUpdate } =
@@ -326,9 +337,9 @@ export default function App() {
     <div className="relative h-full w-full overflow-hidden flex flex-col bg-[#fafafa] dark:bg-[#0b0c10] text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
       <div className="app-bg" />
 
-      {/* ---- 自绘顶栏：集成全新 BrandLogo 与窗口操作 ---- */}
+      {/* ---- 自绘顶栏：集成折叠开关、动态智能面包屑与窗口操作 ---- */}
       <div className="titlebar relative z-20">
-        <div className="flex items-center gap-2 text-[12px] text-zinc-600 dark:text-zinc-400 font-medium">
+        <div className="flex items-center gap-2.5 text-[12px] text-zinc-600 dark:text-zinc-400 font-medium select-none">
           {/* 折叠/展开侧边栏按钮 */}
           <button
             type="button"
@@ -347,10 +358,23 @@ export default function App() {
             </svg>
           </button>
 
-          <BrandLogo size={18} />
-          <span className="font-semibold text-zinc-900 dark:text-white">Jaygo AU</span>
-          <span className="text-zinc-300 dark:text-zinc-700">/</span>
-          <span className="text-[11px] text-zinc-400 dark:text-zinc-500">全能 AI 自媒体创作工作台</span>
+          {/* 当侧边栏折叠时：顶栏平滑淡入 Mini Logo 与品牌标识，保持品牌感知 */}
+          {sidebarCollapsed && (
+            <div className="flex items-center gap-2">
+              <BrandLogo size={18} />
+              <span className="font-semibold text-zinc-900 dark:text-white text-[12px]">Jaygo AU</span>
+              <span className="text-zinc-300 dark:text-zinc-700">/</span>
+            </div>
+          )}
+
+          {/* 页面动态智能面包屑导航（消除顶栏重复 Logo，清晰标示当前模块） */}
+          {TAB_BREADCRUMBS[tab] && (
+            <div className="flex items-center gap-1.5 text-[11.5px]">
+              <span className="text-zinc-400 dark:text-zinc-500">{TAB_BREADCRUMBS[tab].group}</span>
+              <span className="text-zinc-300 dark:text-zinc-700 text-[10px]">›</span>
+              <span className="text-zinc-800 dark:text-zinc-200 font-semibold">{TAB_BREADCRUMBS[tab].label}</span>
+            </div>
+          )}
         </div>
         <div className="flex">
           <button className="titlebar-btn" title="最小化" onClick={() => api.windowMinimize()}>
@@ -374,25 +398,33 @@ export default function App() {
       <div className="relative z-10 flex flex-1 min-h-0">
         {/* 现代侧边栏（支持平滑收起展开） */}
         <aside className={`rail ${sidebarCollapsed ? 'rail-collapsed' : ''} flex flex-col justify-between`}>
-          {/* 上部：核心创作导航 */}
-          <div className="flex flex-col gap-1 overflow-y-auto no-scrollbar pt-1.5">
-            {NAV_GROUPS.map((group) => (
-              <div key={group.title} className="flex flex-col gap-0.5 mb-2">
-                <div className="rail-group-title">
-                  <span>{group.title}</span>
-                </div>
-                {group.items.map((n) => (
-                  <div
-                    key={n.key}
-                    className={`rail-item ${tab === n.key ? 'rail-item-active' : ''}`}
-                    onClick={() => setTab(n.key)}
-                  >
-                    {n.icon}
-                    <span className="rail-tip">{n.label}</span>
+          {/* 上部：品牌展厅与核心创作导航 */}
+          <div className="flex flex-col overflow-y-auto no-scrollbar">
+            {/* 侧边栏专属品牌展厅卡片（消除顶栏重复，恢复饱满视觉锚点） */}
+            <div className="px-1.5 pt-1 pb-3 mb-2 border-b border-zinc-200/70 dark:border-zinc-800/80">
+              <BrandLogo size={28} showText={true} subtext="AI 自媒体创作工作台" />
+            </div>
+
+            {/* 核心创作导航 */}
+            <div className="flex flex-col gap-1">
+              {NAV_GROUPS.map((group) => (
+                <div key={group.title} className="flex flex-col gap-0.5 mb-2">
+                  <div className="rail-group-title">
+                    <span>{group.title}</span>
                   </div>
-                ))}
-              </div>
-            ))}
+                  {group.items.map((n) => (
+                    <div
+                      key={n.key}
+                      className={`rail-item ${tab === n.key ? 'rail-item-active' : ''}`}
+                      onClick={() => setTab(n.key)}
+                    >
+                      {n.icon}
+                      <span className="rail-tip">{n.label}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* 下部固定底座：深浅主题切换 + 偏好设置 + 三合一状态胶囊 */}
