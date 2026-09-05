@@ -227,27 +227,27 @@ export default function VoicePickerModal({ isOpen, onClose, onSelect, currentVoi
               <button
                 type="button"
                 onClick={() => handleVersionChange('2.0')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition ${
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition ${
                   versionTab === '2.0'
                     ? 'bg-white dark:bg-[#202028] text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
                     : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
                 }`}
               >
-                <span>🌟 2.0 大模型音色</span>
+                <span>🌟 2.0 大模型</span>
                 <span className="text-[10px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-1 py-0.2 rounded font-normal">
-                  最新
+                  推荐
                 </span>
               </button>
               <button
                 type="button"
                 onClick={() => handleVersionChange('1.0')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition ${
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition ${
                   versionTab === '1.0'
                     ? 'bg-white dark:bg-[#202028] text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
                     : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
                 }`}
               >
-                <span>📻 1.0 经典音色</span>
+                <span>📻 1.0 经典</span>
               </button>
             </div>
           </div>

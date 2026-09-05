@@ -389,6 +389,105 @@ export default function Settings() {
         </div>
       </Section>
 
+      <Section title="桌面快捷方式与图标" desc="若更新软件后桌面快捷方式仍显示为旧图标，通常是因为 Windows 系统的图标缓存机制，可在此一键自愈刷新。">
+        <div className="glass-soft p-4 rounded-xl space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+                <span>当前应用图标状态</span>
+                <span className="text-[11px] font-normal text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                  极简微弧矩形已生效
+                </span>
+              </div>
+              <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
+                点击通知 Windows 资源管理器重新载入图标；若仍未生效可使用“深度自愈”重启资源管理器。
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn-primary !text-xs !py-1.5 flex items-center gap-1.5 whitespace-nowrap"
+                onClick={async () => {
+                  try {
+                    const res = await api.refreshDesktopIconCache();
+                    if (res.ok) {
+                      showToast(res.message || '桌面图标已刷新', 'ok');
+                    } else {
+                      showToast(res.message || '刷新指令发送异常', 'err');
+                    }
+                  } catch (e: any) {
+                    showToast(e?.message || '刷新失败', 'err');
+                  }
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                <span>🔄 立即刷新桌面图标</span>
+              </button>
+              <button
+                type="button"
+                className="btn-ghost !text-xs !py-1.5 text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 whitespace-nowrap"
+                title="清除系统 IconCache.db 并重启 Windows Explorer"
+                onClick={async () => {
+                  if (!confirm('深度自愈将安全重启 Windows 资源管理器（桌面将短暂闪烁 1 秒后自动恢复），确定继续吗？')) return;
+                  try {
+                    const res = await api.refreshDesktopIconCache({ deep: true });
+                    if (res.ok) {
+                      showToast(res.message || '深度刷新完成', 'ok');
+                    } else {
+                      showToast(res.message || '深度刷新失败', 'err');
+                    }
+                  } catch (e: any) {
+                    showToast(e?.message || '深度刷新失败', 'err');
+                  }
+                }}
+              >
+                深度自愈 (重启资源管理器)
+              </button>
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="系统托盘与任务通知" desc="配置窗口关闭行为与长任务完成提示，防止误关导致后台渲染或转录任务中断。">
+        <div className="glass-soft p-4 rounded-xl space-y-3.5">
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={settings.closeToTray !== false}
+              onChange={(e) => patchSettings({ closeToTray: e.target.checked })}
+              className="w-4 h-4 mt-0.5 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+            />
+            <div>
+              <div className="text-[13px] font-medium text-zinc-800 dark:text-zinc-200">
+                点击关闭按钮时最小化到系统托盘
+              </div>
+              <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5 leading-normal">
+                推荐开启。点击右上角 ✕ 按钮时仅隐藏窗口至右下角系统托盘，后台任务（数字人视频渲染、音频转录）继续运行。彻底退出请在右下角托盘图标右键选择「退出 Jaygo AU」。
+              </div>
+            </div>
+          </label>
+
+          <div className="border-t border-zinc-100 dark:border-zinc-800/80 pt-3">
+            <label className="flex items-start gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={settings.notifyOnTaskComplete !== false}
+                onChange={(e) => patchSettings({ notifyOnTaskComplete: e.target.checked })}
+                className="w-4 h-4 mt-0.5 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+              />
+              <div>
+                <div className="text-[13px] font-medium text-zinc-800 dark:text-zinc-200">
+                  长任务完成后发送 Windows 桌面弹窗通知
+                </div>
+                <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5 leading-normal">
+                  蝉镜数字人视频渲染完成或音视频转录完成时，屏幕右下角弹出系统原生通知。点击通知可直接唤起并跳转到对应任务页面。
+                </div>
+              </div>
+            </label>
+          </div>
+        </div>
+      </Section>
+
       <Section title="官方价格说明" desc="以下为火山引擎官方计费标准，帮助你了解各功能的消费情况（以官网最新公示为准）。">
         <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
           <table className="w-full text-[12.5px]">

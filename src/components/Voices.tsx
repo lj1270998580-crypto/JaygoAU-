@@ -40,7 +40,7 @@ function PreviewButton({
   return (
     <button
       type="button"
-      className={`btn-ghost !h-7 !px-2.5 !text-xs !rounded-md ${
+      className={`btn-ghost !h-7 !px-2.5 !text-xs !rounded-md whitespace-nowrap shrink-0 ${
         active ? '!text-blue-600 !border-blue-300 !bg-blue-50 dark:!bg-blue-950/40 dark:!text-blue-400' : ''
       }`}
       onClick={(e) => {
@@ -306,7 +306,7 @@ export default function Voices() {
       {topTab === 'my' && (
         <div className="mt-5 space-y-5 animate-fade-in">
           {/* 工具栏：复刻按钮与导入入口 */}
-          <div className="flex items-center justify-between gap-3 bg-zinc-50 dark:bg-[#16161a] p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-800">
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-50 dark:bg-[#16161a] p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-800">
             <div className="text-xs text-zinc-500 dark:text-zinc-400">
               包含通过声音复刻训练出的专属音色，训练就绪后可一键用于文本配音
             </div>
@@ -314,14 +314,14 @@ export default function Voices() {
               <button
                 type="button"
                 onClick={() => setShowAdd((s) => !s)}
-                className="btn-ghost !h-8 !px-3 !text-xs rounded-lg flex items-center gap-1"
+                className="btn-ghost !h-8 !px-3 !text-xs rounded-lg flex items-center gap-1 whitespace-nowrap shrink-0"
               >
                 <span>{showAdd ? '✕ 收起导入' : '＋ 导入已有音色'}</span>
               </button>
               <button
                 type="button"
                 onClick={() => setTab('clone')}
-                className="btn-primary !h-8 !px-3.5 !text-xs rounded-lg flex items-center gap-1.5 font-medium shadow-sm"
+                className="btn-primary !h-8 !px-3.5 !text-xs rounded-lg flex items-center gap-1.5 font-medium shadow-sm whitespace-nowrap shrink-0"
               >
                 <span>🎙️</span>
                 <span>复刻新音色</span>
@@ -403,7 +403,7 @@ export default function Voices() {
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
               {voices.map((v) => {
                 const isReady = voiceReady(v);
                 const isEditing = editingId === v.id;
@@ -411,7 +411,7 @@ export default function Voices() {
                 return (
                   <div
                     key={v.id}
-                    className="flex flex-col justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#16161a] hover:border-blue-300 dark:hover:border-blue-600/70 hover:shadow-md transition-all group"
+                    className="flex flex-col justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#16161a] hover:border-blue-300 dark:hover:border-blue-600/70 hover:shadow-md transition-all group min-w-0"
                   >
                     <div>
                       {/* 头部：头像 + 状态 */}
@@ -495,8 +495,8 @@ export default function Voices() {
                     </div>
 
                     {/* 卡片底栏操作按钮 */}
-                    <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between gap-1.5">
-                      <div className="flex items-center gap-1">
+                    <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
                         {isReady && (
                           <PreviewButton
                             active={previewId === v.id}
@@ -505,32 +505,33 @@ export default function Voices() {
                           />
                         )}
                         <button
-                          className="btn-ghost !h-7 !px-2 !text-xs !rounded-md"
+                          className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-xs text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800 transition shrink-0"
                           onClick={() => query(v.id)}
                           disabled={busyId === v.id}
                           title="从火山服务器查询最新状态"
                         >
-                          {busyId === v.id ? '…' : '刷新'}
+                          <span className={busyId === v.id ? 'animate-spin inline-block' : ''}>🔄</span>
                         </button>
                         <button
-                          className="btn-ghost !h-7 !px-2 !text-xs !rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40"
+                          className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-xs text-red-500 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950/40 transition shrink-0"
                           onClick={() => remove(v.id)}
-                          title="从列表中移除"
+                          title="从本地列表中移除"
                         >
-                          删除
+                          🗑️
                         </button>
                       </div>
 
                       {isReady && (
                         <button
-                          className="btn-primary !h-7 !px-3 !text-xs !rounded-md font-medium"
+                          className="btn-primary !h-7 !px-3 !text-xs !rounded-lg font-medium whitespace-nowrap shrink-0 shadow-sm flex items-center gap-1"
                           onClick={() => {
                             setOfficialVoice('');
                             setSelectedVoice(v.id);
                             setTab('synth');
                           }}
                         >
-                          去合成
+                          <span>去合成</span>
+                          <span>→</span>
                         </button>
                       )}
                     </div>
@@ -546,42 +547,42 @@ export default function Voices() {
       {topTab === 'official' && (
         <div className="mt-5 space-y-5 animate-fade-in">
           {/* 版本切换栏与价格说明 */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-zinc-50 dark:bg-[#16161a] border border-zinc-200/80 dark:border-zinc-800">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3.5 rounded-xl bg-zinc-50 dark:bg-[#16161a] border border-zinc-200/80 dark:border-zinc-800">
             {/* 2.0 vs 1.0 分段切换器 */}
             <div className="flex items-center p-1 rounded-xl bg-zinc-200/80 dark:bg-zinc-800/90 shrink-0 select-none">
               <button
                 type="button"
                 onClick={() => handleVersionChange('2.0')}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition ${
                   versionTab === '2.0'
                     ? 'bg-white dark:bg-[#202028] text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
                     : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
                 }`}
               >
                 <span>🌟 2.0 大模型音色</span>
-                <span className="text-[10px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-1 py-0.2 rounded font-normal">
-                  推荐 · {OFFICIAL_VOICES_V2.length}个
+                <span className="text-[10px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-1.5 py-0.2 rounded font-normal">
+                  {OFFICIAL_VOICES_V2.length}个
                 </span>
               </button>
 
               <button
                 type="button"
                 onClick={() => handleVersionChange('1.0')}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition ${
                   versionTab === '1.0'
                     ? 'bg-white dark:bg-[#202028] text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
                     : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
                 }`}
               >
                 <span>📻 1.0 经典音色</span>
-                <span className="text-[10px] px-1 py-0.2 text-zinc-500">
+                <span className="text-[10px] px-1.5 py-0.2 text-zinc-500">
                   {OFFICIAL_VOICES_V1.length}个
                 </span>
               </button>
             </div>
 
             {/* 计费提示 */}
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">
+            <div className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
               {versionTab === '2.0' ? (
                 <span className="text-blue-600 dark:text-blue-400">
                   💡 Seed-TTS 2.0 大模型音色，按量计费 5.0 元/万字（购买资源包低至 2.8 元/万字）
@@ -626,18 +627,18 @@ export default function Voices() {
                     <span className="text-zinc-400 font-normal">({g.voices.length})</span>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
                     {g.voices.map((v) => {
                       const isV2 = v.version === '2.0';
                       return (
                         <div
                           key={v.id}
                           onClick={() => useOfficial(v.id)}
-                          className="flex items-center justify-between p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#16161a] hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-sm cursor-pointer select-none transition group"
+                          className="flex items-center justify-between p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#16161a] hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-sm cursor-pointer select-none transition group min-w-0"
                           title={`点击在语音合成中使用此音色\nID: ${v.id}`}
                         >
                           <div className="min-w-0 flex-1 pr-1.5">
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 min-w-0">
                               <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate">
                                 {v.name}
                               </span>

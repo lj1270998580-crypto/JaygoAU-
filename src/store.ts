@@ -2,12 +2,40 @@ import { create } from 'zustand';
 import { api } from './lib/ipc';
 import type { Settings, LibraryItem, ScannedAudio, UpdateEvent } from './types';
 
-// 将已记录的库与磁盘扫描结果合并（按路径去重，磁盘历史文件补默认字段）
+// 将已记录的库与磁盘扫描结果合并（按路径去重，自动修复多机运行/目录变更时的失效绝对路径）
 function mergeLibrary(existing: LibraryItem[], scanned: ScannedAudio[]): LibraryItem[] {
-  const byPath = new Map(existing.map((i) => [i.path, i]));
+  const scannedByName = new Map<string, ScannedAudio>();
+  const scannedByPath = new Set<string>();
   for (const s of scanned) {
-    if (!byPath.has(s.path)) {
-      byPath.set(s.path, {
+    const fn = s.name.toLowerCase();
+    scannedByName.set(fn, s);
+    scannedByPath.add(s.path.toLowerCase());
+  }
+
+  const updatedExisting: LibraryItem[] = [];
+  const handledPaths = new Set<string>();
+
+  for (const item of existing) {
+    let finalPath = item.path;
+    const itemFileName = (item.path.split(/[/\\]/).pop() || '').toLowerCase();
+    // 若原绝对路径不存在，但当前扫描目录中有同名真实文件，自动纠偏为当前真实路径
+    if (!scannedByPath.has(item.path.toLowerCase()) && scannedByName.has(itemFileName)) {
+      const match = scannedByName.get(itemFileName)!;
+      finalPath = match.path;
+    }
+    const pathKey = finalPath.toLowerCase();
+    if (!handledPaths.has(pathKey)) {
+      handledPaths.add(pathKey);
+      updatedExisting.push({ ...item, path: finalPath });
+    }
+  }
+
+  // 追加磁盘上存在但现有记录中没有的新文件
+  for (const s of scanned) {
+    const pathKey = s.path.toLowerCase();
+    if (!handledPaths.has(pathKey)) {
+      handledPaths.add(pathKey);
+      updatedExisting.push({
         id: s.path,
         text: s.name,
         path: s.path,
@@ -19,10 +47,11 @@ function mergeLibrary(existing: LibraryItem[], scanned: ScannedAudio[]): Library
       });
     }
   }
-  return Array.from(byPath.values()).sort((a, b) => b.createdAt - a.createdAt);
+
+  return updatedExisting.sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export type Tab = 'settings' | 'clone' | 'voices' | 'synth' | 'library' | 'transcribe' | 'avatar';
+export type Tab = 'settings' | 'clone' | 'voices' | 'synth' | 'library' | 'transcribe' | 'avatar' | 'extractor';
 export type { LibraryItem } from './types';
 
 export interface BalanceInfo {
@@ -75,6 +104,8 @@ interface AppState {
   addLibrary: (item: LibraryItem) => void;
   setSynth: (s: Partial<AppState['synth']>) => void;
   showToast: (msg: string, type?: 'ok' | 'err' | 'info') => void;
+  pendingTranscribe: { filePath: string; fileName: string; autoStart?: boolean } | null;
+  setPendingTranscribe: (p: { filePath: string; fileName: string; autoStart?: boolean } | null) => void;
 }
 
 function applyTheme(th: 'light' | 'dark') {
@@ -114,6 +145,8 @@ export const useStore = create<AppState>((set, get) => ({
   appVersion: '',
   update: { checking: false, available: null, downloaded: false, progress: 0, error: null, notAvailable: false },
   theme: initialTheme,
+  pendingTranscribe: null,
+  setPendingTranscribe: (p) => set({ pendingTranscribe: p }),
 
   async init() {
     applyTheme(get().theme);
@@ -127,7 +160,19 @@ export const useStore = create<AppState>((set, get) => ({
     if (merged.length !== (settings.library?.length ?? 0)) {
       await api.saveSettings({ library: merged }).catch(() => {});
     }
-    set({ settings: { ...settings, library: merged }, hasKey, library: merged, tab: hasKey ? 'synth' : 'settings' });
+    const initialOfficialVoice = settings.lastOfficialVoiceId !== undefined
+      ? settings.lastOfficialVoiceId
+      : (settings.lastSelectedVoiceId ? '' : 'zh_female_vv_uranus_bigtts');
+    const initialSelectedVoice = settings.lastSelectedVoiceId ?? null;
+
+    set({
+      settings: { ...settings, library: merged },
+      hasKey,
+      library: merged,
+      tab: hasKey ? 'synth' : 'settings',
+      officialVoiceId: initialOfficialVoice,
+      selectedVoiceId: initialSelectedVoice,
+    });
 
     // 软件启动 1.5 秒后自动在后台检查云端更新
     setTimeout(() => {
@@ -152,10 +197,12 @@ export const useStore = create<AppState>((set, get) => ({
 
   setSelectedVoice(id) {
     set({ selectedVoiceId: id });
+    api.saveSettings({ lastSelectedVoiceId: id, lastOfficialVoiceId: get().officialVoiceId }).catch(() => {});
   },
 
   setOfficialVoice(id) {
     set({ officialVoiceId: id });
+    api.saveSettings({ lastOfficialVoiceId: id, lastSelectedVoiceId: get().selectedVoiceId }).catch(() => {});
   },
 
   async removeLibrary(itemPath) {

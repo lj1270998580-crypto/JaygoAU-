@@ -9,6 +9,7 @@ import Library from './components/Library';
 import Settings from './components/Settings';
 import Transcribe from './components/Transcribe';
 import AvatarStudio from './components/AvatarStudio';
+import MediaExtractor from './components/MediaExtractor';
 
 const Icon = {
   synth: (
@@ -26,9 +27,9 @@ const Icon = {
   ),
   voices: (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
       <circle cx="9" cy="7" r="4" />
-      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   ),
@@ -41,10 +42,16 @@ const Icon = {
   ),
   transcribe: (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <polyline points="14 2 14 8 20 8" />
-      <line x1="8" y1="13" x2="16" y2="13" />
-      <line x1="8" y1="17" x2="12" y2="17" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+      <line x1="10" y1="9" x2="8" y2="9" />
+    </svg>
+  ),
+  extractor: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
     </svg>
   ),
   avatar: (
@@ -63,13 +70,14 @@ const Icon = {
   ),
 };
 
-// 6 个主功能导航项（设置移至左下角独立常驻）
+// 7 个主功能导航项（设置移至左下角独立常驻）
 const MAIN_NAV: { key: Tab; label: string; icon: JSX.Element }[] = [
   { key: 'synth', label: '语音合成', icon: Icon.synth },
   { key: 'clone', label: '声音复刻', icon: Icon.clone },
   { key: 'voices', label: '音色中心', icon: Icon.voices },
   { key: 'library', label: '本地音频', icon: Icon.library },
   { key: 'transcribe', label: '视音频转录', icon: Icon.transcribe },
+  { key: 'extractor', label: '媒体提取', icon: Icon.extractor },
   { key: 'avatar', label: '蝉镜数字人', icon: Icon.avatar },
 ];
 
@@ -219,6 +227,16 @@ function SystemStatusCapsule() {
 
 export default function App() {
   const { settings, tab, toast, theme, init, setTab, toggleTheme, setSynth, showToast } = useStore();
+  const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(() => new Set([tab]));
+
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev.has(tab)) return prev;
+      const next = new Set(prev);
+      next.add(tab);
+      return next;
+    });
+  }, [tab]);
 
   useEffect(() => {
     init();
@@ -233,6 +251,16 @@ export default function App() {
     });
     return off;
   }, []);
+
+  useEffect(() => {
+    if (!api?.onNavigateTab) return;
+    const off = api.onNavigateTab((targetTab: any) => {
+      if (targetTab) {
+        setTab(targetTab as Tab);
+      }
+    });
+    return off;
+  }, [setTab]);
 
   if (!api) {
     return (
@@ -351,23 +379,54 @@ export default function App() {
           </div>
         </aside>
 
-        {/* 主内容工作区画布 */}
-        <main className="flex-1 min-w-0 overflow-hidden bg-white dark:bg-[#0c0c0e] border-l border-zinc-200/70 dark:border-zinc-800/80 transition-colors">
-          <div className="h-full overflow-y-auto">
-            {!settings ? (
-              <div className="h-full flex items-center justify-center text-zinc-400 text-sm">加载中…</div>
-            ) : (
-              <>
-                {tab === 'settings' && <Settings />}
-                {tab === 'clone' && <Clone />}
-                {tab === 'voices' && <Voices />}
-                {tab === 'synth' && <Synthesize />}
-                {tab === 'library' && <Library />}
-                {tab === 'transcribe' && <Transcribe />}
-                {tab === 'avatar' && <AvatarStudio />}
-              </>
-            )}
-          </div>
+        {/* 主内容工作区画布（按需懒挂载 + Keep-Alive 虚拟栈，保留各模块文本输入、状态与后台任务） */}
+        <main className="flex-1 min-w-0 overflow-hidden bg-white dark:bg-[#0c0c0e] border-l border-zinc-200/70 dark:border-zinc-800/80 transition-colors relative">
+          {!settings ? (
+            <div className="h-full flex items-center justify-center text-zinc-400 text-sm">加载中…</div>
+          ) : (
+            <div className="h-full relative">
+              {visitedTabs.has('synth') && (
+                <div className={`h-full overflow-y-auto ${tab === 'synth' ? 'block' : 'hidden'}`}>
+                  <Synthesize />
+                </div>
+              )}
+              {visitedTabs.has('clone') && (
+                <div className={`h-full overflow-y-auto ${tab === 'clone' ? 'block' : 'hidden'}`}>
+                  <Clone />
+                </div>
+              )}
+              {visitedTabs.has('voices') && (
+                <div className={`h-full overflow-y-auto ${tab === 'voices' ? 'block' : 'hidden'}`}>
+                  <Voices />
+                </div>
+              )}
+              {visitedTabs.has('library') && (
+                <div className={`h-full overflow-y-auto ${tab === 'library' ? 'block' : 'hidden'}`}>
+                  <Library />
+                </div>
+              )}
+              {visitedTabs.has('transcribe') && (
+                <div className={`h-full overflow-y-auto ${tab === 'transcribe' ? 'block' : 'hidden'}`}>
+                  <Transcribe />
+                </div>
+              )}
+              {visitedTabs.has('extractor') && (
+                <div className={`h-full overflow-y-auto ${tab === 'extractor' ? 'block' : 'hidden'}`}>
+                  <MediaExtractor />
+                </div>
+              )}
+              {visitedTabs.has('avatar') && (
+                <div className={`h-full ${tab === 'avatar' ? 'flex flex-col' : 'hidden'}`}>
+                  <AvatarStudio />
+                </div>
+              )}
+              {visitedTabs.has('settings') && (
+                <div className={`h-full overflow-y-auto ${tab === 'settings' ? 'block' : 'hidden'}`}>
+                  <Settings />
+                </div>
+              )}
+            </div>
+          )}
         </main>
       </div>
 

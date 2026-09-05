@@ -30,6 +30,12 @@ export interface Settings {
   // ---- 蝉镜开放平台（数字人视频生成） ----
   chanjingAppId?: string;
   chanjingSecretKey?: string;
+  // ---- 用户上次使用的音色记忆（避免重启跳回默认） ----
+  lastSelectedVoiceId?: string | null;
+  lastOfficialVoiceId?: string;
+  // ---- 系统托盘与任务通知偏好 ----
+  closeToTray?: boolean;
+  notifyOnTaskComplete?: boolean;
 }
 
 export interface SynthProgress {
@@ -139,10 +145,41 @@ export interface JaygoAPI {
   // ---- 蝉镜开放平台（数字人） ----
   chanjingAuth(): Promise<{ ok: boolean; message: string; accessToken?: string }>;
   chanjingListAvatars(a?: { page?: number; size?: number }): Promise<{ list: AvatarItem[]; total: number }>;
+  chanjingListCustomAvatars(): Promise<CustomAvatarItem[]>;
+  chanjingGetFontList(): Promise<FontItem[]>;
   chanjingCreateVideo(params: CreateAvatarVideoParams): Promise<{ videoId: string }>;
   chanjingQueryVideo(id: string): Promise<AvatarVideoTask>;
   chanjingListVideos(a?: { page?: number; size?: number }): Promise<{ list: AvatarVideoTask[]; total: number }>;
+  chanjingDeleteVideo(id: string): Promise<boolean>;
   chanjingDownloadVideo(a: { url: string; defaultName?: string }): Promise<{ canceled: boolean; filePath?: string }>;
+  chanjingUploadTempAudio(a: { localPath: string }): Promise<{ url: string; key: string }>;
+  chanjingDeleteTempAudio(a: { key: string }): Promise<boolean>;
+  // ---- 系统与桌面图标自愈 ----
+  refreshDesktopIconCache(a?: { deep?: boolean }): Promise<{ ok: boolean; message: string }>;
+  // ---- 系统托盘与原生桌面通知 ----
+  showNotification(a: { title: string; body: string; tab?: string }): Promise<void>;
+  appQuit(): Promise<void>;
+  onNavigateTab(cb: (tab: string) => void): () => void;
+  // ---- 多平台媒体/短视频无水印提取 ----
+  extractMedia(input: string): Promise<ParsedMediaInfo>;
+  downloadExtractedMedia(a: { mediaInfo: ParsedMediaInfo; type: 'video' | 'audio' }): Promise<{ path: string; size: number } | null>;
+  extractMediaForTranscribe(a: { mediaInfo: ParsedMediaInfo }): Promise<{ filePath: string; fileName: string }>;
+  showItemInFolder(path: string): Promise<boolean>;
+}
+
+export interface ParsedMediaInfo {
+  platform: 'douyin' | 'bilibili' | 'kuaishou' | 'xiaohongshu' | 'generic';
+  platformName: string;
+  title: string;
+  author: string;
+  authorAvatar?: string;
+  coverUrl?: string;
+  videoUrl?: string;
+  audioUrl?: string;
+  durationSec?: number;
+  originalUrl: string;
+  headers?: Record<string, string>;
+  images?: string[];
 }
 
 export interface AvatarFigure {
@@ -168,6 +205,37 @@ export interface AvatarItem {
   tag_names?: string[];
 }
 
+export interface CustomAvatarItem {
+  id: string;
+  name: string;
+  pic_url: string;
+  preview_url?: string;
+  audio_man_id?: string;
+  status: number; // 蝉镜状态码：2 已就绪完成，1 训练/制作中，0 排队，3 失败
+  progress?: number; // 进度百分比 0-100
+  is_ready?: boolean; // 是否可用于生成视频
+  source: 0 | 1; // 0 API定制 1 主站定制
+  support_4k?: boolean;
+  create_time?: number;
+}
+
+export interface FontItem {
+  id: string;
+  name: string;
+  preview?: string;
+  ttf_path?: string;
+}
+
+export interface SubtitleStyleConfig {
+  show: boolean;
+  preset?: 'white-black' | 'yellow-black' | 'black-white' | 'cyan-glow' | 'custom';
+  fontId?: string;
+  fontSize?: number;
+  color?: string;
+  strokeColor?: string;
+  strokeWidth?: number;
+}
+
 export interface AvatarVideoTask {
   id: string;
   status: number; // 10生成中，30成功，4X/5X异常
@@ -180,11 +248,14 @@ export interface AvatarVideoTask {
   duration?: number;
   queue_status?: 'queued' | 'processing' | 'completed' | 'failed' | 'other';
   queue_desc?: string;
+  ossKey?: string; // 临时音频 OSS key（任务结束后自动删除）
 }
 
 export interface CreateAvatarVideoParams {
   personId: string;
   figureType?: string;
+  isCustom?: boolean;
+  source?: 0 | 1;
   driveType: 'tts' | 'audio';
   text?: string;
   speed?: number;
@@ -193,6 +264,8 @@ export interface CreateAvatarVideoParams {
   aspectRatio: '9:16' | '16:9';
   model?: number; // 0基础版, 1高质版
   showSubtitle?: boolean;
+  subtitleConfig?: SubtitleStyleConfig;
+  ossKey?: string;
 }
 
 declare global {
