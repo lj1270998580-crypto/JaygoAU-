@@ -101,16 +101,6 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   },
 ];
 
-const FLAT_NAV: NavItem[] = [
-  { key: 'synth', label: '语音合成', icon: Icon.synth },
-  { key: 'clone', label: '声音复刻', icon: Icon.clone },
-  { key: 'voices', label: '音色中心', icon: Icon.voices },
-  { key: 'avatar', label: '蝉镜数字人', icon: Icon.avatar },
-  { key: 'extractor', label: '媒体提取', icon: Icon.extractor },
-  { key: 'transcribe', label: '视音频转录', icon: Icon.transcribe },
-  { key: 'library', label: '本地音频', icon: Icon.library },
-];
-
 // 左下角三合一系统状态胶囊
 function SystemStatusCapsule() {
   const { hasKey, balance, refreshBalance, appVersion, update, checkUpdates, downloadUpdate, quitInstallUpdate } =
@@ -268,8 +258,6 @@ export default function App() {
     showToast,
     sidebarCollapsed,
     toggleSidebarCollapsed,
-    sidebarGrouped,
-    toggleSidebarGrouped,
   } = useStore();
   const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(() => new Set([tab]));
 
@@ -384,74 +372,27 @@ export default function App() {
       </div>
 
       <div className="relative z-10 flex flex-1 min-h-0">
-        {/* 现代侧边栏（支持平滑收起展开 + 分组/混排切换） */}
+        {/* 现代侧边栏（支持平滑收起展开） */}
         <aside className={`rail ${sidebarCollapsed ? 'rail-collapsed' : ''} flex flex-col justify-between`}>
-          {/* 上部：品牌区与核心创作导航 */}
-          <div className="flex flex-col gap-1 overflow-y-auto no-scrollbar">
-            {/* 品牌徽标头 + 分组切换小开关 */}
-            <div className="px-1.5 py-1.5 mb-1 flex items-center justify-between">
-              <BrandLogo size={26} showText={true} subtext="AI 自媒体工作台" />
-
-              {/* 分组/混排切换微按钮 */}
-              <button
-                type="button"
-                onClick={toggleSidebarGrouped}
-                className="grid h-6 w-6 place-items-center rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 transition text-[11px]"
-                title={sidebarGrouped ? '当前：工作流分组（点击切换为经典混排）' : '当前：经典混排（点击切换为工作流分组）'}
-              >
-                {sidebarGrouped ? (
-                  /* 分组模式图标 */
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="3" width="7" height="7" rx="1" />
-                    <rect x="14" y="3" width="7" height="7" rx="1" />
-                    <rect x="3" y="14" width="7" height="7" rx="1" />
-                    <rect x="14" y="14" width="7" height="7" rx="1" />
-                  </svg>
-                ) : (
-                  /* 混排模式图标 */
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="8" y1="6" x2="21" y2="6" />
-                    <line x1="8" y1="12" x2="21" y2="12" />
-                    <line x1="8" y1="18" x2="21" y2="18" />
-                    <line x1="3" y1="6" x2="3.01" y2="6" />
-                    <line x1="3" y1="12" x2="3.01" y2="12" />
-                    <line x1="3" y1="18" x2="3.01" y2="18" />
-                  </svg>
-                )}
-              </button>
-            </div>
-
-            {/* 核心页面选项 */}
-            {sidebarGrouped ? (
-              NAV_GROUPS.map((group) => (
-                <div key={group.title} className="flex flex-col gap-0.5 mb-1.5">
-                  <div className="rail-group-title">
-                    <span>{group.title}</span>
+          {/* 上部：核心创作导航 */}
+          <div className="flex flex-col gap-1 overflow-y-auto no-scrollbar pt-1.5">
+            {NAV_GROUPS.map((group) => (
+              <div key={group.title} className="flex flex-col gap-0.5 mb-2">
+                <div className="rail-group-title">
+                  <span>{group.title}</span>
+                </div>
+                {group.items.map((n) => (
+                  <div
+                    key={n.key}
+                    className={`rail-item ${tab === n.key ? 'rail-item-active' : ''}`}
+                    onClick={() => setTab(n.key)}
+                  >
+                    {n.icon}
+                    <span className="rail-tip">{n.label}</span>
                   </div>
-                  {group.items.map((n) => (
-                    <div
-                      key={n.key}
-                      className={`rail-item ${tab === n.key ? 'rail-item-active' : ''}`}
-                      onClick={() => setTab(n.key)}
-                    >
-                      {n.icon}
-                      <span className="rail-tip">{n.label}</span>
-                    </div>
-                  ))}
-                </div>
-              ))
-            ) : (
-              FLAT_NAV.map((n) => (
-                <div
-                  key={n.key}
-                  className={`rail-item ${tab === n.key ? 'rail-item-active' : ''}`}
-                  onClick={() => setTab(n.key)}
-                >
-                  {n.icon}
-                  <span className="rail-tip">{n.label}</span>
-                </div>
-              ))
-            )}
+                ))}
+              </div>
+            ))}
           </div>
 
           {/* 下部固定底座：深浅主题切换 + 偏好设置 + 三合一状态胶囊 */}

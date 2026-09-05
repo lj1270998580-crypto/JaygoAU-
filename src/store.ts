@@ -108,8 +108,6 @@ interface AppState {
   setPendingTranscribe: (p: { filePath: string; fileName: string; autoStart?: boolean } | null) => void;
   sidebarCollapsed: boolean;
   toggleSidebarCollapsed: () => void;
-  sidebarGrouped: boolean;
-  toggleSidebarGrouped: () => void;
 }
 
 function applyTheme(th: 'light' | 'dark') {
@@ -139,14 +137,6 @@ function getInitialSidebarCollapsed(): boolean {
   }
 }
 
-function getInitialSidebarGrouped(): boolean {
-  try {
-    const saved = localStorage.getItem('jaygo_sidebar_grouped');
-    if (saved !== null) return saved === 'true';
-  } catch {}
-  return true; // 默认开启清晰的工作流分组
-}
-
 const initialTheme = getInitialTheme();
 applyTheme(initialTheme);
 
@@ -173,14 +163,6 @@ export const useStore = create<AppState>((set, get) => ({
     set({ sidebarCollapsed: next });
     try {
       localStorage.setItem('jaygo_sidebar_collapsed', String(next));
-    } catch {}
-  },
-  sidebarGrouped: getInitialSidebarGrouped(),
-  toggleSidebarGrouped: () => {
-    const next = !get().sidebarGrouped;
-    set({ sidebarGrouped: next });
-    try {
-      localStorage.setItem('jaygo_sidebar_grouped', String(next));
     } catch {}
   },
 

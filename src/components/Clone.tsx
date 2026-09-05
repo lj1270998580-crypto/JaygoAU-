@@ -76,8 +76,26 @@ export default function Clone() {
   return (
     <div className="page">
       <div className="page-head">
-        <h2 className="page-title">声音复刻</h2>
-        <p className="page-desc">上传一段清晰人声（建议 10–25 秒、≤10MB），训练出专属克隆音色</p>
+        <div className="flex items-center gap-2.5">
+          <h2 className="page-title">声音复刻</h2>
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-900/60">
+            <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 animate-pulse" />
+            模型：Volcano Seed-Clone 2.0 (极速复刻大模型)
+          </span>
+        </div>
+        <p className="page-desc">
+          上传一段清晰人声（建议 10–25 秒、≤10MB），通过火山引擎 Seed-Clone 2.0 深度提取声纹特征并训练专属音色
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-indigo-100 dark:border-indigo-950/60 bg-indigo-50/30 dark:bg-indigo-950/20 p-3 mb-4 text-xs space-y-1">
+        <div className="flex items-center gap-1.5 font-semibold text-indigo-700 dark:text-indigo-300">
+          <span>🧬</span>
+          <span>复刻引擎：字节跳动火山引擎 Seed-Clone 2.0 声学大模型</span>
+        </div>
+        <p className="text-[11.5px] text-zinc-600 dark:text-zinc-400 leading-relaxed">
+          采用新一代自研深度神经网络，精准提取说话人的音色共鸣与发音韵律特征，仅需数秒音频即可完成高保真数字音色克隆。
+        </p>
       </div>
 
       {!hasKey && (
