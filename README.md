@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://ailabing.cn/jaygo-au.html">官方网站</a> •
-  <a href="https://ailabing.cn/jaygo-au/updates/Jaygo.AU.Setup.0.4.1.exe">Windows 安装包下载</a> •
+  <a href="https://ailabing.cn/jaygo-au/updates/Jaygo.AU.Setup.0.4.2.exe">Windows 安装包下载</a> •
   <a href="https://github.com/lj1270998580-crypto/JaygoAU-">GitHub 仓库</a>
 </p>
 
@@ -54,8 +54,8 @@
 - **智能标点与说话人分离**：自动生成精准标点分句，可选开启说话人声纹聚类分离（Speaker Diarization），文案脚本导出极速高效。
 
 ### 6. 🛡️ 工业级细节与现代桌面体验
+- **侧栏品牌展厅 + 顶栏智能面包屑**：侧边栏恢复精致饱满的品牌展厅，顶栏彻底消除重复 Logo 并呈现当前模块智能面包屑导航；支持 `Ctrl + B` 自由折叠侧栏，折叠时顶栏自动平滑淡入 Mini Logo 保持品牌感知。
 - **三层工作流清晰导航**：按「音频生产」、「视听创作」、「资产管理」科学归类，符合自媒体工业化制作习惯。
-- **侧边栏自由折叠（`Ctrl + B`）**：一键收起侧边栏进入沉浸式满屏大画布，大文案编辑与长视频监看更舒适。
 - **现代美学字体栈**：引入包含全中文字符集的 **思源黑体（Noto Sans SC）** 与西文 **Inter** 现代字体，告别宋体与陈旧排版。
 - **系统托盘后台守护**：支持配置“关闭窗口最小化至系统托盘”，防止误操作关闭导致正在渲染的数字人或长文本转录任务中断。
 - **实时账户余额监测**：内置火山引擎 AK/SK V4 签名鉴权，左下角动态轮询可用余额，悬停可查看现金/欠费/冻结明细。
