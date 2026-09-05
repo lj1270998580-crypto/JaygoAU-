@@ -70,15 +70,45 @@ const Icon = {
   ),
 };
 
-// 7 个主功能导航项（设置移至左下角独立常驻）
-const MAIN_NAV: { key: Tab; label: string; icon: JSX.Element }[] = [
+interface NavItem {
+  key: Tab;
+  label: string;
+  icon: JSX.Element;
+}
+
+const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
+  {
+    title: '音频生产',
+    items: [
+      { key: 'synth', label: '语音合成', icon: Icon.synth },
+      { key: 'clone', label: '声音复刻', icon: Icon.clone },
+      { key: 'voices', label: '音色中心', icon: Icon.voices },
+    ],
+  },
+  {
+    title: '视听创作',
+    items: [
+      { key: 'avatar', label: '蝉镜数字人', icon: Icon.avatar },
+      { key: 'extractor', label: '媒体提取', icon: Icon.extractor },
+      { key: 'transcribe', label: '视音频转录', icon: Icon.transcribe },
+    ],
+  },
+  {
+    title: '资产管理',
+    items: [
+      { key: 'library', label: '本地音频', icon: Icon.library },
+    ],
+  },
+];
+
+const FLAT_NAV: NavItem[] = [
   { key: 'synth', label: '语音合成', icon: Icon.synth },
   { key: 'clone', label: '声音复刻', icon: Icon.clone },
   { key: 'voices', label: '音色中心', icon: Icon.voices },
-  { key: 'library', label: '本地音频', icon: Icon.library },
-  { key: 'transcribe', label: '视音频转录', icon: Icon.transcribe },
-  { key: 'extractor', label: '媒体提取', icon: Icon.extractor },
   { key: 'avatar', label: '蝉镜数字人', icon: Icon.avatar },
+  { key: 'extractor', label: '媒体提取', icon: Icon.extractor },
+  { key: 'transcribe', label: '视音频转录', icon: Icon.transcribe },
+  { key: 'library', label: '本地音频', icon: Icon.library },
 ];
 
 // 左下角三合一系统状态胶囊
@@ -226,7 +256,21 @@ function SystemStatusCapsule() {
 }
 
 export default function App() {
-  const { settings, tab, toast, theme, init, setTab, toggleTheme, setSynth, showToast } = useStore();
+  const {
+    settings,
+    tab,
+    toast,
+    theme,
+    init,
+    setTab,
+    toggleTheme,
+    setSynth,
+    showToast,
+    sidebarCollapsed,
+    toggleSidebarCollapsed,
+    sidebarGrouped,
+    toggleSidebarGrouped,
+  } = useStore();
   const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(() => new Set([tab]));
 
   useEffect(() => {
@@ -241,6 +285,17 @@ export default function App() {
   useEffect(() => {
     init();
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        toggleSidebarCollapsed();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleSidebarCollapsed]);
 
   useEffect(() => {
     const off = api.onSynthProgress((p) => {
@@ -280,16 +335,34 @@ export default function App() {
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden flex flex-col bg-[#fafafa] dark:bg-[#09090b] text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
+    <div className="relative h-full w-full overflow-hidden flex flex-col bg-[#fafafa] dark:bg-[#0b0c10] text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
       <div className="app-bg" />
 
       {/* ---- 自绘顶栏：集成全新 BrandLogo 与窗口操作 ---- */}
       <div className="titlebar relative z-20">
         <div className="flex items-center gap-2 text-[12px] text-zinc-600 dark:text-zinc-400 font-medium">
+          {/* 折叠/展开侧边栏按钮 */}
+          <button
+            type="button"
+            className="titlebar-btn !w-7 !h-7 !p-0 rounded-md text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200/70 dark:hover:bg-zinc-800/70 transition"
+            title={sidebarCollapsed ? '展开侧边栏 (Ctrl+B)' : '收起侧边栏 (Ctrl+B)'}
+            onClick={toggleSidebarCollapsed}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+              <line x1="9" y1="3" x2="9" y2="21" />
+              {sidebarCollapsed ? (
+                <polyline points="13 9 16 12 13 15" />
+              ) : (
+                <polyline points="7 9 4 12 7 15" />
+              )}
+            </svg>
+          </button>
+
           <BrandLogo size={18} />
           <span className="font-semibold text-zinc-900 dark:text-white">Jaygo AU</span>
           <span className="text-zinc-300 dark:text-zinc-700">/</span>
-          <span className="text-[11px] text-zinc-400 dark:text-zinc-500">火山引擎豆包语音可视化工作台</span>
+          <span className="text-[11px] text-zinc-400 dark:text-zinc-500">全能 AI 自媒体创作工作台</span>
         </div>
         <div className="flex">
           <button className="titlebar-btn" title="最小化" onClick={() => api.windowMinimize()}>
@@ -311,26 +384,74 @@ export default function App() {
       </div>
 
       <div className="relative z-10 flex flex-1 min-h-0">
-        {/* 现代侧边栏（Linear 风格，解压优化布局） */}
-        <aside className="rail flex flex-col justify-between">
+        {/* 现代侧边栏（支持平滑收起展开 + 分组/混排切换） */}
+        <aside className={`rail ${sidebarCollapsed ? 'rail-collapsed' : ''} flex flex-col justify-between`}>
           {/* 上部：品牌区与核心创作导航 */}
-          <div className="flex flex-col gap-1">
-            {/* 品牌徽标头 */}
-            <div className="px-2 py-2 mb-2 flex items-center gap-2">
-              <BrandLogo size={28} showText={true} subtext="豆包语音工作室" />
+          <div className="flex flex-col gap-1 overflow-y-auto no-scrollbar">
+            {/* 品牌徽标头 + 分组切换小开关 */}
+            <div className="px-1.5 py-1.5 mb-1 flex items-center justify-between">
+              <BrandLogo size={26} showText={true} subtext="AI 自媒体工作台" />
+
+              {/* 分组/混排切换微按钮 */}
+              <button
+                type="button"
+                onClick={toggleSidebarGrouped}
+                className="grid h-6 w-6 place-items-center rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 transition text-[11px]"
+                title={sidebarGrouped ? '当前：工作流分组（点击切换为经典混排）' : '当前：经典混排（点击切换为工作流分组）'}
+              >
+                {sidebarGrouped ? (
+                  /* 分组模式图标 */
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                    <rect x="14" y="14" width="7" height="7" rx="1" />
+                  </svg>
+                ) : (
+                  /* 混排模式图标 */
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="8" y1="6" x2="21" y2="6" />
+                    <line x1="8" y1="12" x2="21" y2="12" />
+                    <line x1="8" y1="18" x2="21" y2="18" />
+                    <line x1="3" y1="6" x2="3.01" y2="6" />
+                    <line x1="3" y1="12" x2="3.01" y2="12" />
+                    <line x1="3" y1="18" x2="3.01" y2="18" />
+                  </svg>
+                )}
+              </button>
             </div>
 
             {/* 核心页面选项 */}
-            {MAIN_NAV.map((n) => (
-              <div
-                key={n.key}
-                className={`rail-item ${tab === n.key ? 'rail-item-active' : ''}`}
-                onClick={() => setTab(n.key)}
-              >
-                {n.icon}
-                <span className="rail-tip">{n.label}</span>
-              </div>
-            ))}
+            {sidebarGrouped ? (
+              NAV_GROUPS.map((group) => (
+                <div key={group.title} className="flex flex-col gap-0.5 mb-1.5">
+                  <div className="rail-group-title">
+                    <span>{group.title}</span>
+                  </div>
+                  {group.items.map((n) => (
+                    <div
+                      key={n.key}
+                      className={`rail-item ${tab === n.key ? 'rail-item-active' : ''}`}
+                      onClick={() => setTab(n.key)}
+                    >
+                      {n.icon}
+                      <span className="rail-tip">{n.label}</span>
+                    </div>
+                  ))}
+                </div>
+              ))
+            ) : (
+              FLAT_NAV.map((n) => (
+                <div
+                  key={n.key}
+                  className={`rail-item ${tab === n.key ? 'rail-item-active' : ''}`}
+                  onClick={() => setTab(n.key)}
+                >
+                  {n.icon}
+                  <span className="rail-tip">{n.label}</span>
+                </div>
+              ))
+            )}
           </div>
 
           {/* 下部固定底座：深浅主题切换 + 偏好设置 + 三合一状态胶囊 */}

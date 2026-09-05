@@ -65,7 +65,7 @@ const WX_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.38(0x1800262c) NetType/WIFI Language/zh_CN';
 
 // ---- 1. 抖音解析器（内置真实 Chromium 渲染树嗅探，支持签名参数并 100% 绕过反爬风控与验证码） ----
-async function parseDouyin(targetUrl: string): Promise<ParsedMediaInfo> {
+async function parseDouyin(targetUrl: string, retryCount = 1): Promise<ParsedMediaInfo> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const win = new BrowserWindow({
@@ -77,22 +77,28 @@ async function parseDouyin(targetUrl: string): Promise<ParsedMediaInfo> {
       },
     });
 
-    const timer = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        try {
-          win.destroy();
-        } catch {}
-        reject(new Error('解析抖音视频超时，请检查网络或作品是否为私密/已删除'));
-      }
-    }, 12000);
-
     const cleanup = () => {
       clearTimeout(timer);
       try {
         win.destroy();
       } catch {}
     };
+
+    const timer = setTimeout(async () => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        if (retryCount > 0) {
+          try {
+            const retryRes = await parseDouyin(targetUrl, retryCount - 1);
+            return resolve(retryRes);
+          } catch (retryErr) {
+            return reject(retryErr);
+          }
+        }
+        reject(new Error('解析抖音视频超时，请检查网络或作品是否为私密/已删除'));
+      }
+    }, 18000);
 
     // 拦截移动端跳转抖音 App 的原生协议
     win.webContents.on('will-navigate', (e, navUrl) => {
@@ -111,9 +117,15 @@ async function parseDouyin(targetUrl: string): Promise<ParsedMediaInfo> {
       callback({});
     });
 
-    win.loadURL(targetUrl, { userAgent: WX_UA }).catch(() => {});
+    win.loadURL(targetUrl, { userAgent: WX_UA }).catch((err) => {
+      if (!settled && retryCount > 0) {
+        settled = true;
+        cleanup();
+        parseDouyin(targetUrl, retryCount - 1).then(resolve).catch(reject);
+      }
+    });
 
-    // 毫秒级轮询页面渲染树获取真实视频流与作品信息
+    // 毫秒级轮询页面渲染树与 SSR 变量，双通道提取真实视频流
     const interval = setInterval(async () => {
       if (settled || win.isDestroyed()) {
         clearInterval(interval);
@@ -122,20 +134,38 @@ async function parseDouyin(targetUrl: string): Promise<ParsedMediaInfo> {
       try {
         const info = await win.webContents.executeJavaScript(`
           (() => {
+            // 1. DOM 检测
             const v = document.querySelector('video');
-            if (!v || (!v.src && !v.querySelector('source')?.src)) return null;
-            const rawSrc = v.src || v.querySelector('source')?.src || '';
+            const domSrc = (v && (v.src || v.querySelector('source')?.src)) || '';
+            
+            // 2. SSR 全局状态检测 (提前注入模式)
+            let ssrSrc = '';
+            try {
+              const rd = window._ROUTER_DATA || window.__RENDER_DATA__ || window.__INIT_DATA__;
+              if (rd) {
+                const rdStr = JSON.stringify(rd);
+                const playMatch = rdStr.match(/https?:\\\\\/\\\\\/[^\s"']+\/play(?:wm)?\/[^\s"']+/i) ||
+                                  rdStr.match(/"play_addr":\s*\{[^}]*"url_list":\s*\[\s*"([^"]+)"/i);
+                if (playMatch) {
+                  ssrSrc = (playMatch[1] || playMatch[0]).replace(/\\\\\\//g, '/');
+                }
+              }
+            } catch {}
+
+            const rawSrc = domSrc || ssrSrc;
+            if (!rawSrc) return null;
+
             const title = document.title.replace(/ - 抖音$/, '').trim();
             
             let author = '';
-            const authorMatch = document.body.innerText.match(/@([^\\n\\s]+)/);
+            const authorMatch = document.body.innerText.match(/@([^\\\\n\\\\s]+)/);
             if (authorMatch) author = authorMatch[1];
 
             const avatarEl = document.querySelector('img[src*="avatar"]');
             const avatar = avatarEl ? avatarEl.src : '';
 
             const imgs = Array.from(document.querySelectorAll('img')).map(i => i.src);
-            const cover = v.poster || imgs.find(s => s.includes('douyinpic.com') && !s.includes('avatar')) || '';
+            const cover = (v && v.poster) || imgs.find(s => s.includes('douyinpic.com') && !s.includes('avatar')) || '';
 
             return {
               title: title || '抖音作品',
@@ -168,7 +198,7 @@ async function parseDouyin(targetUrl: string): Promise<ParsedMediaInfo> {
           });
         }
       } catch {}
-    }, 250);
+    }, 200);
   });
 }
 

@@ -18,6 +18,7 @@ export default function MediaExtractor() {
   const [downloadingType, setDownloadingType] = useState<'video' | 'audio' | 'transcribe' | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [lastSavedPath, setLastSavedPath] = useState<string | null>(null);
+  const [extractError, setExtractError] = useState<string | null>(null);
   const [history, setHistory] = useState<ExtractHistoryItem[]>([]);
 
   // 从本地存储加载历史解析记录
@@ -88,6 +89,7 @@ export default function MediaExtractor() {
     setLoading(true);
     setCurrentMedia(null);
     setLastSavedPath(null);
+    setExtractError(null);
 
     try {
       const res = await (window as any).JaygoAPI.extractMedia(raw);
@@ -95,7 +97,9 @@ export default function MediaExtractor() {
       saveHistory(res);
       showToast(`成功解析来自「${res.platformName}」的作品！`, 'ok');
     } catch (err: any) {
-      showToast(err?.message || '解析失败，请检查链接或网络', 'err');
+      const errMsg = err?.message || '解析失败，请检查链接或网络';
+      setExtractError(errMsg);
+      showToast(errMsg, 'err');
     } finally {
       setLoading(false);
     }
@@ -277,6 +281,23 @@ export default function MediaExtractor() {
             </button>
           </div>
         </div>
+
+        {extractError && (
+          <div className="mt-3.5 p-3 rounded-xl bg-rose-50/90 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 flex items-center justify-between gap-3 text-xs text-rose-600 dark:text-rose-300 animate-fade-in">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="shrink-0 text-sm">⚠️</span>
+              <span className="truncate font-medium">{extractError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleExtract()}
+              className="shrink-0 px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium transition shadow-xs flex items-center gap-1"
+            >
+              <span>🔄</span>
+              <span>重新解析</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 解析结果展示视窗 */}
