@@ -108,6 +108,9 @@ type Settings = {
   // ---- 系统托盘与任务通知偏好 ----
   closeToTray?: boolean;
   notifyOnTaskComplete?: boolean;
+  modelHubSettings?: any;
+  customSkills?: any[];
+  workflowProjects?: any[];
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -367,8 +370,10 @@ let isQuitting = false;
 
 function getAppIconPath(): string | undefined {
   const candidates = [
+    path.join(path.dirname(process.execPath), 'icon.ico'),
     path.join(__dirname, 'icon.ico'),
     path.join(process.resourcesPath, 'build', 'icon.ico'),
+    path.join(process.resourcesPath, 'icon.ico'),
     path.join(app.getAppPath(), 'dist-electron', 'icon.ico'),
     path.join(app.getAppPath(), 'build', 'icon.ico'),
   ];
@@ -428,14 +433,14 @@ function createTray() {
 
 // ---- 创建窗口 ----
 function createWindow() {
-  const iconPath = path.join(__dirname, 'icon.ico');
+  const iconPath = getAppIconPath();
   const win = new BrowserWindow({
     width: 1180,
     height: 780,
     minWidth: 980,
     minHeight: 640,
     title: 'Jaygo AU',
-    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    icon: iconPath,
     backgroundColor: '#0c0c0e',
     frame: false,            // 去掉原生标题栏，改用自绘标题栏（含最小化/最大化/关闭）
     autoHideMenuBar: true,   // 同时隐藏菜单栏，避免 Alt 键唤出
@@ -2189,5 +2194,100 @@ ipcMain.handle('refresh-desktop-icon-cache', async (_e, args?: { deep?: boolean 
     return { ok: false, message: e?.message || '刷新失败' };
   }
 });
+
+// ---- 历史文章与多格式文档解析 (.txt, .md, .pdf, .docx, .json, .csv) ----
+ipcMain.handle('parse-document-file', async (_event, filePath: string) => {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) {
+      return { ok: false, error: '文件不存在或路径无效' };
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    const fileName = path.basename(filePath);
+    const stat = await fs.promises.stat(filePath);
+
+    if (['.txt', '.md', '.json', '.csv', '.text'].includes(ext)) {
+      const text = await fs.promises.readFile(filePath, 'utf-8');
+      return { ok: true, name: fileName, path: filePath, size: stat.size, text };
+    }
+
+    if (ext === '.docx') {
+      const mammoth = require('mammoth');
+      const result = await mammoth.extractRawText({ path: filePath });
+      return { ok: true, name: fileName, path: filePath, size: stat.size, text: result.value || '' };
+    }
+
+    if (ext === '.pdf') {
+      const pdfParse = require('pdf-parse');
+      const buffer = await fs.promises.readFile(filePath);
+      const data = await pdfParse(buffer);
+      return { ok: true, name: fileName, path: filePath, size: stat.size, text: data.text || '' };
+    }
+
+    return { ok: false, error: `暂不支持的文件格式: ${ext}，请上传 .txt, .md, .pdf 或 .docx` };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || '文档解析失败' };
+  }
+});
+
+ipcMain.handle('pick-document-files', async () => {
+  try {
+    const res = await dialog.showOpenDialog({
+      title: '选择历史文章或爆款素材文件',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: '文档与文案资料 (*.txt, *.md, *.pdf, *.docx)', extensions: ['txt', 'md', 'pdf', 'docx', 'json', 'csv'] },
+        { name: '所有文件', extensions: ['*'] },
+      ],
+    });
+
+    if (res.canceled || res.filePaths.length === 0) {
+      return [];
+    }
+
+    const results = [];
+    for (const fp of res.filePaths) {
+      try {
+        const ext = path.extname(fp).toLowerCase();
+        const fileName = path.basename(fp);
+        const stat = await fs.promises.stat(fp);
+
+        let text = '';
+        if (['.txt', '.md', '.json', '.csv', '.text'].includes(ext)) {
+          text = await fs.promises.readFile(fp, 'utf-8');
+        } else if (ext === '.docx') {
+          const mammoth = require('mammoth');
+          const r = await mammoth.extractRawText({ path: fp });
+          text = r.value || '';
+        } else if (ext === '.pdf') {
+          const pdfParse = require('pdf-parse');
+          const buffer = await fs.promises.readFile(fp);
+          const d = await pdfParse(buffer);
+          text = d.text || '';
+        }
+
+        results.push({
+          ok: true,
+          name: fileName,
+          path: fp,
+          size: stat.size,
+          text: text.trim(),
+        });
+      } catch (err: any) {
+        results.push({
+          ok: false,
+          name: path.basename(fp),
+          path: fp,
+          size: 0,
+          text: '',
+          error: err?.message || '解析失败',
+        });
+      }
+    }
+    return results;
+  } catch (err: any) {
+    return [];
+  }
+});
+
 
 

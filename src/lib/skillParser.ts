@@ -1,5 +1,6 @@
 import type { SkillPreset } from './skillTypes';
 import { SYSTEM_SKILL_PRESETS } from './skillTypes';
+import { api } from './ipc';
 
 const LOCAL_SKILLS_STORAGE_KEY = 'jaygo_au_custom_skills_v1';
 
@@ -22,16 +23,56 @@ export function saveCustomSkill(skill: SkillPreset): void {
     existing.push({ ...skill, updatedAt: Date.now() });
   }
   localStorage.setItem(LOCAL_SKILLS_STORAGE_KEY, JSON.stringify(existing));
+  if (api?.saveSettings) {
+    api.saveSettings({ customSkills: existing } as any).catch(() => {});
+  }
 }
 
 export function deleteCustomSkill(id: string): void {
   const existing = getStoredCustomSkills().filter(s => s.id !== id);
   localStorage.setItem(LOCAL_SKILLS_STORAGE_KEY, JSON.stringify(existing));
+  if (api?.saveSettings) {
+    api.saveSettings({ customSkills: existing } as any).catch(() => {});
+  }
+}
+
+const LOCAL_HIDDEN_SKILLS_KEY = 'jaygo_au_hidden_skills_v1';
+
+export function getHiddenSkillIds(): string[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_HIDDEN_SKILLS_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function hideSkill(id: string): void {
+  const list = getHiddenSkillIds();
+  if (!list.includes(id)) {
+    list.push(id);
+    localStorage.setItem(LOCAL_HIDDEN_SKILLS_KEY, JSON.stringify(list));
+  }
+}
+
+export function restoreDefaultSkills(): void {
+  localStorage.removeItem(LOCAL_HIDDEN_SKILLS_KEY);
+}
+
+export function deleteSkill(id: string): void {
+  deleteCustomSkill(id);
+  hideSkill(id);
 }
 
 export function getAllSkills(): SkillPreset[] {
+  const hidden = new Set(getHiddenSkillIds());
   const custom = getStoredCustomSkills();
-  return [...SYSTEM_SKILL_PRESETS, ...custom];
+  const all = [...SYSTEM_SKILL_PRESETS, ...custom];
+  const filtered = all.filter(s => !hidden.has(s.id));
+  if (filtered.length === 0 && SYSTEM_SKILL_PRESETS.length > 0) {
+    return [SYSTEM_SKILL_PRESETS[0]];
+  }
+  return filtered;
 }
 
 export function findSkillById(id: string): SkillPreset | undefined {

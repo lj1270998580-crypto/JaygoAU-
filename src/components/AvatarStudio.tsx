@@ -651,7 +651,7 @@ export default function AvatarStudio() {
         </div>
 
         <div className="mt-8 text-xs text-zinc-400 text-center">
-          提示：也可以随时在左下角「偏好设置」中修改或重新测试您的蝉镜开放平台连接。
+          提示：也可以随时在左下角「设置」中修改或重新测试您的蝉镜开放平台连接。
         </div>
       </div>
     );

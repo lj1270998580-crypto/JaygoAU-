@@ -52,6 +52,11 @@ export type Settings = {
   // ---- 用户上次使用的音色记忆 ----
   lastSelectedVoiceId?: string | null;
   lastOfficialVoiceId?: string;
+  closeToTray?: boolean;
+  notifyOnTaskComplete?: boolean;
+  modelHubSettings?: any;
+  customSkills?: any[];
+  workflowProjects?: any[];
 };
 
 export type SynthProgress = { stage: 'streaming' | 'done'; pct: number; bytes: number };
@@ -202,6 +207,11 @@ const api = {
     ipcRenderer.invoke('extract-media-for-transcribe', args),
   showItemInFolder: (filePath: string) =>
     ipcRenderer.invoke('showItemInFolder', filePath),
+  // ---- 历史文章与多格式文档解析 (.txt, .md, .pdf, .docx, .json, .csv) ----
+  parseDocumentFile: (filePath: string) =>
+    ipcRenderer.invoke('parse-document-file', filePath),
+  pickDocumentFiles: () =>
+    ipcRenderer.invoke('pick-document-files'),
 };
 
 contextBridge.exposeInMainWorld('JaygoAPI', api);

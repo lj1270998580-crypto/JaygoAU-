@@ -1,6 +1,6 @@
 {
   "name": "jaygo-au",
-  "version": "0.5.0",
+  "version": "0.5.3",
   "description": "Jaygo AU — 全能 AI 自媒体创作工作台 (语音合成 · 声音复刻 · 蝉镜数字人 · 媒体提取 · 智能转录)",
   "private": true,
   "author": "Jaygo",
@@ -17,6 +17,8 @@
     "ali-oss": "^6.21.0",
     "electron-updater": "^6.8.9",
     "ffmpeg-static": "^5.2.0",
+    "mammoth": "^1.12.2",
+    "pdf-parse": "^2.4.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^4.5.5"
@@ -46,7 +48,7 @@
       }
     ],
     "directories": {
-      "output": "D:/jaygoau_build/release-out"
+      "output": "dist"
     },
     "win": {
       "target": "nsis",
@@ -76,12 +78,9 @@
     "electron-builder": "^24.13.3",
     "postcss": "^8.4.39",
     "rcedit": "^5.0.2",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
     "tailwindcss": "^3.4.6",
     "tsx": "^4.16.2",
     "typescript": "^5.5.3",
-    "vite": "^5.3.4",
-    "zustand": "^4.5.5"
+    "vite": "^5.3.4"
   }
 }

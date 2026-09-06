@@ -121,7 +121,17 @@ interface AppState {
 function getInitialModelHubSettings(): ModelHubSettings {
   try {
     const raw = localStorage.getItem('jaygo_model_hub_settings_v1');
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        ...DEFAULT_MODEL_HUB_SETTINGS,
+        ...parsed,
+        providers: {
+          ...DEFAULT_MODEL_HUB_SETTINGS.providers,
+          ...(parsed.providers || {}),
+        },
+      };
+    }
   } catch {}
   return DEFAULT_MODEL_HUB_SETTINGS;
 }
@@ -187,6 +197,10 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       localStorage.setItem('jaygo_model_hub_settings_v1', JSON.stringify(s));
     } catch {}
+    // 关键修复：立即通过 Electron IPC 持久化写到硬盘上的 jaygo-settings.json 中
+    api.saveSettings({ modelHubSettings: s } as any).catch((err) => {
+      console.error('Failed to persist modelHubSettings to disk:', err);
+    });
   },
   pendingSynthText: null,
   setPendingSynthText: (p) => set({ pendingSynthText: p }),
@@ -209,6 +223,46 @@ export const useStore = create<AppState>((set, get) => ({
       ? settings.lastOfficialVoiceId
       : (settings.lastSelectedVoiceId ? '' : 'zh_female_vv_uranus_bigtts');
     const initialSelectedVoice = settings.lastSelectedVoiceId ?? null;
+
+    // 关键修复：优先从持久化磁盘 settings.json 加载 modelHubSettings
+    let loadedModelHub = settings.modelHubSettings;
+    if (!loadedModelHub) {
+      try {
+        const raw = localStorage.getItem('jaygo_model_hub_settings_v1');
+        if (raw) loadedModelHub = JSON.parse(raw);
+      } catch {}
+    }
+    let finalModelHub = get().modelHubSettings;
+    if (loadedModelHub && loadedModelHub.providers) {
+      finalModelHub = {
+        ...DEFAULT_MODEL_HUB_SETTINGS,
+        ...loadedModelHub,
+        providers: {
+          ...DEFAULT_MODEL_HUB_SETTINGS.providers,
+          ...(loadedModelHub.providers || {}),
+        },
+      };
+      set({ modelHubSettings: finalModelHub });
+      try {
+        localStorage.setItem('jaygo_model_hub_settings_v1', JSON.stringify(finalModelHub));
+      } catch {}
+    }
+    // 若磁盘上暂无 modelHubSettings 记录，进行首次固化
+    if (!settings.modelHubSettings && finalModelHub) {
+      api.saveSettings({ modelHubSettings: finalModelHub } as any).catch(() => {});
+    }
+
+    // 磁盘持久化兜底同步：自定技能与工作流
+    if (settings.customSkills && Array.isArray(settings.customSkills)) {
+      try {
+        localStorage.setItem('jaygo_au_custom_skills_v1', JSON.stringify(settings.customSkills));
+      } catch {}
+    }
+    if (settings.workflowProjects && Array.isArray(settings.workflowProjects)) {
+      try {
+        localStorage.setItem('jaygo_au_workflows_v1', JSON.stringify(settings.workflowProjects));
+      } catch {}
+    }
 
     set({
       settings: { ...settings, library: merged },

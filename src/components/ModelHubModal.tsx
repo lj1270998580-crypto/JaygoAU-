@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { ModelHubSettings, ModelProviderType } from '../lib/modelHubTypes';
 import { PRESET_PROVIDERS, DEFAULT_MODEL_HUB_SETTINGS } from '../lib/modelHubTypes';
 import { testConnection } from '../lib/modelHubService';
+import { useStore } from '../store';
 
 interface Props {
   open: boolean;
@@ -12,6 +13,7 @@ interface Props {
 
 const PROVIDER_ORDER: ModelProviderType[] = [
   'doubao',
+  'sensenova',
   'deepseek',
   'qwen',
   'zhipu',
@@ -21,6 +23,19 @@ const PROVIDER_ORDER: ModelProviderType[] = [
   'minimax',
   'custom',
 ];
+
+const PROVIDER_NAMES: Record<ModelProviderType, string> = {
+  doubao: '豆包 (火山引擎)',
+  sensenova: '商汤日日新 (SenseNova)',
+  deepseek: 'DeepSeek (深度求索)',
+  qwen: '通义千问 (阿里云)',
+  zhipu: '智谱 AI (GLM)',
+  moonshot: 'Kimi (月之暗面)',
+  openai: 'OpenAI (国际版)',
+  claude: 'Claude (Anthropic)',
+  minimax: 'MiniMax (海螺AI)',
+  custom: '自定义兼容接口',
+};
 
 export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
   const [activeTab, setActiveTab] = useState<ModelProviderType>('doubao');
@@ -43,8 +58,17 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
   const currentProvider = formData.providers[activeTab];
   const preset = PRESET_PROVIDERS[activeTab];
 
+  const updateFormData = (updater: (prev: ModelHubSettings) => ModelHubSettings) => {
+    setFormData(prev => {
+      const next = updater(prev);
+      // 实时同步触发全局持久化落盘，确保任何输入和切换均永不丢失
+      onSave(next);
+      return next;
+    });
+  };
+
   const handleKeyChange = (val: string) => {
-    setFormData(prev => ({
+    updateFormData(prev => ({
       ...prev,
       providers: {
         ...prev.providers,
@@ -57,7 +81,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
   };
 
   const handleBaseUrlChange = (val: string) => {
-    setFormData(prev => ({
+    updateFormData(prev => ({
       ...prev,
       providers: {
         ...prev.providers,
@@ -70,7 +94,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
   };
 
   const handleModelSelect = (val: string) => {
-    setFormData(prev => ({
+    updateFormData(prev => ({
       ...prev,
       providers: {
         ...prev.providers,
@@ -83,7 +107,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
   };
 
   const handleCustomModelNameChange = (val: string) => {
-    setFormData(prev => ({
+    updateFormData(prev => ({
       ...prev,
       providers: {
         ...prev.providers,
@@ -96,7 +120,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
   };
 
   const handleSetDefault = (type: ModelProviderType) => {
-    setFormData(prev => ({
+    updateFormData(prev => ({
       ...prev,
       defaultProvider: type,
     }));
@@ -117,16 +141,19 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
 
   const handleSaveAndClose = () => {
     onSave(formData);
+    try {
+      useStore.getState().showToast('大模型配置已成功保存并固化至本地硬盘！', 'ok');
+    } catch (_) {}
     onClose();
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-      <div className="w-full max-w-3xl bg-white dark:bg-[#121318] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
+      <div className="w-full max-w-4xl bg-white dark:bg-[#121318] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
         {/* 顶部 Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/50 dark:bg-zinc-900/30">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/10 dark:bg-blue-500/20 text-blue-500 flex items-center justify-center text-lg">
+            <div className="w-9 h-9 rounded-xl bg-blue-500/10 dark:bg-blue-500/20 text-blue-500 flex items-center justify-center text-lg shrink-0">
               ⚡
             </div>
             <div>
@@ -142,8 +169,12 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
             </div>
           </div>
           <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg hover:bg-zinc-200/60 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 flex items-center justify-center transition"
+            onClick={() => {
+              onSave(formData);
+              onClose();
+            }}
+            className="w-8 h-8 rounded-lg hover:bg-zinc-200/60 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 flex items-center justify-center transition cursor-pointer"
+            title="保存并关闭"
           >
             ✕
           </button>
@@ -152,7 +183,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
         {/* 主体两栏 */}
         <div className="flex flex-1 min-h-0">
           {/* 左侧供应商列表 */}
-          <div className="w-56 border-r border-zinc-100 dark:border-zinc-800/80 p-3 space-y-1 bg-zinc-50/30 dark:bg-zinc-900/20 overflow-y-auto">
+          <div className="w-64 border-r border-zinc-100 dark:border-zinc-800/80 p-3 space-y-1 bg-zinc-50/30 dark:bg-zinc-900/20 overflow-y-auto shrink-0">
             <div className="text-[10px] font-medium text-zinc-400 px-3 py-1 uppercase tracking-wider">
               模型供应商
             </div>
@@ -173,19 +204,24 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
                   }`}
                 >
                   <div className="flex items-center gap-2 truncate">
-                    <span>{p.icon}</span>
-                    <span className="truncate">{p.name.split('·')[0]}</span>
+                    <span className="shrink-0">{p.icon}</span>
+                    <span className="truncate">{PROVIDER_NAMES[type] || p.name}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0 pl-1">
                     {isDefault && (
-                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-500 dark:text-amber-300 font-semibold border border-amber-400/30">
+                      <span className={`text-[9px] px-1.5 py-0.2 rounded font-semibold border ${
+                        activeTab === type 
+                          ? 'bg-white/20 text-white border-white/40' 
+                          : 'bg-amber-400/20 text-amber-500 dark:text-amber-300 border-amber-400/30'
+                      }`}>
                         默认
                       </span>
                     )}
                     <span
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        hasKey ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-700'
+                      className={`w-2 h-2 rounded-full ${
+                        hasKey ? 'bg-emerald-400' : 'bg-zinc-300 dark:bg-zinc-600'
                       }`}
+                      title={hasKey ? '已配置 Key' : '未配置 Key'}
                     />
                   </div>
                 </button>
@@ -328,16 +364,16 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
                 type="button"
                 onClick={handleTestPing}
                 disabled={testing || !currentProvider.apiKey}
-                className="px-4 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-200 disabled:opacity-40 transition flex items-center gap-1.5"
+                className="btn-modern-ghost"
               >
                 {testing ? (
                   <>
                     <span className="inline-block w-3 h-3 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
-                    正在测试连通性...
+                    <span>正在测试连通性...</span>
                   </>
                 ) : (
                   <>
-                    <span>⚡</span> 测试网络与 API 连通性
+                    <span>⚡</span> <span>测试网络与 API 连通性</span>
                   </>
                 )}
               </button>
@@ -366,16 +402,20 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
           </div>
           <div className="flex items-center gap-2.5">
             <button
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+              onClick={() => {
+                onSave(formData);
+                onClose();
+              }}
+              className="btn-modern-ghost"
             >
-              取消
+              关闭
             </button>
             <button
               onClick={handleSaveAndClose}
-              className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-xs shadow-blue-500/30 transition"
+              className="btn-modern-primary"
             >
-              保存所有配置
+              <span>💾</span>
+              <span>保存所有配置</span>
             </button>
           </div>
         </div>

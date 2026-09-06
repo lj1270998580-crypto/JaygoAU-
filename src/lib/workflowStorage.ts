@@ -1,5 +1,6 @@
 import type { WorkflowProject } from './workflowTypes';
 import { DEFAULT_NODES_FACTORY } from './workflowTypes';
+import { api } from './ipc';
 
 const WORKFLOWS_STORAGE_KEY = 'jaygo_au_workflows_v1';
 
@@ -27,11 +28,17 @@ export function saveWorkflowProject(project: WorkflowProject): void {
     list.unshift(updated);
   }
   localStorage.setItem(WORKFLOWS_STORAGE_KEY, JSON.stringify(list));
+  if (api?.saveSettings) {
+    api.saveSettings({ workflowProjects: list } as any).catch(() => {});
+  }
 }
 
 export function deleteWorkflowProject(id: string): void {
   const list = getWorkflowProjects().filter(p => p.id !== id);
   localStorage.setItem(WORKFLOWS_STORAGE_KEY, JSON.stringify(list));
+  if (api?.saveSettings) {
+    api.saveSettings({ workflowProjects: list } as any).catch(() => {});
+  }
 }
 
 export function createDefaultSampleProject(): WorkflowProject {

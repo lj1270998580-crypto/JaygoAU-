@@ -1,5 +1,6 @@
 export type ModelProviderType =
   | 'doubao'
+  | 'sensenova'
   | 'deepseek'
   | 'qwen'
   | 'zhipu'
@@ -35,12 +36,29 @@ export const PRESET_PROVIDERS: Record<ModelProviderType, ProviderPreset> = {
     keyPlaceholder: '请输入火山方舟 API Key (ARK_API_KEY)',
     docUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/model',
     models: [
-      { id: 'doubao-1.5-pro-32k', name: 'Doubao-1.5-pro-32k (最新 MoE 旗舰)', description: '自媒体口播改写首选，推理性能与文字张力顶级', badge: '最新旗舰' },
-      { id: 'doubao-1.5-pro-256k', name: 'Doubao-1.5-pro-256k (超长文本旗舰)', description: '支持 256K 超长视频台词全集重构与大纲提炼', badge: '256K长文' },
-      { id: 'doubao-1.5-lite-32k', name: 'Doubao-1.5-lite-32k (新一代轻量极速)', description: '极速响应、超低资费，适合高并发选题发散', badge: '极速低价' },
-      { id: 'doubao-1.5-thinking-vision-pro', name: 'Doubao-1.5-thinking (深度思考推理)', description: '支持慢思考与长思维链推理，商业认知拆解极强', badge: '深度思考' },
+      { id: 'doubao-seed-2.1-pro', name: 'Doubao-Seed-2.1-Pro (最新 Seed 2.1 旗舰)', description: '对齐 Claude Opus，全网最新 MoE 旗舰，自媒体文学质感与逻辑巅峰', badge: '2026最新旗舰' },
+      { id: 'doubao-seed-2.1-turbo', name: 'Doubao-Seed-2.1-Turbo (新一代极速版)', description: '极速响应、极低资费，批量洗稿与高并发生产首选', badge: '2.1极速' },
+      { id: 'doubao-seed-1.6-thinking', name: 'Doubao-Seed-1.6-thinking (深度思考推理)', description: '支持慢思考与长思维链推演，复杂商业认知与反常识破局极强', badge: '深度思考' },
+      { id: 'doubao-1.5-pro-32k', name: 'Doubao-1.5-pro-32k (1.5 MoE 主力旗舰)', description: '经典自媒体口播改写主力，推理性能与文字张力平衡出色', badge: '1.5主力' },
+      { id: 'doubao-1.5-pro-256k', name: 'Doubao-1.5-pro-256k (超长文本旗舰)', description: '支持 256K 超长视频台词全集重构与全案大纲提炼', badge: '256K长文' },
+      { id: 'doubao-1.5-lite-32k', name: 'Doubao-1.5-lite-32k (轻量极速低价)', description: '秒级响应、超低资费，适合高并发选题发散', badge: '极速低价' },
       { id: 'doubao-pro-32k', name: 'Doubao-pro-32k (经典版 1.0)', description: '早期经典大模型' },
       { id: 'doubao-pro-128k', name: 'Doubao-pro-128k (经典版 1.0)', description: '早期经典 128K' },
+    ],
+  },
+  sensenova: {
+    type: 'sensenova',
+    name: '商汤日日新 (SenseNova · Token Plan)',
+    icon: '☀️',
+    defaultBaseUrl: 'https://token.sensenova.cn/v1',
+    keyPlaceholder: '请输入商汤 Token Plan API Key (sk-...)',
+    docUrl: 'https://platform.sensenova.cn/token-plan',
+    models: [
+      { id: 'sensenova-6.8-flash-lite', name: 'SenseNova-6.8-Flash-Lite (Token Plan 首选主力)', description: 'Token Plan 免费公测主力，低消耗、高响应，办公与自媒体智能体首选', badge: 'TokenPlan首选' },
+      { id: 'SenseNova-V6.5-Omni', name: 'SenseNova-V6.5-Omni (实时全模态旗舰)', description: '最新全模态实时流式交互旗舰，音视文统一推理', badge: '全模态旗舰' },
+      { id: 'sensenova-u1-fast', name: 'SenseNova-U1-Fast (统一图文多模态)', description: 'NEO-unify 架构，图文统一理解与生成', badge: 'NEO架构' },
+      { id: 'SenseNova-V6-Pro', name: 'SenseNova-V6-Pro (长文本深度旗舰)', description: '支持 64K 超长上下文，多模态长篇理解', badge: '64K长文' },
+      { id: 'SenseNova-V6-Turbo', name: 'SenseNova-V6-Turbo (高并发极速版)', description: '极速推理吞吐，高并发自媒体量产' },
     ],
   },
   deepseek: {
@@ -63,7 +81,9 @@ export const PRESET_PROVIDERS: Record<ModelProviderType, ProviderPreset> = {
     keyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
     docUrl: 'https://bailian.console.aliyun.com/',
     models: [
-      { id: 'qwen-max-latest', name: 'Qwen-Max-Latest (千问千亿最新旗舰)', description: '阿里最强能力底座，指令遵循与文学创作极佳', badge: '旗舰最新' },
+      { id: 'qwen3.8-max', name: 'Qwen3.8-Max (2026最新 2.4万亿 MoE 顶级旗舰)', description: '阿里千问家族迄今最强能力底座，通用智能与长篇创作跃升', badge: '2026顶级旗舰' },
+      { id: 'qwen2.5-max', name: 'Qwen2.5-Max (千问 2.5 千亿最新旗舰)', description: '千亿级别超大规模语言模型，文字张力极佳', badge: '2.5旗舰' },
+      { id: 'qwen-max-latest', name: 'Qwen-Max-Latest (动态滚动更新旗舰)', description: '阿里最强能力底座，百炼自动滚动升级至最新版本', badge: '滚动最新' },
       { id: 'qwen-plus-latest', name: 'Qwen-Plus-Latest (新一代均衡主力)', description: '速度质量兼备，自媒体批量口播高性价比首选', badge: '均衡主力' },
       { id: 'qwen-turbo-latest', name: 'Qwen-Turbo-Latest (100万 Token 极速版)', description: '超大上下文与秒级返回', badge: '100万长文' },
       { id: 'qwq-32b-preview', name: 'QwQ-32B-Preview (阿里强化学习推理)', description: '对标 o1 / R1 的深度思考模型，擅长批判性拆解', badge: '深度思考' },
@@ -80,6 +100,7 @@ export const PRESET_PROVIDERS: Record<ModelProviderType, ProviderPreset> = {
     models: [
       { id: 'glm-4-plus', name: 'GLM-4-Plus (高智能旗舰模型)', description: '全模态底座，高质量文字创作与复杂长程逻辑', badge: '旗舰版' },
       { id: 'glm-4-flash', name: 'GLM-4-Flash (免费高速模型)', description: '普惠免费模型，秒级响应，轻量任务首选', badge: '免费高速' },
+      { id: 'glm-4-air', name: 'GLM-4-Air (极速均衡性价比旗舰)', description: '高并发与日常生成高性价比首选', badge: '极速均衡' },
       { id: 'glm-4-long', name: 'GLM-4-Long (100万 Token 超长上下文)', description: '适合处理多篇爆款长视频与剧本' },
       { id: 'glm-zero-preview', name: 'GLM-Zero (智谱沉思深度推理)', description: '深度思考与逻辑推演', badge: '深度思考' },
     ],
@@ -92,6 +113,7 @@ export const PRESET_PROVIDERS: Record<ModelProviderType, ProviderPreset> = {
     keyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
     docUrl: 'https://platform.moonshot.cn/',
     models: [
+      { id: 'kimi-latest', name: 'Kimi-Latest (月之暗面最新动态旗舰)', description: 'Kimi 官方滚动最新模型，文字细腻自然、极具拟人感', badge: '最新旗舰' },
       { id: 'moonshot-v1-auto', name: 'Moonshot-v1-auto (动态智能窗口)', description: '自动根据文案长度匹配最佳上下文窗口', badge: '智能推荐' },
       { id: 'moonshot-v1-128k', name: 'Moonshot-v1-128k (128K 超长文案)', description: '超长素材阅读与多篇风格比对', badge: '128K长文' },
       { id: 'moonshot-v1-32k', name: 'Moonshot-v1-32k (经典自媒体中长篇)', description: '文字细腻温润，共情与故事感极强' },
@@ -106,10 +128,12 @@ export const PRESET_PROVIDERS: Record<ModelProviderType, ProviderPreset> = {
     keyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
     docUrl: 'https://platform.openai.com/',
     models: [
+      { id: 'gpt-4.5-preview', name: 'GPT-4.5-Preview (最新多模态知识旗舰)', description: 'OpenAI 全新一代旗舰，世界知识深度与细微语感顶级', badge: '4.5最新' },
       { id: 'o3-mini', name: 'o3-mini (全新极速深度推理模型)', description: '最新强推理旗舰，数学与逻辑飞跃，支持调整思考强度', badge: '最新强推' },
       { id: 'o1', name: 'o1 (通用深度长思维链推理)', description: 'OpenAI 官方最强深度推理模型', badge: '推理旗舰' },
       { id: 'gpt-4o', name: 'GPT-4o (全能多模态旗舰)', description: '国际综合能力标杆，指令遵循与创意生成极强', badge: '全能旗舰' },
       { id: 'gpt-4o-mini', name: 'GPT-4o-mini (极速高性价比)', description: '低延时高性价比主力' },
+      { id: 'chatgpt-4o-latest', name: 'ChatGPT-4o-Latest (官方动态版)', description: '始终同步 ChatGPT 网页版最新权重' },
     ],
   },
   claude: {
@@ -179,7 +203,14 @@ export const DEFAULT_MODEL_HUB_SETTINGS: ModelHubSettings = {
       enabled: true,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.doubao.defaultBaseUrl,
-      selectedModel: 'doubao-1.5-pro-32k', // 默认升级为 1.5-pro
+      selectedModel: 'doubao-seed-2.1-pro', // 默认升级为最新 2.1-pro 旗舰
+    },
+    sensenova: {
+      type: 'sensenova',
+      enabled: false,
+      apiKey: '',
+      baseUrl: PRESET_PROVIDERS.sensenova.defaultBaseUrl,
+      selectedModel: 'sensenova-6.8-flash-lite',
     },
     deepseek: {
       type: 'deepseek',
@@ -193,7 +224,7 @@ export const DEFAULT_MODEL_HUB_SETTINGS: ModelHubSettings = {
       enabled: false,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.qwen.defaultBaseUrl,
-      selectedModel: 'qwen-plus-latest', // 默认升级为 latest
+      selectedModel: 'qwen3.8-max', // 默认升级为 3.8-max
     },
     zhipu: {
       type: 'zhipu',

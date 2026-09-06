@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://ailabing.cn/jaygo-au.html">官方网站</a> •
-  <a href="https://ailabing.cn/jaygo-au/updates/Jaygo.AU.Setup.0.5.0.exe">Windows 安装包下载</a> •
+  <a href="https://ailabing.cn/jaygo-au/updates/Jaygo.AU.Setup.0.5.3.exe">Windows 安装包下载</a> •
   <a href="https://github.com/lj1270998580-crypto/JaygoAU-">GitHub 仓库</a>
 </p>
 

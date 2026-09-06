@@ -23,6 +23,194 @@ interface Props {
   onOpenModelHub: () => void;
 }
 
+function TriggerScheduleEditor({
+  cronExpression,
+  cronDescription,
+  onChange,
+}: {
+  cronExpression: string;
+  cronDescription: string;
+  onChange: (updates: { cronExpression: string; cronDescription: string }) => void;
+}) {
+  const getInitialMode = () => {
+    if (/^\d+\s+\d+\s+\*\s+\*\s+\*$/.test(cronExpression)) return 'daily';
+    if (/^0\s+\*\/\d+\s+\*\s+\*\s+\*$/.test(cronExpression) || /^\*\/\d+\s+\*\s+\*\s+\*\s+\*$/.test(cronExpression)) return 'interval';
+    return 'custom';
+  };
+
+  const [mode, setMode] = useState<'daily' | 'interval' | 'custom'>(getInitialMode);
+
+  const parseDailyTime = () => {
+    const match = cronExpression.match(/^(\d+)\s+(\d+)\s+\*\s+\*\s+\*$/);
+    if (match) {
+      const min = match[1].padStart(2, '0');
+      const hr = match[2].padStart(2, '0');
+      return `${hr}:${min}`;
+    }
+    return '09:00';
+  };
+
+  const [dailyTime, setDailyTime] = useState<string>(parseDailyTime);
+
+  const parseInterval = () => {
+    const hrMatch = cronExpression.match(/^0\s+\*\/(\d+)\s+\*\s+\*\s+\*$/);
+    if (hrMatch) return { val: parseInt(hrMatch[1], 10) || 2, unit: 'hour' };
+    const minMatch = cronExpression.match(/^\*\/(\d+)\s+\*\s+\*\s+\*\s+\*$/);
+    if (minMatch) return { val: parseInt(minMatch[1], 10) || 30, unit: 'minute' };
+    return { val: 2, unit: 'hour' };
+  };
+
+  const [intervalVal, setIntervalVal] = useState<number>(parseInterval().val);
+  const [intervalUnit, setIntervalUnit] = useState<string>(parseInterval().unit);
+
+  const handleTimeChange = (t: string) => {
+    setDailyTime(t);
+    const [hr, min] = t.split(':').map(n => parseInt(n, 10));
+    if (!isNaN(hr) && !isNaN(min)) {
+      const cron = `${min} ${hr} * * *`;
+      const desc = `每天 ${t} 自动执行`;
+      onChange({ cronExpression: cron, cronDescription: desc });
+    }
+  };
+
+  const handleIntervalChange = (val: number, unit: string) => {
+    setIntervalVal(val);
+    setIntervalUnit(unit);
+    if (val <= 0) return;
+    if (unit === 'hour') {
+      const cron = `0 */${val} * * *`;
+      const desc = `每隔 ${val} 小时自动执行一次`;
+      onChange({ cronExpression: cron, cronDescription: desc });
+    } else {
+      const cron = `*/${val} * * * *`;
+      const desc = `每隔 ${val} 分钟自动执行一次`;
+      onChange({ cronExpression: cron, cronDescription: desc });
+    }
+  };
+
+  return (
+    <div className="space-y-2.5 p-3 rounded-xl border border-blue-200/80 dark:border-blue-900/40 bg-blue-50/20 dark:bg-blue-950/10">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <label className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+          <span>⏱️</span> 自定义运行时间 / 周期
+        </label>
+        <div className="flex items-center p-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200/80 dark:border-zinc-700 text-[11px] self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => {
+              setMode('daily');
+              handleTimeChange(dailyTime);
+            }}
+            className={`px-2.5 py-1 rounded-md font-medium transition cursor-pointer ${
+              mode === 'daily'
+                ? 'bg-white dark:bg-zinc-700 text-blue-600 dark:text-blue-400 shadow-2xs font-semibold'
+                : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+            }`}
+          >
+            ☀️ 每天指定时刻
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode('interval');
+              handleIntervalChange(intervalVal, intervalUnit);
+            }}
+            className={`px-2.5 py-1 rounded-md font-medium transition cursor-pointer ${
+              mode === 'interval'
+                ? 'bg-white dark:bg-zinc-700 text-blue-600 dark:text-blue-400 shadow-2xs font-semibold'
+                : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+            }`}
+          >
+            🔄 固定间隔
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('custom')}
+            className={`px-2.5 py-1 rounded-md font-medium transition cursor-pointer ${
+              mode === 'custom'
+                ? 'bg-white dark:bg-zinc-700 text-blue-600 dark:text-blue-400 shadow-2xs font-semibold'
+                : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+            }`}
+          >
+            🛠️ 自由 Cron
+          </button>
+        </div>
+      </div>
+
+      {mode === 'daily' && (
+        <div className="flex items-center gap-3 bg-white dark:bg-zinc-900 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800">
+          <span className="text-xs text-zinc-600 dark:text-zinc-400 shrink-0">选择每天运行时间：</span>
+          <input
+            type="time"
+            value={dailyTime}
+            onChange={e => handleTimeChange(e.target.value)}
+            className="px-3 py-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-xs font-mono font-bold text-blue-600 dark:text-blue-400 focus:border-blue-500 focus:outline-hidden cursor-pointer"
+          />
+          <span className="text-[11px] text-zinc-400">（支持任意小时与分钟自定义，如 08:30、14:20、22:00 等）</span>
+        </div>
+      )}
+
+      {mode === 'interval' && (
+        <div className="flex items-center gap-2.5 bg-white dark:bg-zinc-900 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800">
+          <span className="text-xs text-zinc-600 dark:text-zinc-400 shrink-0">运行频率：每隔</span>
+          <input
+            type="number"
+            min={1}
+            max={intervalUnit === 'hour' ? 72 : 1440}
+            value={intervalVal}
+            onChange={e => handleIntervalChange(parseInt(e.target.value, 10) || 1, intervalUnit)}
+            className="w-20 px-2.5 py-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-xs font-mono font-bold text-center text-zinc-800 dark:text-zinc-100 focus:border-blue-500 focus:outline-hidden"
+          />
+          <select
+            value={intervalUnit}
+            onChange={e => handleIntervalChange(intervalVal, e.target.value)}
+            className="px-2.5 py-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-xs text-zinc-800 dark:text-zinc-100 focus:border-blue-500 focus:outline-hidden cursor-pointer"
+          >
+            <option value="hour">小时 (Hours)</option>
+            <option value="minute">分钟 (Minutes)</option>
+          </select>
+          <span className="text-xs text-zinc-600 dark:text-zinc-400">自动执行一次</span>
+        </div>
+      )}
+
+      {mode === 'custom' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-white dark:bg-zinc-900 p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800">
+          <div>
+            <label className="text-[11px] text-zinc-500 font-medium">Cron 表达式 (分 时 日 月 周)</label>
+            <input
+              type="text"
+              value={cronExpression}
+              onChange={e => onChange({ cronExpression: e.target.value, cronDescription })}
+              placeholder="例如: 0 9 * * 1-5 (工作日9点)"
+              className="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-xs font-mono text-zinc-800 dark:text-zinc-100 focus:border-blue-500 focus:outline-hidden"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] text-zinc-500 font-medium">中文运行说明</label>
+            <input
+              type="text"
+              value={cronDescription}
+              onChange={e => onChange({ cronExpression, cronDescription: e.target.value })}
+              placeholder="例如: 工作日上午 9:00"
+              className="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-xs text-zinc-800 dark:text-zinc-100 focus:border-blue-500 focus:outline-hidden"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 实时生效提示 */}
+      <div className="flex items-center justify-between text-xs text-blue-600 dark:text-blue-400 pt-1 px-1">
+        <span className="truncate">
+          当前调度规则：<strong>{cronDescription || '自定义时间'}</strong>
+        </span>
+        <span className="font-mono text-[11px] bg-blue-100/70 dark:bg-blue-950/80 px-2 py-0.5 rounded text-blue-700 dark:text-blue-300 shrink-0 ml-2">
+          {cronExpression}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
   const [projects, setProjects] = useState<WorkflowProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
@@ -31,6 +219,7 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
   const [progressMsg, setProgressMsg] = useState('');
   const [logs, setLogs] = useState<string[]>([]);
   const [runResult, setRunResult] = useState<WorkflowExecutionContext | null>(null);
+  const [showConsole, setShowConsole] = useState(false);
 
   // AI 自然语言一键创建弹窗
   const [copilotOpen, setCopilotOpen] = useState(false);
@@ -129,6 +318,7 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
   const handleRunPipeline = async () => {
     if (!currentProject) return;
     setRunning(true);
+    setShowConsole(true);
     setProgressPct(0);
     setProgressMsg('正在初始化工作流环境...');
     setLogs([]);
@@ -208,31 +398,42 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
   return (
     <div className="flex-1 flex flex-col h-full bg-zinc-50/60 dark:bg-[#0c0d12] overflow-hidden">
       {/* 顶部总览栏 */}
-      <div className="h-14 border-b border-zinc-200/80 dark:border-zinc-800/80 px-6 flex items-center justify-between bg-white/70 dark:bg-[#121318]/70 backdrop-blur-xs shrink-0">
-        <div className="flex items-center gap-3">
-          <span className="text-xl">⚡</span>
-          <div>
-            <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              自动化流水线工坊 (Workflow Studio)
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900">
+      <div className="h-14 border-b border-zinc-200/80 dark:border-zinc-800/80 px-5 flex items-center justify-between bg-white/70 dark:bg-[#121318]/70 backdrop-blur-xs shrink-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="text-xl shrink-0">⚡</span>
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2 truncate">
+              <span>自动化流水线工坊</span>
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900 shrink-0">
                 自由组合 · 定时守护
               </span>
             </h2>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setShowConsole(!showConsole)}
+            className={`btn-modern-ghost ${
+              showConsole
+                ? '!border-blue-500 !text-blue-600 dark:!text-blue-400 bg-blue-50/50 dark:bg-blue-950/40'
+                : ''
+            }`}
+            title={showConsole ? '收起控制台' : '展开控制台与产物日志'}
+          >
+            <span>📋</span> <span>控制台 {showConsole ? '›' : '‹'}</span>
+          </button>
           <button
             onClick={() => setCopilotOpen(true)}
-            className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-xs shadow-blue-500/20 flex items-center gap-1.5 transition"
+            className="btn-modern-primary"
           >
-            <span>💬</span> 自然语言一键建工作流
+            <span>💬</span> <span>自然语言建工作流</span>
           </button>
           <button
             onClick={onOpenModelHub}
-            className="px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:border-blue-500 text-xs text-zinc-700 dark:text-zinc-300 transition flex items-center gap-1.5"
+            className="btn-modern-ghost"
           >
-            <span>⚡</span> 模型中心
+            <span>⚡</span> <span>模型中心</span>
           </button>
         </div>
       </div>
@@ -240,7 +441,7 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
       {/* 主体左右两栏 */}
       <div className="flex-1 flex min-h-0">
         {/* 左侧：项目管理列表 */}
-        <div className="w-64 border-r border-zinc-200/80 dark:border-zinc-800/80 p-4 flex flex-col bg-white/40 dark:bg-zinc-900/10 shrink-0 overflow-y-auto space-y-3">
+        <div className="w-56 border-r border-zinc-200/80 dark:border-zinc-800/80 p-3.5 flex flex-col bg-white/40 dark:bg-zinc-900/10 shrink-0 overflow-y-auto space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
               流水线项目 ({projects.length})
@@ -307,17 +508,17 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
         </div>
 
         {/* 中间：形态 A 自由定制卡片流水线 */}
-        <div className="flex-1 p-6 flex flex-col min-w-0 overflow-y-auto space-y-5">
+        <div className="flex-1 p-5 flex flex-col min-w-0 overflow-y-auto space-y-4">
           {currentProject ? (
             <>
               {/* 项目标题与顶层控制 */}
-              <div className="p-4 rounded-2xl border border-zinc-200/80 dark:border-zinc-800/80 bg-white dark:bg-[#13141b] flex items-center justify-between">
-                <div className="space-y-1 max-w-lg">
+              <div className="p-4 rounded-2xl border border-zinc-200/80 dark:border-zinc-800/80 bg-white dark:bg-[#13141b] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1 min-w-0 flex-1">
                   <input
                     type="text"
                     value={currentProject.name}
                     onChange={e => updateCurrentProject(p => ({ ...p, name: e.target.value }))}
-                    className="text-base font-bold text-zinc-900 dark:text-zinc-100 bg-transparent border-b border-transparent hover:border-zinc-300 dark:hover:border-zinc-700 focus:border-blue-500 focus:outline-hidden px-1"
+                    className="text-base font-bold text-zinc-900 dark:text-zinc-100 bg-transparent border-b border-transparent hover:border-zinc-300 dark:hover:border-zinc-700 focus:border-blue-500 focus:outline-hidden px-1 w-full"
                   />
                   <input
                     type="text"
@@ -328,7 +529,7 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                   />
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
                   <div className="flex items-center gap-2 pr-3 border-r border-zinc-200 dark:border-zinc-800">
                     <span className="text-xs text-zinc-600 dark:text-zinc-400">定时常驻调度</span>
                     <button
@@ -349,16 +550,16 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                   <button
                     onClick={handleRunPipeline}
                     disabled={running}
-                    className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-500/25 transition flex items-center gap-2 disabled:opacity-50"
+                    className="btn-modern-primary px-4 py-2"
                   >
                     {running ? (
                       <>
                         <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        正在执行工作流...
+                        <span>执行中...</span>
                       </>
                     ) : (
                       <>
-                        <span>▶️</span> 立即执行此流水线
+                        <span>▶️</span> <span>立即执行工作流</span>
                       </>
                     )}
                   </button>
@@ -381,6 +582,279 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                 </div>
               )}
 
+              {/* 常用高频一键模板推荐区 */}
+              <div className="p-3.5 rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/30 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                    <span>⚡</span>
+                    <span>快速装配常用流水线（新手推荐，点击一键载入）：</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                  <div
+                    onClick={() => {
+                      if (confirm('是否将当前项目配置为【全自动每日出片】推荐流水线？')) {
+                        updateCurrentProject(p => ({
+                          ...p,
+                          name: '全自动每日定时出片',
+                          description: '每天早上 09:00 自动寻题 -> 智能创作爆款口播 -> 合成语音 -> 蝉镜数字人出片',
+                          enabled: true,
+                          nodes: [
+                            {
+                              id: `node_trig_${Date.now()}`,
+                              type: 'trigger',
+                              name: '每天早 09:00 定时自动触发',
+                              enabled: true,
+                              config: {
+                                mode: 'cron',
+                                cronExpression: '0 9 * * *',
+                                cronDescription: '每天上午 09:00',
+                                rawBatchText: [],
+                              },
+                            },
+                            {
+                              id: `node_topic_${Date.now()}`,
+                              type: 'topic_source',
+                              name: 'AI 自动发散爆款选题',
+                              enabled: true,
+                              config: {
+                                sourceType: 'ai_brainstorm',
+                                domainKeyword: '自媒体商业思维与认知成长',
+                                generateCount: 1,
+                                poolList: [],
+                              },
+                            },
+                            {
+                              id: `node_script_${Date.now()}`,
+                              type: 'ai_script',
+                              name: '生成 60 秒爆款口播文案',
+                              enabled: true,
+                              config: {
+                                skillPresetId: 'teacher_zhang_business',
+                                batchCount: 1,
+                                targetWordCount: 300,
+                                hookStrategy: 'counter_intuitive',
+                              },
+                            },
+                            {
+                              id: `node_tts_${Date.now()}`,
+                              type: 'voice_tts',
+                              name: 'Seed-TTS 2.0 语音合成',
+                              enabled: true,
+                              config: {
+                                engine: 'seed-tts-2.0',
+                                voiceId: '',
+                                voiceName: '根据导师人设自动匹配音色',
+                                emotion: 'default',
+                                speedRatio: 1.0,
+                                volumeRatio: 1.0,
+                                audioFormat: 'mp3',
+                              },
+                            },
+                            {
+                              id: `node_avatar_${Date.now()}`,
+                              type: 'digital_avatar',
+                              name: '蝉镜数字人自动渲染出片',
+                              enabled: true,
+                              config: {
+                                avatarId: '',
+                                avatarName: '首选数字人形象',
+                                figureType: 'whole_body',
+                                aspectRatio: '9:16',
+                                resolution: '1080p',
+                                addSubtitle: true,
+                                subtitleFontSize: 42,
+                                backgroundMode: 'default',
+                              },
+                            },
+                            {
+                              id: `node_export_${Date.now()}`,
+                              type: 'export_notify',
+                              name: '桌面通知与文件沉淀',
+                              enabled: true,
+                              config: {
+                                outputDir: '',
+                                saveScript: true,
+                                saveAudio: true,
+                                saveVideo: true,
+                                enableTrayNotify: true,
+                                autoOpenFolder: true,
+                              },
+                            },
+                          ],
+                        }));
+                        showToast('已成功载入【全自动每日出片】流水线！');
+                      }
+                    }}
+                    className="p-3 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-white dark:bg-[#14161f] hover:border-blue-500 hover:shadow-xs transition cursor-pointer group"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                        <span>🌟</span> 全自动每日出片
+                      </span>
+                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-mono">
+                        热门推荐
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 line-clamp-2">
+                      每天定时自动寻题 ➔ 写文案 ➔ 配音 ➔ 做数字人，全自动出片
+                    </p>
+                  </div>
+
+                  <div
+                    onClick={() => {
+                      if (confirm('是否将当前项目配置为【已有文案批量出片】推荐流水线？')) {
+                        updateCurrentProject(p => ({
+                          ...p,
+                          name: '已有文案批量配音与出片',
+                          description: '直接输入已写好的文案 -> 一键批量合成语音 -> 自动驱动数字人出片',
+                          enabled: false,
+                          nodes: [
+                            {
+                              id: `node_trig_${Date.now()}`,
+                              type: 'trigger',
+                              name: '直接输入已有文案 (跳过AI写稿)',
+                              enabled: true,
+                              config: {
+                                mode: 'direct_input',
+                                cronExpression: '',
+                                cronDescription: '手动批量输入',
+                                rawBatchText: ['为什么百分之九十的人做短视频，最后都成了平台的打工人？因为你从第一天就搞反了。'],
+                              },
+                            },
+                            {
+                              id: `node_tts_${Date.now()}`,
+                              type: 'voice_tts',
+                              name: '批量高保真语音合成',
+                              enabled: true,
+                              config: {
+                                engine: 'seed-tts-2.0',
+                                voiceId: '',
+                                voiceName: '默认高保真音色',
+                                emotion: 'default',
+                                speedRatio: 1.05,
+                                volumeRatio: 1.0,
+                                audioFormat: 'mp3',
+                              },
+                            },
+                            {
+                              id: `node_avatar_${Date.now()}`,
+                              type: 'digital_avatar',
+                              name: '蝉镜数字人批量渲染',
+                              enabled: true,
+                              config: {
+                                avatarId: '',
+                                avatarName: '首选数字人形象',
+                                figureType: 'whole_body',
+                                aspectRatio: '9:16',
+                                resolution: '1080p',
+                                addSubtitle: true,
+                                subtitleFontSize: 40,
+                                backgroundMode: 'default',
+                              },
+                            },
+                          ],
+                        }));
+                        showToast('已成功载入【已有文案批量出片】流水线！');
+                      }
+                    }}
+                    className="p-3 rounded-xl border border-purple-200 dark:border-purple-900/60 bg-white dark:bg-[#14161f] hover:border-purple-500 hover:shadow-xs transition cursor-pointer group"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-xs text-purple-600 dark:text-purple-400 flex items-center gap-1">
+                        <span>⚡</span> 已有文案批量出片
+                      </span>
+                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 font-mono">
+                        配音+数字人
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 line-clamp-2">
+                      跳过写文案，直接把已做好的多篇文案批量配音并做成数字人
+                    </p>
+                  </div>
+
+                  <div
+                    onClick={() => {
+                      if (confirm('是否将当前项目配置为【矩阵文案自动批量沉淀】推荐流水线？')) {
+                        updateCurrentProject(p => ({
+                          ...p,
+                          name: '自媒体矩阵文案自动批量生成',
+                          description: '每天晚上定时根据预设风格发散生成 5~10 篇爆款文案草稿',
+                          enabled: true,
+                          nodes: [
+                            {
+                              id: `node_trig_${Date.now()}`,
+                              type: 'trigger',
+                              name: '每天晚上 20:00 定时触发',
+                              enabled: true,
+                              config: {
+                                mode: 'cron',
+                                cronExpression: '0 20 * * *',
+                                cronDescription: '每天晚上 20:00',
+                                rawBatchText: [],
+                              },
+                            },
+                            {
+                              id: `node_topic_${Date.now()}`,
+                              type: 'topic_source',
+                              name: '根据赛道发散多个高潜选题',
+                              enabled: true,
+                              config: {
+                                sourceType: 'ai_brainstorm',
+                                domainKeyword: '个人IP孵化与自媒体矩阵实战',
+                                generateCount: 5,
+                                poolList: [],
+                              },
+                            },
+                            {
+                              id: `node_script_${Date.now()}`,
+                              type: 'ai_script',
+                              name: '自动批量创作高完播口播文案',
+                              enabled: true,
+                              config: {
+                                skillPresetId: 'teacher_zhang_business',
+                                batchCount: 2,
+                                targetWordCount: 300,
+                                hookStrategy: 'pain_point',
+                              },
+                            },
+                            {
+                              id: `node_export_${Date.now()}`,
+                              type: 'export_notify',
+                              name: '文案草稿保存至本地文库',
+                              enabled: true,
+                              config: {
+                                outputDir: '',
+                                saveScript: true,
+                                saveAudio: false,
+                                saveVideo: false,
+                                enableTrayNotify: true,
+                                autoOpenFolder: false,
+                              },
+                            },
+                          ],
+                        }));
+                        showToast('已成功载入【自媒体矩阵文案自动批量生成】流水线！');
+                      }
+                    }}
+                    className="p-3 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-white dark:bg-[#14161f] hover:border-emerald-500 hover:shadow-xs transition cursor-pointer group"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                        <span>📝</span> 矩阵文案批量沉淀
+                      </span>
+                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-mono">
+                        文案库沉淀
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 line-clamp-2">
+                      每天定时自动发散选题并批量生成多篇成稿，充实选题库
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {/* 卡片流水线主画布 */}
               <div className="space-y-3 relative">
                 {currentProject.nodes.map((node, index) => {
@@ -398,31 +872,31 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                         }`}
                       >
                         {/* 节点标题栏 */}
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <span className="text-xl">{meta.icon}</span>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="font-bold text-xs text-zinc-900 dark:text-zinc-100">
+                        <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="text-xl shrink-0">{meta.icon}</span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-xs text-zinc-900 dark:text-zinc-100 truncate">
                                   {index + 1}. {node.name}
                                 </span>
                                 <span
-                                  className={`text-[9px] px-2 py-0.2 rounded-full border font-mono font-bold ${meta.color}`}
+                                  className={`text-[9px] px-2 py-0.2 rounded-full border font-mono font-bold shrink-0 ${meta.color}`}
                                 >
                                   {meta.tag}
                                 </span>
                                 {!node.enabled && (
-                                  <span className="text-[10px] text-zinc-400 font-normal">
-                                    [已跳过 Bypass]
+                                  <span className="text-[10px] text-zinc-400 font-normal shrink-0">
+                                    [已停用此步]
                                   </span>
                                 )}
                               </div>
-                              <p className="text-[11px] text-zinc-400 mt-0.5">{meta.description}</p>
+                              <p className="text-[11px] text-zinc-400 mt-0.5 truncate">{meta.description}</p>
                             </div>
                           </div>
 
                           {/* 节点操作区 */}
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 shrink-0 ml-auto">
                             <button
                               type="button"
                               onClick={() => toggleNodeEnabled(node.id)}
@@ -457,7 +931,7 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                               onClick={() =>
                                 setExpandedNodes(prev => ({ ...prev, [node.id]: !isExpanded }))
                               }
-                              className="px-2 py-1 text-xs text-blue-500 hover:underline"
+                              className="px-2 py-1 text-xs text-blue-500 hover:underline whitespace-nowrap"
                             >
                               {isExpanded ? '收起配置 ▲' : '展开参数 ▼'}
                             </button>
@@ -477,9 +951,9 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                           <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800/80 space-y-3 animate-in fade-in">
                             {/* 1. 触发器参数 */}
                             {node.type === 'trigger' && (
-                              <div className="grid grid-cols-2 gap-3 text-xs">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                                 <div>
-                                  <label className="text-[11px] text-zinc-500">触发模式</label>
+                                  <label className="text-[11px] text-zinc-500 font-medium">运行模式</label>
                                   <select
                                     value={(node.config as any).mode}
                                     onChange={e =>
@@ -487,33 +961,29 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                                     }
                                     className="w-full mt-1 p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
                                   >
-                                    <option value="cron">定时 Cron 周期调度</option>
-                                    <option value="manual">仅手动点击触发</option>
-                                    <option value="direct_input">直接批量文案注入 (跳过写稿)</option>
+                                    <option value="cron">⏱️ 定时自动运行（如每天指定时间）</option>
+                                    <option value="manual">👆 仅在点击“立即执行”时运行</option>
+                                    <option value="direct_input">📝 直接批量输入文案（跳过AI写稿）</option>
                                   </select>
                                 </div>
 
                                 {(node.config as any).mode === 'cron' ? (
-                                  <div>
-                                    <label className="text-[11px] text-zinc-500">
-                                      定时规则 (Cron / 描述)
-                                    </label>
-                                    <input
-                                      type="text"
-                                      value={(node.config as any).cronDescription || ''}
-                                      onChange={e =>
+                                  <div className="col-span-1 sm:col-span-2">
+                                    <TriggerScheduleEditor
+                                      cronExpression={(node.config as any).cronExpression || '0 9 * * *'}
+                                      cronDescription={(node.config as any).cronDescription || '每天上午 09:00'}
+                                      onChange={({ cronExpression, cronDescription }) =>
                                         updateNodeConfig(node.id, {
-                                          cronDescription: e.target.value,
+                                          cronExpression,
+                                          cronDescription,
                                         })
                                       }
-                                      placeholder="例如: 每天上午 09:00"
-                                      className="w-full mt-1 p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
                                     />
                                   </div>
                                 ) : (node.config as any).mode === 'direct_input' ? (
-                                  <div className="col-span-2">
-                                    <label className="text-[11px] text-zinc-500">
-                                      直接输入已有文案 (多篇请用换行或空行隔开，直接推往配音/数字人)
+                                  <div className="col-span-1 sm:col-span-2">
+                                    <label className="text-[11px] text-zinc-500 font-medium">
+                                      直接输入已有文案 (多篇请用空行隔开，直接推往配音/数字人)
                                     </label>
                                     <textarea
                                       rows={3}
@@ -534,9 +1004,9 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
 
                             {/* 2. 选题参数 */}
                             {node.type === 'topic_source' && (
-                              <div className="grid grid-cols-2 gap-3 text-xs">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                                 <div>
-                                  <label className="text-[11px] text-zinc-500">赛道主题关键词</label>
+                                  <label className="text-[11px] text-zinc-500 font-medium">赛道主题关键词</label>
                                   <input
                                     type="text"
                                     value={(node.config as any).domainKeyword}
@@ -547,7 +1017,7 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                                   />
                                 </div>
                                 <div>
-                                  <label className="text-[11px] text-zinc-500">单次发散选题数</label>
+                                  <label className="text-[11px] text-zinc-500 font-medium">单次发散选题数</label>
                                   <input
                                     type="number"
                                     min={1}
@@ -566,9 +1036,9 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
 
                             {/* 3. AI 脚本参数 */}
                             {node.type === 'ai_script' && (
-                              <div className="grid grid-cols-3 gap-3 text-xs">
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                                 <div>
-                                  <label className="text-[11px] text-zinc-500">创作者风格 Skill</label>
+                                  <label className="text-[11px] text-zinc-500 font-medium">创作者风格 Skill</label>
                                   <select
                                     value={(node.config as any).skillPresetId}
                                     onChange={e =>
@@ -584,7 +1054,7 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                                   </select>
                                 </div>
                                 <div>
-                                  <label className="text-[11px] text-zinc-500">单主题衍生篇数</label>
+                                  <label className="text-[11px] text-zinc-500 font-medium">单主题衍生篇数</label>
                                   <select
                                     value={(node.config as any).batchCount || 1}
                                     onChange={e =>
@@ -600,7 +1070,7 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                                   </select>
                                 </div>
                                 <div>
-                                  <label className="text-[11px] text-zinc-500">目标字数</label>
+                                  <label className="text-[11px] text-zinc-500 font-medium">目标字数</label>
                                   <input
                                     type="number"
                                     value={(node.config as any).targetWordCount || 300}
@@ -617,9 +1087,9 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
 
                             {/* 4. TTS 参数 */}
                             {node.type === 'voice_tts' && (
-                              <div className="grid grid-cols-3 gap-3 text-xs">
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                                 <div>
-                                  <label className="text-[11px] text-zinc-500">情绪偏好</label>
+                                  <label className="text-[11px] text-zinc-500 font-medium">情绪偏好</label>
                                   <select
                                     value={(node.config as any).emotion || '开心'}
                                     onChange={e =>
@@ -634,7 +1104,7 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                                   </select>
                                 </div>
                                 <div>
-                                  <label className="text-[11px] text-zinc-500">语速比例</label>
+                                  <label className="text-[11px] text-zinc-500 font-medium">语速比例</label>
                                   <input
                                     type="number"
                                     step={0.1}
@@ -650,7 +1120,7 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                                   />
                                 </div>
                                 <div>
-                                  <label className="text-[11px] text-zinc-500">格式</label>
+                                  <label className="text-[11px] text-zinc-500 font-medium">音频格式</label>
                                   <select
                                     value={(node.config as any).audioFormat || 'mp3'}
                                     onChange={e =>
@@ -658,7 +1128,7 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                                     }
                                     className="w-full mt-1 p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
                                   >
-                                    <option value="mp3">MP3 (标准)</option>
+                                    <option value="mp3">MP3 (标准兼容)</option>
                                     <option value="wav">WAV (48kHz 无损)</option>
                                   </select>
                                 </div>
@@ -667,13 +1137,13 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
 
                             {/* 5. 数字人参数 (包含用户核心诉求：字幕开关！) */}
                             {node.type === 'digital_avatar' && (
-                              <div className="grid grid-cols-3 gap-3 text-xs">
-                                <div className="p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 flex items-center justify-between">
+                              <div className="space-y-3 text-xs">
+                                <div className="p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-900/50 flex items-center justify-between">
                                   <div>
-                                    <div className="font-semibold text-zinc-800 dark:text-zinc-200">
+                                    <div className="font-semibold text-zinc-800 dark:text-zinc-200 text-xs">
                                       自动添加内嵌字幕
                                     </div>
-                                    <div className="text-[10px] text-zinc-400">蝉镜云端智能对齐烧录</div>
+                                    <div className="text-[10px] text-zinc-400">蝉镜云端智能对齐烧录（字音同步）</div>
                                   </div>
                                   <input
                                     type="checkbox"
@@ -685,39 +1155,41 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                                   />
                                 </div>
 
-                                <div>
-                                  <label className="text-[11px] text-zinc-500">视频画幅比例</label>
-                                  <select
-                                    value={(node.config as any).aspectRatio || '9:16'}
-                                    onChange={e =>
-                                      updateNodeConfig(node.id, { aspectRatio: e.target.value })
-                                    }
-                                    className="w-full mt-1 p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
-                                  >
-                                    <option value="9:16">9:16 竖屏 (抖音/小红书/视频号)</option>
-                                    <option value="16:9">16:9 横屏 (B站/西瓜/YouTube)</option>
-                                  </select>
-                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  <div>
+                                    <label className="text-[11px] text-zinc-500 font-medium">视频画幅比例</label>
+                                    <select
+                                      value={(node.config as any).aspectRatio || '9:16'}
+                                      onChange={e =>
+                                        updateNodeConfig(node.id, { aspectRatio: e.target.value })
+                                      }
+                                      className="w-full mt-1 p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
+                                    >
+                                      <option value="9:16">9:16 竖屏 (抖音/小红书/视频号)</option>
+                                      <option value="16:9">16:9 横屏 (B站/西瓜/YouTube)</option>
+                                    </select>
+                                  </div>
 
-                                <div>
-                                  <label className="text-[11px] text-zinc-500">清晰度</label>
-                                  <select
-                                    value={(node.config as any).resolution || '1080p'}
-                                    onChange={e =>
-                                      updateNodeConfig(node.id, { resolution: e.target.value })
-                                    }
-                                    className="w-full mt-1 p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
-                                  >
-                                    <option value="1080p">1080P 超清</option>
-                                    <option value="4k">4K 极清渲染</option>
-                                  </select>
+                                  <div>
+                                    <label className="text-[11px] text-zinc-500 font-medium">清晰度</label>
+                                    <select
+                                      value={(node.config as any).resolution || '1080p'}
+                                      onChange={e =>
+                                        updateNodeConfig(node.id, { resolution: e.target.value })
+                                      }
+                                      className="w-full mt-1 p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
+                                    >
+                                      <option value="1080p">1080P 超清</option>
+                                      <option value="4k">4K 极清渲染</option>
+                                    </select>
+                                  </div>
                                 </div>
                               </div>
                             )}
 
                             {/* 6. 归档与通知参数 */}
                             {node.type === 'export_notify' && (
-                              <div className="grid grid-cols-2 gap-3 text-xs">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                                 <div className="p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 flex items-center justify-between">
                                   <div>
                                     <div className="font-semibold text-zinc-800 dark:text-zinc-200">
@@ -765,7 +1237,7 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                       {index < currentProject.nodes.length - 1 && (
                         <div className="flex items-center justify-center py-0.5">
                           <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-600 flex items-center gap-1">
-                            ↓ 产物上下文自动映射传递给下一步
+                            🔗 自动将上一步骤生成的结果传递给下一步
                           </span>
                         </div>
                       )}
@@ -777,9 +1249,9 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
                 <div className="pt-2 relative flex justify-center">
                   <button
                     onClick={() => setShowAddNodeMenu(!showAddNodeMenu)}
-                    className="px-5 py-2.5 rounded-xl border border-dashed border-blue-500/50 hover:border-blue-500 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-950/20 hover:bg-blue-50/70 transition flex items-center gap-2"
+                    className="px-6 py-2.5 rounded-2xl border border-dashed border-blue-500/40 hover:border-blue-500 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-white/60 dark:bg-[#14151e]/60 hover:bg-blue-50/60 dark:hover:bg-blue-950/30 shadow-2xs hover:shadow-xs transition-all active:scale-[0.98] flex items-center gap-2 cursor-pointer"
                   >
-                    <span>+</span> 自由插入任意能力节点
+                    <span className="text-sm">＋</span> <span>自由插入任意能力节点</span>
                   </button>
 
                   {/* 节点选择浮层 */}
@@ -827,59 +1299,70 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
         </div>
 
         {/* 右侧：实时日志与产物看板 */}
-        <div className="w-80 border-l border-zinc-200/80 dark:border-zinc-800/80 p-4 flex flex-col bg-white dark:bg-[#111217] shrink-0 overflow-hidden space-y-3">
-          <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800/80">
-            <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-              <span>📋</span> 执行控制台与产物
-            </span>
-            {logs.length > 0 && (
-              <button
-                onClick={() => setLogs([])}
-                className="text-[10px] text-zinc-400 hover:text-zinc-600"
-              >
-                清空日志
-              </button>
-            )}
-          </div>
-
-          {/* 实时日志窗口 */}
-          <div className="flex-1 p-3 rounded-xl bg-zinc-900 text-zinc-300 font-mono text-[11px] leading-relaxed overflow-y-auto space-y-1 select-text">
-            {logs.length === 0 ? (
-              <div className="text-zinc-500 italic">等待工作流启动...</div>
-            ) : (
-              logs.map((l, i) => (
-                <div
-                  key={i}
-                  className={
-                    l.includes('❌')
-                      ? 'text-rose-400'
-                      : l.includes('>>>')
-                      ? 'text-blue-400 font-semibold'
-                      : l.includes('===')
-                      ? 'text-emerald-400 font-bold'
-                      : 'text-zinc-300'
-                  }
+        {showConsole && (
+          <div className="w-80 border-l border-zinc-200/80 dark:border-zinc-800/80 p-4 flex flex-col bg-white dark:bg-[#111217] shrink-0 overflow-hidden space-y-3 animate-in slide-in-from-right-4 duration-200">
+            <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800/80">
+              <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+                <span>📋</span> 执行控制台与产物
+              </span>
+              <div className="flex items-center gap-2">
+                {logs.length > 0 && (
+                  <button
+                    onClick={() => setLogs([])}
+                    className="text-[10px] text-zinc-400 hover:text-zinc-600"
+                  >
+                    清空
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowConsole(false)}
+                  className="text-xs text-zinc-400 hover:text-zinc-600 p-0.5"
+                  title="收起控制台"
                 >
-                  {l}
-                </div>
-              ))
-            )}
-          </div>
-
-          {/* 产物汇总预览 */}
-          {runResult && (
-            <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 space-y-2 text-xs">
-              <div className="font-semibold text-zinc-800 dark:text-zinc-200">
-                本轮产物总览
-              </div>
-              <div className="text-[11px] text-zinc-500 space-y-1">
-                <div>生成文案：{runResult.scripts.length} 篇</div>
-                <div>合成音频：{runResult.audioPaths.length} 条</div>
-                <div>数字人任务：{runResult.videoUrls.length} 个</div>
+                  ✕
+                </button>
               </div>
             </div>
-          )}
-        </div>
+
+            {/* 实时日志窗口 */}
+            <div className="flex-1 p-3 rounded-xl bg-zinc-900 text-zinc-300 font-mono text-[11px] leading-relaxed overflow-y-auto space-y-1 select-text">
+              {logs.length === 0 ? (
+                <div className="text-zinc-500 italic">等待工作流启动...</div>
+              ) : (
+                logs.map((l, i) => (
+                  <div
+                    key={i}
+                    className={
+                      l.includes('❌')
+                        ? 'text-rose-400'
+                        : l.includes('>>>')
+                        ? 'text-blue-400 font-semibold'
+                        : l.includes('===')
+                        ? 'text-emerald-400 font-bold'
+                        : 'text-zinc-300'
+                    }
+                  >
+                    {l}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* 产物汇总预览 */}
+            {runResult && (
+              <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 space-y-2 text-xs">
+                <div className="font-semibold text-zinc-800 dark:text-zinc-200">
+                  本轮产物总览
+                </div>
+                <div className="text-[11px] text-zinc-500 space-y-1">
+                  <div>生成文案：{runResult.scripts.length} 篇</div>
+                  <div>合成音频：{runResult.audioPaths.length} 条</div>
+                  <div>数字人任务：{runResult.videoUrls.length} 个</div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* AI 自然语言一句话创建工作流 Modal */}

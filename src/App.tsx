@@ -133,7 +133,7 @@ const TAB_BREADCRUMBS: Record<Tab, { group: string; label: string }> = {
   extractor: { group: '视听创作', label: '媒体提取' },
   transcribe: { group: '视听创作', label: '视音频转录' },
   library: { group: '资产管理', label: '本地音频' },
-  settings: { group: '系统管理', label: '偏好设置' },
+  settings: { group: '系统管理', label: '设置' },
 };
 
 // 左下角三合一系统状态胶囊
@@ -405,6 +405,21 @@ export default function App() {
             </div>
           )}
         </div>
+
+        {/* 顶部导航栏中央：当处于「AI 文案工坊」时，优雅呈现极简 3 步出片向导流程（完全消除工作区挤压） */}
+        {tab === 'script' && (
+          <div className="hidden md:flex items-center gap-2 px-3 py-0.5 rounded-full bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/70 dark:border-blue-900/60 text-[11px] text-zinc-600 dark:text-zinc-300 select-none shadow-2xs pointer-events-none">
+            <span className="font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1">
+              <span>💡</span> 极简3步出片:
+            </span>
+            <span className="font-medium text-zinc-800 dark:text-zinc-200">1. 选风格</span>
+            <span className="text-zinc-300 dark:text-zinc-600 text-[10px]">➔</span>
+            <span className="font-medium text-zinc-800 dark:text-zinc-200">2. 聊灵感写稿</span>
+            <span className="text-zinc-300 dark:text-zinc-600 text-[10px]">➔</span>
+            <span className="font-medium text-zinc-800 dark:text-zinc-200">3. 确认推往出片</span>
+          </div>
+        )}
+
         <div className="flex">
           <button className="titlebar-btn" title="最小化" onClick={() => api.windowMinimize()}>
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -456,29 +471,38 @@ export default function App() {
             </div>
           </div>
 
-          {/* 下部固定底座：深浅主题切换 + 偏好设置 + 三合一状态胶囊 */}
+          {/* 下部固定底座：深浅主题切换 + 现代化设置 + 三合一状态胶囊 */}
           <div className="flex flex-col gap-2 pt-3 border-t border-zinc-200/70 dark:border-zinc-800/80">
-            {/* 设置与主题切换组合行 */}
-            <div className="flex items-center gap-1.5">
-              {/* 独立偏好设置按钮（左下角核心入口） */}
-              <div
-                className={`rail-item flex-1 ${tab === 'settings' ? 'rail-item-active' : ''}`}
+            {/* 一体化现代控制胶囊：设置 + 深浅主题切换 */}
+            <div className="p-1 rounded-xl bg-zinc-100/90 dark:bg-[#181920]/90 border border-zinc-200/80 dark:border-zinc-800/80 flex items-center justify-between gap-1 shadow-2xs backdrop-blur-md">
+              {/* 现代设置入口按钮 */}
+              <button
+                type="button"
                 onClick={() => setTab('settings')}
-                title="系统偏好设置"
+                className={`flex-1 flex items-center gap-2 h-8 px-2.5 rounded-lg text-xs font-medium transition-all cursor-pointer select-none ${
+                  tab === 'settings'
+                    ? 'bg-white dark:bg-zinc-800 text-blue-600 dark:text-blue-400 font-semibold shadow-xs'
+                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-white/60 dark:hover:bg-zinc-800/50'
+                }`}
+                title="系统设置"
               >
-                {Icon.settings}
-                <span className="rail-tip">偏好设置</span>
-              </div>
+                <span className={`transition-transform duration-300 ${tab === 'settings' ? 'rotate-45' : ''}`}>
+                  {Icon.settings}
+                </span>
+                <span className="truncate">设置</span>
+              </button>
 
-              {/* 暗黑模式切换按钮 */}
+              <div className="w-[1px] h-4 bg-zinc-300/70 dark:bg-zinc-700/70 my-auto shrink-0 opacity-60" />
+
+              {/* 暗黑/浅色模式切换微动效按键 */}
               <button
                 type="button"
                 onClick={toggleTheme}
-                className="grid h-9 w-9 place-items-center rounded-lg border border-zinc-200/80 dark:border-zinc-800/80 bg-white/80 dark:bg-[#151518]/90 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-700 transition shrink-0"
+                className="h-8 w-8 rounded-lg flex items-center justify-center text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-white/70 dark:hover:bg-zinc-800/70 transition-all cursor-pointer shrink-0 active:scale-95"
                 title={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
               >
                 {theme === 'dark' ? (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="transition-transform hover:rotate-45">
                     <circle cx="12" cy="12" r="5" />
                     <line x1="12" y1="1" x2="12" y2="3" />
                     <line x1="12" y1="21" x2="12" y2="23" />
@@ -490,7 +514,7 @@ export default function App() {
                     <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
                   </svg>
                 ) : (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="transition-transform hover:-rotate-12">
                     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
                   </svg>
                 )}

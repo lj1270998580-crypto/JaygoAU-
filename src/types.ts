@@ -36,6 +36,10 @@ export interface Settings {
   // ---- 系统托盘与任务通知偏好 ----
   closeToTray?: boolean;
   notifyOnTaskComplete?: boolean;
+  // ---- 统一大模型中心与自媒体工作流持久化（写入磁盘 settings.json） ----
+  modelHubSettings?: any;
+  customSkills?: any[];
+  workflowProjects?: any[];
 }
 
 export interface SynthProgress {
@@ -165,6 +169,9 @@ export interface JaygoAPI {
   downloadExtractedMedia(a: { mediaInfo: ParsedMediaInfo; type: 'video' | 'audio' }): Promise<{ path: string; size: number } | null>;
   extractMediaForTranscribe(a: { mediaInfo: ParsedMediaInfo }): Promise<{ filePath: string; fileName: string }>;
   showItemInFolder(path: string): Promise<boolean>;
+  // ---- 历史文章与多格式文档解析 (.txt, .md, .pdf, .docx, .json, .csv) ----
+  parseDocumentFile(filePath: string): Promise<{ ok: boolean; name?: string; path?: string; size?: number; text?: string; error?: string }>;
+  pickDocumentFiles(): Promise<Array<{ ok: boolean; name: string; path: string; size: number; text: string; error?: string }>>;
 }
 
 export interface ParsedMediaInfo {
