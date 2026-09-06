@@ -26,8 +26,8 @@ const ROOT = path.resolve(__dirname, '..');
 const pkg = require(path.join(ROOT, 'package.json'));
 const ver = pkg.version;
 const buildDir = (pkg.build && pkg.build.directories && pkg.build.directories.output)
-  ? path.resolve(pkg.build.directories.output)
-  : path.join(ROOT, 'release-out');
+  ? path.resolve(ROOT, pkg.build.directories.output)
+  : path.join(ROOT, 'release-pkg');
 
 const SSH = {
   host: process.env.SSH_HOST || '47.115.58.109',

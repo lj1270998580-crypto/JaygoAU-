@@ -28,7 +28,8 @@
     "productName": "Jaygo AU",
     "artifactName": "Jaygo.AU.Setup.${version}.${ext}",
     "files": [
-      "dist/**/*",
+      "dist/index.html",
+      "dist/assets/**/*",
       "dist-electron/**/*",
       "build/icon.ico"
     ],
@@ -48,7 +49,7 @@
       }
     ],
     "directories": {
-      "output": "dist"
+      "output": "release-pkg"
     },
     "win": {
       "target": "nsis",
