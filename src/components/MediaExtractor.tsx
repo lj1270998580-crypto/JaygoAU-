@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
 import { type ParsedMediaInfo } from '../types';
 
@@ -20,6 +20,9 @@ export default function MediaExtractor() {
   const [lastSavedPath, setLastSavedPath] = useState<string | null>(null);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [history, setHistory] = useState<ExtractHistoryItem[]>([]);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   // 从本地存储加载历史解析记录
   useEffect(() => {
@@ -331,10 +334,32 @@ export default function MediaExtractor() {
               <div className="rounded-xl overflow-hidden border border-zinc-200/80 dark:border-zinc-800 bg-black aspect-video flex items-center justify-center relative group">
                 {currentMedia.videoUrl ? (
                   <video
+                    ref={videoRef}
                     key={currentMedia.videoUrl}
                     controls
                     poster={currentMedia.coverUrl}
                     src={currentMedia.videoUrl}
+                    onPlay={() => {
+                      if (audioRef.current && audioRef.current.paused) {
+                        audioRef.current.play().catch(() => {});
+                      }
+                    }}
+                    onPause={() => {
+                      if (audioRef.current && !audioRef.current.paused) {
+                        audioRef.current.pause();
+                      }
+                    }}
+                    onSeeking={() => {
+                      if (audioRef.current && videoRef.current) {
+                        audioRef.current.currentTime = videoRef.current.currentTime;
+                      }
+                    }}
+                    onVolumeChange={() => {
+                      if (audioRef.current && videoRef.current) {
+                        audioRef.current.volume = videoRef.current.volume;
+                        audioRef.current.muted = videoRef.current.muted;
+                      }
+                    }}
                     className="w-full h-full object-contain"
                   />
                 ) : currentMedia.coverUrl ? (
@@ -355,7 +380,12 @@ export default function MediaExtractor() {
                     <span>🎵</span>
                     <span>原声伴奏/独立音频试听：</span>
                   </div>
-                  <audio controls src={currentMedia.audioUrl} className="w-full h-8" />
+                  <audio
+                    ref={audioRef}
+                    controls
+                    src={currentMedia.audioUrl}
+                    className="w-full h-8"
+                  />
                 </div>
               )}
             </div>

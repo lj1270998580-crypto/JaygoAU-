@@ -61,21 +61,72 @@ export function cleanAndDetectUrl(input: string): { url: string; platform: Parse
   return null;
 }
 
-const WX_UA =
-  'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.38(0x1800262c) NetType/WIFI Language/zh_CN';
+const CLEAN_MOBILE_UA =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1';
 
-// ---- 1. 抖音解析器（内置真实 Chromium 渲染树嗅探，支持签名参数并 100% 绕过反爬风控与验证码） ----
-async function parseDouyin(targetUrl: string, retryCount = 1): Promise<ParsedMediaInfo> {
+// 递归跟随 HTTP 302 重定向获取抖音 itemId 或最终长链
+async function resolveDouyinRedirect(url: string): Promise<{ targetUrl: string; itemId: string | null }> {
+  let cur = url;
+  let itemId: string | null = null;
+
+  // 先从传入链接本身检查是否有 itemId
+  const directMatch = cur.match(/(?:video|note)\/(\d+)/);
+  if (directMatch) {
+    return { targetUrl: cur, itemId: directMatch[1] };
+  }
+
+  for (let i = 0; i < 5; i++) {
+    try {
+      const res = await fetch(cur, {
+        method: 'GET',
+        redirect: 'manual',
+        headers: {
+          'User-Agent': PC_UA,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+      });
+      const loc = res.headers.get('location');
+      if (loc) {
+        cur = loc.startsWith('http') ? loc : new URL(loc, cur).href;
+        const m = cur.match(/(?:video|note)\/(\d+)/);
+        if (m) {
+          itemId = m[1];
+          break; // 只要提取到了 itemId，立刻停止重定向，节省网络延迟
+        }
+      } else {
+        break;
+      }
+    } catch {
+      break;
+    }
+  }
+  return { targetUrl: cur, itemId };
+}
+
+// ---- 1. 抖音解析器（内置短链重定向、桌面端 Chromium 引擎与全网流嗅探双轨提取） ----
+async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaInfo> {
+  const { targetUrl, itemId } = await resolveDouyinRedirect(rawUrl);
+  // 针对抖音风控，强行切换至桌面端 video/{itemId} 页面，彻底绕过移动端「抱歉出错了，请在抖音内观看」拦截
+  const desktopUrl = itemId ? `https://www.douyin.com/video/${itemId}` : targetUrl;
+
   return new Promise((resolve, reject) => {
     let settled = false;
+    const sessionPartition = `douyin_sniff_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const win = new BrowserWindow({
       show: false,
-      width: 375,
-      height: 667,
+      width: 1280,
+      height: 800,
       webPreferences: {
         offscreen: true,
+        backgroundThrottling: false,
+        autoplayPolicy: 'no-user-gesture-required',
+        partition: sessionPartition,
       },
     });
+
+    win.webContents.setAudioMuted(true);
+    win.webContents.setBackgroundThrottling(false);
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
     const cleanup = () => {
       clearTimeout(timer);
@@ -90,7 +141,7 @@ async function parseDouyin(targetUrl: string, retryCount = 1): Promise<ParsedMed
         cleanup();
         if (retryCount > 0) {
           try {
-            const retryRes = await parseDouyin(targetUrl, retryCount - 1);
+            const retryRes = await parseDouyin(rawUrl, retryCount - 1);
             return resolve(retryRes);
           } catch (retryErr) {
             return reject(retryErr);
@@ -102,82 +153,105 @@ async function parseDouyin(targetUrl: string, retryCount = 1): Promise<ParsedMed
 
     // 拦截移动端跳转抖音 App 的原生协议
     win.webContents.on('will-navigate', (e, navUrl) => {
-      if (navUrl.startsWith('snssdk') || navUrl.startsWith('douyin')) {
+      if (navUrl.startsWith('snssdk') || navUrl.startsWith('douyin://')) {
         e.preventDefault();
       }
     });
 
+    let capturedVideo = '';
     let capturedAudio = '';
+
+    // 网络请求全流量嗅探
     win.webContents.session.webRequest.onBeforeRequest((details, callback) => {
-      if (details.url.includes('music') || details.url.includes('soundTrack')) {
-        if (!details.url.endsWith('.js') && !details.url.endsWith('.css')) {
-          capturedAudio = details.url;
+      const u = details.url;
+      if (u.startsWith('snssdk') || u.startsWith('douyin://')) {
+        return callback({ cancel: true });
+      }
+
+      // 过滤 H265 解码能力探测视频及静态非媒体流
+      if (u.includes('uuu_265.mp4') || u.includes('douyin-pc-web/uuu') || u.includes('static')) {
+        return callback({});
+      }
+
+      // 捕获真实 CDN 视频流
+      if (
+        (u.includes('media-video') ||
+         (u.includes('douyinvod.com') && !u.includes('media-audio')) ||
+         u.includes('/video/tos/')) &&
+        !u.includes('.js') &&
+        !u.includes('.css') &&
+        !u.includes('.json')
+      ) {
+        if (!capturedVideo) {
+          capturedVideo = u;
         }
       }
+
+      // 捕获原声或独立音频流
+      if (
+        (u.includes('media-audio') ||
+         u.includes('soundTrack') ||
+         (u.includes('music') && u.includes('douyinvod.com'))) &&
+        !u.includes('.js') &&
+        !u.includes('.css')
+      ) {
+        if (!capturedAudio) {
+          capturedAudio = u;
+        }
+      }
+
       callback({});
     });
 
-    win.loadURL(targetUrl, { userAgent: WX_UA }).catch((err) => {
+    win.loadURL(desktopUrl, { userAgent: PC_UA }).catch((err) => {
       if (!settled && retryCount > 0) {
         settled = true;
         cleanup();
-        parseDouyin(targetUrl, retryCount - 1).then(resolve).catch(reject);
+        parseDouyin(rawUrl, retryCount - 1).then(resolve).catch(reject);
       }
     });
 
-    // 毫秒级轮询页面渲染树与 SSR 变量，双通道提取真实视频流
+    // 毫秒级轮询页面渲染树、DOM video 标签与全局 SSR 变量
+    let pollCount = 0;
     const interval = setInterval(async () => {
       if (settled || win.isDestroyed()) {
         clearInterval(interval);
         return;
       }
+      pollCount++;
       try {
         const info = await win.webContents.executeJavaScript(`
           (() => {
-            // 1. DOM 检测
-            const v = document.querySelector('video');
-            const domSrc = (v && (v.src || v.querySelector('source')?.src)) || '';
-            
-            // 2. SSR 全局状态检测 (提前注入模式)
-            let ssrSrc = '';
-            try {
-              const rd = window._ROUTER_DATA || window.__RENDER_DATA__ || window.__INIT_DATA__;
-              if (rd) {
-                const rdStr = JSON.stringify(rd);
-                const playMatch = rdStr.match(/https?:\\\\\/\\\\\/[^\s"']+\/play(?:wm)?\/[^\s"']+/i) ||
-                                  rdStr.match(/"play_addr":\s*\{[^}]*"url_list":\s*\[\s*"([^"]+)"/i);
-                if (playMatch) {
-                  ssrSrc = (playMatch[1] || playMatch[0]).replace(/\\\\\\//g, '/');
-                }
-              }
-            } catch {}
+            const title = (document.title || '').replace(/ - 抖音$/, '').replace(/\\| 抖音$/, '').trim() || '抖音作品';
+            const desc = document.querySelector('meta[name="description"]')?.content || '';
 
-            const rawSrc = domSrc || ssrSrc;
-            if (!rawSrc) return null;
-
-            const title = document.title.replace(/ - 抖音$/, '').trim();
-            
             let author = '';
-            const authorMatch = document.body.innerText.match(/@([^\\\\n\\\\s]+)/);
-            if (authorMatch) author = authorMatch[1];
-
-            const avatarEl = document.querySelector('img[src*="avatar"]');
-            const avatar = avatarEl ? avatarEl.src : '';
+            const authorMatch = desc.match(/ - (.*?)于\\d{8}发布/);
+            if (authorMatch) author = authorMatch[1].trim();
+            if (!author) {
+              const el = document.querySelector('[class*="account-name"]') || document.querySelector('[class*="author-name"]');
+              if (el) author = (el.textContent || '').trim();
+            }
 
             const imgs = Array.from(document.querySelectorAll('img')).map(i => i.src);
-            const cover = (v && v.poster) || imgs.find(s => s.includes('douyinpic.com') && !s.includes('avatar')) || '';
+            const cover = imgs.find(s => s.includes('douyinpic.com') && !s.includes('avatar')) || '';
+            const avatar = imgs.find(s => s.includes('avatar')) || '';
 
             return {
-              title: title || '抖音作品',
+              title,
               author: author || '抖音创作者',
               authorAvatar: avatar,
               coverUrl: cover,
-              videoUrl: rawSrc.replace('/playwm/', '/play/'),
             };
           })()
         `);
 
-        if (info && info.videoUrl) {
+        if (info && (capturedVideo || capturedAudio)) {
+          // 如果捕获到视频但还未捕获到音频，给少量轮询时间等待可能分离的音频流
+          if (capturedVideo && !capturedAudio && pollCount < 15) {
+            return;
+          }
+
           settled = true;
           clearInterval(interval);
           cleanup();
@@ -188,11 +262,11 @@ async function parseDouyin(targetUrl: string, retryCount = 1): Promise<ParsedMed
             author: info.author,
             authorAvatar: info.authorAvatar,
             coverUrl: info.coverUrl,
-            videoUrl: info.videoUrl,
+            videoUrl: capturedVideo || undefined,
             audioUrl: capturedAudio || undefined,
             originalUrl: targetUrl,
             headers: {
-              'User-Agent': WX_UA,
+              'User-Agent': PC_UA,
               'Referer': 'https://www.douyin.com/',
             },
           });
@@ -545,3 +619,42 @@ export function extractAudioWithFfmpeg(
     });
   });
 }
+
+// ---- 使用 ffmpeg 快速无损合并视频流与音频流 (针对 DASH 格式) ----
+export function mergeVideoAndAudioWithFfmpeg(
+  ffmpegPath: string,
+  videoPath: string,
+  audioPath: string,
+  outputPath: string
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!ffmpegPath || !fs.existsSync(ffmpegPath)) {
+      return reject(new Error('未找到 FFmpeg 引擎，无法合并音视频'));
+    }
+
+    const args = [
+      '-y',
+      '-i', videoPath,
+      '-i', audioPath,
+      '-c:v', 'copy',
+      '-c:a', 'copy',
+      '-map', '0:v:0',
+      '-map', '1:a:0',
+      '-movflags', '+faststart',
+      outputPath,
+    ];
+
+    let stderr = '';
+    const proc = spawn(ffmpegPath, args);
+    proc.stderr.on('data', (d) => (stderr += d.toString()));
+    proc.on('error', (e) => reject(e));
+    proc.on('close', (code) => {
+      if (code === 0 && fs.existsSync(outputPath) && fs.statSync(outputPath).size > 100) {
+        resolve(outputPath);
+      } else {
+        reject(new Error(`FFmpeg 音视频合并失败 (code ${code}): ${stderr.slice(-300)}`));
+      }
+    });
+  });
+}
+

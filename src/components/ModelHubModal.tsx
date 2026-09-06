@@ -18,9 +18,10 @@ const PROVIDER_ORDER: ModelProviderType[] = [
   'qwen',
   'zhipu',
   'moonshot',
+  'minimax',
+  'mimo',
   'openai',
   'claude',
-  'minimax',
   'custom',
 ];
 
@@ -31,9 +32,10 @@ const PROVIDER_NAMES: Record<ModelProviderType, string> = {
   qwen: '通义千问 (阿里云)',
   zhipu: '智谱 AI (GLM)',
   moonshot: 'Kimi (月之暗面)',
+  minimax: 'MiniMax (海螺AI)',
+  mimo: '小米 MiMo (MiMo 2.5)',
   openai: 'OpenAI (国际版)',
   claude: 'Claude (Anthropic)',
-  minimax: 'MiniMax (海螺AI)',
   custom: '自定义兼容接口',
 };
 

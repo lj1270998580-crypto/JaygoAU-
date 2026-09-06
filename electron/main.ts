@@ -7,7 +7,7 @@ import * as os from 'node:os';
 import * as child_process from 'node:child_process';
 import ffmpegStatic from 'ffmpeg-static';
 import { spawn } from 'node:child_process';
-import { extractMedia, downloadMediaFile, extractAudioWithFfmpeg, type ParsedMediaInfo } from './mediaExtractor';
+import { extractMedia, downloadMediaFile, extractAudioWithFfmpeg, mergeVideoAndAudioWithFfmpeg, type ParsedMediaInfo } from './mediaExtractor';
 
 // 主进程出站请求统一走 Chromium 网络栈（net.fetch），自动尊重系统代理（v2rayN/Clash 等）。
 // Node.js 原生 fetch(undici) 默认不读取系统代理，导致中国大陆用户即便开了代理，
@@ -498,6 +498,25 @@ function createWindow() {
 
 app.whenReady().then(() => {
   dbg('app ready');
+
+  // 配置全局网络请求头，允许渲染进程直接播放抖音、B站等防盗链媒体与封面
+  try {
+    const { session } = require('electron');
+    session.defaultSession.webRequest.onBeforeSendHeaders((details: any, callback: any) => {
+      const u = details.url || '';
+      if (u.includes('douyinvod.com') || u.includes('douyinpic.com') || u.includes('douyin.com')) {
+        details.requestHeaders['Referer'] = 'https://www.douyin.com/';
+        details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+      } else if (u.includes('bilibili.com') || u.includes('hdslb.com') || u.includes('bilivideo.com')) {
+        details.requestHeaders['Referer'] = 'https://www.bilibili.com/';
+        details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+      }
+      callback({ requestHeaders: details.requestHeaders });
+    });
+  } catch (err) {
+    dbg('[webRequest] onBeforeSendHeaders 配置异常: ' + err);
+  }
+
   try {
     createWindow();
     dbg('createWindow 完成');
@@ -1389,8 +1408,24 @@ ipcMain.handle(
 
     if (type === 'video') {
       if (!mediaInfo.videoUrl) throw new Error('该作品未解析出视频流');
-      await downloadMediaFile(mediaInfo.videoUrl, targetPath, mediaInfo.headers);
-      return { path: targetPath, size: fs.statSync(targetPath).size };
+
+      // 若包含独立音频流（如抖音 DASH 模式），分别下载后自动用 FFmpeg 快速无损合并
+      if (mediaInfo.audioUrl && (mediaInfo.videoUrl.includes('media-video') || mediaInfo.platform === 'douyin')) {
+        const tempVideo = path.join(app.getPath('temp'), `jaygo-v-${Date.now()}.mp4`);
+        const tempAudio = path.join(app.getPath('temp'), `jaygo-a-${Date.now()}.mp4`);
+        try {
+          await downloadMediaFile(mediaInfo.videoUrl, tempVideo, mediaInfo.headers);
+          await downloadMediaFile(mediaInfo.audioUrl, tempAudio, mediaInfo.headers);
+          await mergeVideoAndAudioWithFfmpeg(FFMPEG_PATH, tempVideo, tempAudio, targetPath);
+          return { path: targetPath, size: fs.statSync(targetPath).size };
+        } finally {
+          fs.unlink(tempVideo, () => {});
+          fs.unlink(tempAudio, () => {});
+        }
+      } else {
+        await downloadMediaFile(mediaInfo.videoUrl, targetPath, mediaInfo.headers);
+        return { path: targetPath, size: fs.statSync(targetPath).size };
+      }
     } else {
       // 提取音频
       if (mediaInfo.audioUrl) {

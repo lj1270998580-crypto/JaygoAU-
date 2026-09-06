@@ -8,6 +8,7 @@ export type ModelProviderType =
   | 'openai'
   | 'claude'
   | 'minimax'
+  | 'mimo'
   | 'custom';
 
 export interface ModelOption {
@@ -54,11 +55,13 @@ export const PRESET_PROVIDERS: Record<ModelProviderType, ProviderPreset> = {
     keyPlaceholder: '请输入商汤 Token Plan API Key (sk-...)',
     docUrl: 'https://platform.sensenova.cn/token-plan',
     models: [
-      { id: 'sensenova-6.8-flash-lite', name: 'SenseNova-6.8-Flash-Lite (Token Plan 首选主力)', description: 'Token Plan 免费公测主力，低消耗、高响应，办公与自媒体智能体首选', badge: 'TokenPlan首选' },
-      { id: 'SenseNova-V6.5-Omni', name: 'SenseNova-V6.5-Omni (实时全模态旗舰)', description: '最新全模态实时流式交互旗舰，音视文统一推理', badge: '全模态旗舰' },
-      { id: 'sensenova-u1-fast', name: 'SenseNova-U1-Fast (统一图文多模态)', description: 'NEO-unify 架构，图文统一理解与生成', badge: 'NEO架构' },
-      { id: 'SenseNova-V6-Pro', name: 'SenseNova-V6-Pro (长文本深度旗舰)', description: '支持 64K 超长上下文，多模态长篇理解', badge: '64K长文' },
-      { id: 'SenseNova-V6-Turbo', name: 'SenseNova-V6-Turbo (高并发极速版)', description: '极速推理吞吐，高并发自媒体量产' },
+      { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro (默认首选)', description: '商汤托管 DeepSeek 旗舰大模型，逻辑、文学质感与自媒体口播首选', badge: '默认首选' },
+      { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash (极速推理)', description: '商汤托管 DeepSeek 极速推理，高吞吐与秒级响应', badge: '极速推理' },
+      { id: 'sensenova-6.8-flash-lite', name: 'SenseNova 6.8 Flash Lite (自研轻量免费)', description: '商汤自研轻量低耗模型，Token Plan 免费公测首选', badge: '轻量低耗' },
+      { id: 'sensenova-u1.5-lite', name: 'SenseNova U1.5 Lite (统一图文多模态)', description: 'NEO-unify 架构升级，图文统一理解与多模态创作', badge: '图文多模态' },
+      { id: 'sensenova-u1-fast', name: 'SenseNova U1 Fast (统一架构极速版)', description: 'NEO 极速多模态生成，超低时延', badge: '极速多模态' },
+      { id: 'glm-5.2', name: 'GLM-5.2 (智谱MoE)', description: '商汤托管智谱 MoE 架构，强指令遵循与长程逻辑', badge: '智谱MoE' },
+      { id: 'kimi-k3', name: 'Kimi K3 (月之暗面长文本)', description: '商汤托管 Kimi-K3 2.8T MoE，长文本与深度思考', badge: 'Kimi长文' },
     ],
   },
   deepseek: {
@@ -69,8 +72,11 @@ export const PRESET_PROVIDERS: Record<ModelProviderType, ProviderPreset> = {
     keyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
     docUrl: 'https://platform.deepseek.com/',
     models: [
-      { id: 'deepseek-chat', name: 'DeepSeek-V3 (671B MoE 通用旗舰)', description: '中文自然度标杆，极高性价比与出色文字感染力', badge: '最强推荐' },
-      { id: 'deepseek-reasoner', name: 'DeepSeek-R1 (深度长思维链推理)', description: '开源逻辑推理与深度思考巅峰，适合复杂观点破局', badge: '深度推理' },
+      { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro (全新一代超大规模旗舰)', description: '2026 最新官方旗舰，对齐国际顶尖水平，全场景通用与口播巅峰', badge: '2026顶级旗舰' },
+      { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash (新一代高并发轻量版)', description: '极速响应与低资费，批量洗稿与多轮对话高性价比首选', badge: '极速轻量' },
+      { id: 'deepseek-v4-flash-vision-exp', name: 'DeepSeek-V4-Flash-Vision-Exp (多模态视觉理解)', description: '支持视觉图片与文档多模态理解', badge: '多模态' },
+      { id: 'deepseek-chat', name: 'DeepSeek-V3 (671B MoE 经典通用旗舰)', description: '中文自然度标杆，极高性价比与出色文字感染力', badge: 'V3经典' },
+      { id: 'deepseek-reasoner', name: 'DeepSeek-R1 (深度长思维链推理)', description: '开源逻辑推理与深度思考巅峰，适合复杂观点破局', badge: '深度思考' },
     ],
   },
   qwen: {
@@ -82,7 +88,7 @@ export const PRESET_PROVIDERS: Record<ModelProviderType, ProviderPreset> = {
     docUrl: 'https://bailian.console.aliyun.com/',
     models: [
       { id: 'qwen3.8-max', name: 'Qwen3.8-Max (2026最新 2.4万亿 MoE 顶级旗舰)', description: '阿里千问家族迄今最强能力底座，通用智能与长篇创作跃升', badge: '2026顶级旗舰' },
-      { id: 'qwen2.5-max', name: 'Qwen2.5-Max (千问 2.5 千亿最新旗舰)', description: '千亿级别超大规模语言模型，文字张力极佳', badge: '2.5旗舰' },
+      { id: 'qwen3.7-plus', name: 'Qwen3.7-Plus (新一代全能多模态主力)', description: '速度质量兼备，自媒体批量口播高性价比首选', badge: '3.7主力' },
       { id: 'qwen-max-latest', name: 'Qwen-Max-Latest (动态滚动更新旗舰)', description: '阿里最强能力底座，百炼自动滚动升级至最新版本', badge: '滚动最新' },
       { id: 'qwen-plus-latest', name: 'Qwen-Plus-Latest (新一代均衡主力)', description: '速度质量兼备，自媒体批量口播高性价比首选', badge: '均衡主力' },
       { id: 'qwen-turbo-latest', name: 'Qwen-Turbo-Latest (100万 Token 极速版)', description: '超大上下文与秒级返回', badge: '100万长文' },
@@ -98,6 +104,8 @@ export const PRESET_PROVIDERS: Record<ModelProviderType, ProviderPreset> = {
     keyPlaceholder: '请输入智谱 API Key',
     docUrl: 'https://open.bigmodel.cn/',
     models: [
+      { id: 'glm-5.3', name: 'GLM-5.3 (2026智谱新一代旗舰)', description: '2026智谱全模态底座旗舰，高质量文字创作与复杂长程逻辑', badge: '2026旗舰' },
+      { id: 'glm-5.3-flash', name: 'GLM-5.3-Flash (超高速普惠免费模型)', description: '秒级响应、极低延迟，日常对话与短文改写首选', badge: '极速免费' },
       { id: 'glm-4-plus', name: 'GLM-4-Plus (高智能旗舰模型)', description: '全模态底座，高质量文字创作与复杂长程逻辑', badge: '旗舰版' },
       { id: 'glm-4-flash', name: 'GLM-4-Flash (免费高速模型)', description: '普惠免费模型，秒级响应，轻量任务首选', badge: '免费高速' },
       { id: 'glm-4-air', name: 'GLM-4-Air (极速均衡性价比旗舰)', description: '高并发与日常生成高性价比首选', badge: '极速均衡' },
@@ -113,11 +121,11 @@ export const PRESET_PROVIDERS: Record<ModelProviderType, ProviderPreset> = {
     keyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
     docUrl: 'https://platform.moonshot.cn/',
     models: [
+      { id: 'kimi-k3', name: 'Kimi-K3 (2.8T MoE 2026最新思考旗舰)', description: '月之暗面 2026 全新 2.8T MoE 思考模型，深度逻辑与拟人文学质感', badge: '2026最新旗舰' },
+      { id: 'kimi-k2.7-code', name: 'Kimi-K2.7-Code (256K 超长上下文)', description: '支持 256K 超长文本素材理解与结构化提炼', badge: '256K长文' },
       { id: 'kimi-latest', name: 'Kimi-Latest (月之暗面最新动态旗舰)', description: 'Kimi 官方滚动最新模型，文字细腻自然、极具拟人感', badge: '最新旗舰' },
       { id: 'moonshot-v1-auto', name: 'Moonshot-v1-auto (动态智能窗口)', description: '自动根据文案长度匹配最佳上下文窗口', badge: '智能推荐' },
       { id: 'moonshot-v1-128k', name: 'Moonshot-v1-128k (128K 超长文案)', description: '超长素材阅读与多篇风格比对', badge: '128K长文' },
-      { id: 'moonshot-v1-32k', name: 'Moonshot-v1-32k (经典自媒体中长篇)', description: '文字细腻温润，共情与故事感极强' },
-      { id: 'moonshot-v1-8k', name: 'Moonshot-v1-8k (短篇速出)', description: '60秒快节奏短视频' },
     ],
   },
   openai: {
@@ -157,8 +165,21 @@ export const PRESET_PROVIDERS: Record<ModelProviderType, ProviderPreset> = {
     keyPlaceholder: '请输入 MiniMax API Key',
     docUrl: 'https://platform.minimaxi.com/',
     models: [
-      { id: 'MiniMax-Text-01', name: 'MiniMax-Text-01 (400万字超长上下文)', description: '原生超拟人中文大模型，语气自然，极具真人感', badge: '超拟人' },
-      { id: 'abab6.5s-chat', name: 'Abab6.5s-Chat (高情商角色口播)', description: '适合情感、治愈与人设化强烈的自媒体账号' },
+      { id: 'MiniMax-M3', name: 'MiniMax-M3 (2026自主进化新一代旗舰)', description: 'MiniMax 最新一代基座旗舰，全模态原生理解，自媒体文学质感极强', badge: '2026最新旗舰' },
+      { id: 'MiniMax-Text-01', name: 'MiniMax-Text-01 (400万字超长上下文)', description: '原生超拟人中文大模型，语气自然，极具真人感', badge: '超长长文' },
+      { id: 'abab6.5s-chat', name: 'Abab6.5s-Chat (高情商角色口播)', description: '适合情感、治愈与人设化强烈的自媒体账号', badge: '情感人设' },
+    ],
+  },
+  mimo: {
+    type: 'mimo',
+    name: '小米 · MiMo (大模型开放平台)',
+    icon: '📱',
+    defaultBaseUrl: 'https://api.xiaomimimo.com/v1',
+    keyPlaceholder: '请输入小米 MiMo API Key (tp-... / sk-...)',
+    docUrl: 'https://platform.xiaomimimo.com/',
+    models: [
+      { id: 'mimo-v2.5-pro', name: 'MiMo-V2.5-Pro (小米旗舰多模态大模型)', description: '小米多模态推理与创作旗舰，综合指令遵循与口播创作拔尖', badge: '2026旗舰' },
+      { id: 'mimo-v2.5-flash', name: 'MiMo-V2.5-Flash (轻量高并发极速版)', description: '低消耗高吞吐，自媒体批量文案处理首选', badge: '极速轻量' },
     ],
   },
   custom: {
@@ -210,14 +231,14 @@ export const DEFAULT_MODEL_HUB_SETTINGS: ModelHubSettings = {
       enabled: false,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.sensenova.defaultBaseUrl,
-      selectedModel: 'sensenova-6.8-flash-lite',
+      selectedModel: 'deepseek-v4-pro', // 用户明确指定以 deepseek-v4-pro 为默认首选
     },
     deepseek: {
       type: 'deepseek',
       enabled: false,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.deepseek.defaultBaseUrl,
-      selectedModel: 'deepseek-chat',
+      selectedModel: 'deepseek-v4-pro', // 2026最新旗舰
     },
     qwen: {
       type: 'qwen',
@@ -231,14 +252,14 @@ export const DEFAULT_MODEL_HUB_SETTINGS: ModelHubSettings = {
       enabled: false,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.zhipu.defaultBaseUrl,
-      selectedModel: 'glm-4-plus', // 默认升级为 plus
+      selectedModel: 'glm-5.3', // 2026智谱新一代旗舰
     },
     moonshot: {
       type: 'moonshot',
       enabled: false,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.moonshot.defaultBaseUrl,
-      selectedModel: 'moonshot-v1-auto', // 默认升级为 auto
+      selectedModel: 'kimi-k3', // 2026最新思考旗舰
     },
     openai: {
       type: 'openai',
@@ -259,7 +280,14 @@ export const DEFAULT_MODEL_HUB_SETTINGS: ModelHubSettings = {
       enabled: false,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.minimax.defaultBaseUrl,
-      selectedModel: 'MiniMax-Text-01',
+      selectedModel: 'MiniMax-M3', // 用户指定最新 M3
+    },
+    mimo: {
+      type: 'mimo',
+      enabled: false,
+      apiKey: '',
+      baseUrl: PRESET_PROVIDERS.mimo.defaultBaseUrl,
+      selectedModel: 'mimo-v2.5-pro', // 小米旗舰多模态
     },
     custom: {
       type: 'custom',

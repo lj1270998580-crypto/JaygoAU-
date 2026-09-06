@@ -11,6 +11,35 @@ html.dark {
   color-scheme: dark;
 }
 
+/* 全局表单与下拉菜单深色/浅色模式样式加固 (解决 Windows Chromium 原生下拉白底浅字) */
+select,
+option,
+optgroup {
+  color-scheme: light;
+  background-color: #ffffff;
+  color: #18181b;
+}
+
+html.dark select,
+html.dark option,
+html.dark optgroup {
+  color-scheme: dark !important;
+  background-color: #18181b !important;
+  color: #f4f4f5 !important;
+}
+
+html.dark select option,
+html.dark select optgroup {
+  background-color: #1e1e24 !important;
+  color: #f4f4f5 !important;
+}
+
+html.dark select option:checked,
+html.dark select option:hover {
+  background-color: #27272a !important;
+  color: #60a5fa !important;
+}
+
 html,
 body,
 #root {

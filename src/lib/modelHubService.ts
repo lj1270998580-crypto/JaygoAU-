@@ -1,4 +1,5 @@
 import type { ModelHubSettings, ConfiguredProvider, ModelProviderType } from './modelHubTypes';
+import { PRESET_PROVIDERS } from './modelHubTypes';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -109,8 +110,10 @@ export async function chatCompletion(
   const url = `${baseUrl}/chat/completions`;
   const isStream = Boolean(options.stream && options.onDelta);
 
+  const actualModel = provider.type === 'sensenova' ? (model || '').toLowerCase() : model;
+
   const reqBody = {
-    model: model,
+    model: actualModel,
     messages: cleanMessages,
     temperature: options.temperature ?? 0.4,
     max_tokens: options.maxTokens ?? 2048,
@@ -122,25 +125,100 @@ export async function chatCompletion(
     Authorization: `Bearer ${provider.apiKey.trim()}`,
   };
 
-  // 超时控制器保护（流式 60s，非流式 45s）
+  // 超时与 429 智能指数退避重试控制器
   const timeoutMs = isStream ? 60000 : 45000;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const MAX_429_RETRIES = 3;
+  let attempt = 0;
+  let res: Response | null = null;
 
-  if (options.signal) {
-    options.signal.addEventListener('abort', () => controller.abort());
+  while (attempt <= MAX_429_RETRIES) {
+    if (options.signal?.aborted) {
+      throw new Error('用户已取消请求');
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    const onAbort = () => controller.abort();
+    if (options.signal) {
+      options.signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(reqBody),
+        signal: controller.signal,
+      });
+    } catch (fetchErr: any) {
+      clearTimeout(timer);
+      if (options.signal) {
+        options.signal.removeEventListener('abort', onAbort);
+      }
+      if (fetchErr.name === 'AbortError') {
+        if (options.signal?.aborted) {
+          throw new Error('用户已取消请求');
+        }
+        throw new Error(`请求超时（等待已超过 ${timeoutMs / 1000} 秒未完成），请检查网络或在【模型设置】中切换其他模型`);
+      }
+      throw fetchErr;
+    }
+
+    clearTimeout(timer);
+    if (options.signal) {
+      options.signal.removeEventListener('abort', onAbort);
+    }
+
+    // 针对 429 (Too Many Requests / 1 QPS 限制) 自动进行指数退避重试
+    if (res.status === 429) {
+      attempt++;
+      if (attempt > MAX_429_RETRIES) {
+        let errText = '';
+        try {
+          const errJson = await res.json();
+          errText = errJson.error?.message || errJson.message || JSON.stringify(errJson);
+        } catch (_) {
+          errText = await res.text();
+        }
+        throw new Error(
+          `触发服务商调用频次限制 (HTTP 429: Too Many Requests)。\n\n` +
+          `已为您自动智能排队重试 3 次，但服务商仍限制访问。\n` +
+          `💡 建议排查与解决：\n` +
+          `1. 商汤 Token Plan、部分免费/公测模型限制为 1 QPS (每秒仅限 1 次调用)，请等待 5~10 秒后再试；\n` +
+          `2. 可直接在对话框顶部快捷切换为其他已配置的供应商或模型（如 DeepSeek、豆包、通义千问等）；\n` +
+          `3. 详情反馈: ${errText || 'Rate limit exceeded'}`
+        );
+      }
+
+      // 读取服务端 Retry-After 头，无则按 1.5s -> 3s -> 6s 退避并加上抖动
+      let delayMs = 1500 * Math.pow(2, attempt - 1);
+      const retryAfter = res.headers.get('retry-after');
+      if (retryAfter) {
+        const sec = parseFloat(retryAfter);
+        if (!isNaN(sec) && sec > 0) {
+          delayMs = Math.min(sec * 1000, 10000);
+        }
+      }
+      delayMs += Math.floor(Math.random() * 350) + 200;
+
+      // 友好通知前端用户正在排队
+      const provName = PRESET_PROVIDERS[provider.type]?.name || provider.type;
+      options.onDelta?.(`\n⏳ 当前服务商（${provName}）触发 1 QPS 频次保护 (429)，系统正在自动智能排队重试中（第 ${attempt}/${MAX_429_RETRIES} 次，等待 ${(delayMs / 1000).toFixed(1)} 秒）...\n`);
+
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      continue;
+    }
+
+    // 状态码正常或非 429，跳出重试循环
+    break;
+  }
+
+  if (!res) {
+    throw new Error('未获取到服务商响应');
   }
 
   try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(reqBody),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timer);
-
     if (!res.ok) {
       let errText = '';
       try {
@@ -249,7 +327,6 @@ export async function chatCompletion(
       return cleanResult;
     }
   } catch (err: any) {
-    clearTimeout(timer);
     if (err.name === 'AbortError') {
       throw new Error(`请求超时（等待已超过 ${timeoutMs / 1000} 秒未完成），请检查网络或在【模型设置】中切换其他模型`);
     }
@@ -280,6 +357,8 @@ export async function testConnection(provider: ConfiguredProvider): Promise<Conn
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12000); // 12s timeout
 
+    const actualModel = provider.type === 'sensenova' ? (model || '').toLowerCase() : model;
+
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -287,7 +366,7 @@ export async function testConnection(provider: ConfiguredProvider): Promise<Conn
         Authorization: `Bearer ${provider.apiKey.trim()}`,
       },
       body: JSON.stringify({
-        model: model,
+        model: actualModel,
         messages: [{ role: 'user', content: 'Hi, respond with OK.' }],
         max_tokens: 5,
         temperature: 0.1,
@@ -305,6 +384,13 @@ export async function testConnection(provider: ConfiguredProvider): Promise<Conn
         errText = j.error?.message || j.message || JSON.stringify(j);
       } catch (_) {
         errText = await res.text();
+      }
+      if (res.status === 429) {
+        return {
+          ok: false,
+          pingMs,
+          error: `HTTP 429 (并发频次受限): 该服务商接口限制为 1 QPS 或已达并发上限，请稍候 5~10 秒后重试。详情: ${errText}`,
+        };
       }
       return { ok: false, pingMs, error: `HTTP ${res.status}: ${errText}` };
     }

@@ -54,7 +54,7 @@ function mergeLibrary(existing: LibraryItem[], scanned: ScannedAudio[]): Library
 export type Tab = 'settings' | 'clone' | 'voices' | 'synth' | 'library' | 'transcribe' | 'avatar' | 'extractor' | 'script' | 'workflow';
 export type { LibraryItem } from './types';
 import type { ModelHubSettings } from './lib/modelHubTypes';
-import { DEFAULT_MODEL_HUB_SETTINGS } from './lib/modelHubTypes';
+import { DEFAULT_MODEL_HUB_SETTINGS, PRESET_PROVIDERS } from './lib/modelHubTypes';
 
 export interface BalanceInfo {
   available: number;
@@ -95,7 +95,7 @@ interface AppState {
   setOfficialVoice: (id: string) => void;
   removeLibrary: (path: string) => Promise<void>;
   setApiKey: (key: string) => Promise<void>;
-  clearApiKey: () => Promise<void>;
+  clearApiKey: () => void;
   patchSettings: (p: Partial<Settings>) => Promise<void>;
   refreshSettings: () => Promise<void>;
   refreshBalance: () => Promise<void>;
@@ -118,19 +118,44 @@ interface AppState {
   setPendingAvatarText: (t: string | null) => void;
 }
 
+function sanitizeModelHubSettings(parsed: any): ModelHubSettings {
+  if (!parsed || typeof parsed !== 'object') return DEFAULT_MODEL_HUB_SETTINGS;
+  const mergedProviders = {
+    ...DEFAULT_MODEL_HUB_SETTINGS.providers,
+    ...(parsed.providers || {}),
+  };
+
+  // 防御性校验商汤模型（若旧缓存为已下线的 sensenova-6.8-pro 或不在7个支持列表中，纠偏至 deepseek-v4-pro）
+  if (mergedProviders.sensenova) {
+    const validSenseNovaIds = PRESET_PROVIDERS.sensenova.models.map(m => m.id);
+    const curModel = String(mergedProviders.sensenova.selectedModel || '').toLowerCase();
+    if (validSenseNovaIds.includes(curModel)) {
+      mergedProviders.sensenova.selectedModel = curModel;
+    } else {
+      mergedProviders.sensenova.selectedModel = 'deepseek-v4-pro';
+    }
+  }
+
+  // 防御性校验 MiniMax 模型（若旧缓存仍为老旧版本，自动升级至 MiniMax-M3）
+  if (mergedProviders.minimax) {
+    const validMiniMaxIds = PRESET_PROVIDERS.minimax.models.map(m => m.id);
+    if (!validMiniMaxIds.includes(mergedProviders.minimax.selectedModel)) {
+      mergedProviders.minimax.selectedModel = 'MiniMax-M3';
+    }
+  }
+
+  return {
+    ...DEFAULT_MODEL_HUB_SETTINGS,
+    ...parsed,
+    providers: mergedProviders,
+  };
+}
+
 function getInitialModelHubSettings(): ModelHubSettings {
   try {
     const raw = localStorage.getItem('jaygo_model_hub_settings_v1');
     if (raw) {
-      const parsed = JSON.parse(raw);
-      return {
-        ...DEFAULT_MODEL_HUB_SETTINGS,
-        ...parsed,
-        providers: {
-          ...DEFAULT_MODEL_HUB_SETTINGS.providers,
-          ...(parsed.providers || {}),
-        },
-      };
+      return sanitizeModelHubSettings(JSON.parse(raw));
     }
   } catch {}
   return DEFAULT_MODEL_HUB_SETTINGS;
@@ -139,8 +164,10 @@ function getInitialModelHubSettings(): ModelHubSettings {
 function applyTheme(th: 'light' | 'dark') {
   if (th === 'dark') {
     document.documentElement.classList.add('dark');
+    document.documentElement.style.colorScheme = 'dark';
   } else {
     document.documentElement.classList.remove('dark');
+    document.documentElement.style.colorScheme = 'light';
   }
   try {
     localStorage.setItem('jaygo_theme', th);
@@ -234,14 +261,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
     let finalModelHub = get().modelHubSettings;
     if (loadedModelHub && loadedModelHub.providers) {
-      finalModelHub = {
-        ...DEFAULT_MODEL_HUB_SETTINGS,
-        ...loadedModelHub,
-        providers: {
-          ...DEFAULT_MODEL_HUB_SETTINGS.providers,
-          ...(loadedModelHub.providers || {}),
-        },
-      };
+      finalModelHub = sanitizeModelHubSettings(loadedModelHub);
       set({ modelHubSettings: finalModelHub });
       try {
         localStorage.setItem('jaygo_model_hub_settings_v1', JSON.stringify(finalModelHub));

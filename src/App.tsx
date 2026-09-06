@@ -571,6 +571,7 @@ export default function App() {
                 <div className={`h-full ${tab === 'script' ? 'flex flex-col' : 'hidden'}`}>
                   <ScriptStudio
                     modelSettings={modelHubSettings}
+                    onUpdateModelHubSettings={setModelHubSettings}
                     onOpenModelHub={() => setModelHubOpen(true)}
                     onPushToSynth={(text, voiceId) => {
                       setPendingSynthText({ text, voiceId });

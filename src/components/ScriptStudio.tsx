@@ -2,12 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { SkillPreset } from '../lib/skillTypes';
 import { getAllSkills, saveCustomSkill, deleteSkill, restoreDefaultSkills, parseSkillContent, exportSkillToMarkdown } from '../lib/skillParser';
 import { chatCompletion, type ChatMessage } from '../lib/modelHubService';
-import type { ModelHubSettings } from '../lib/modelHubTypes';
+import type { ModelHubSettings, ModelProviderType } from '../lib/modelHubTypes';
+import { PRESET_PROVIDERS } from '../lib/modelHubTypes';
 import { extractStyleFromSamples } from '../lib/styleExtractor';
 import { extractCleanScript } from '../lib/scriptSanitizer';
 
 interface Props {
   modelSettings: ModelHubSettings;
+  onUpdateModelHubSettings?: (s: ModelHubSettings) => void;
   onOpenModelHub: () => void;
   onPushToSynth: (text: string, voiceId?: string) => void;
   onPushToAvatar: (text: string) => void;
@@ -28,7 +30,13 @@ export interface ChatMessageItem {
   timestamp: number;
 }
 
-export function ScriptStudio({ modelSettings, onOpenModelHub, onPushToSynth, onPushToAvatar }: Props) {
+export function ScriptStudio({
+  modelSettings,
+  onUpdateModelHubSettings,
+  onOpenModelHub,
+  onPushToSynth,
+  onPushToAvatar,
+}: Props) {
   const [skills, setSkills] = useState<SkillPreset[]>([]);
   const [selectedSkillId, setSelectedSkillId] = useState<string>('teacher_zhang_business');
   
@@ -417,6 +425,45 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
   const currentProviderConfig = modelSettings?.providers?.[currentProviderKey];
   const currentModelName = currentProviderConfig?.selectedModel || 'doubao-seed-2.1-pro';
 
+  // 快捷切换当前对话所用模型与服务商
+  const handleQuickSwitchModel = (providerType: ModelProviderType, modelId: string) => {
+    if (!modelSettings) return;
+    const targetProvider = modelSettings.providers?.[providerType] || {
+      type: providerType,
+      enabled: true,
+      apiKey: '',
+      baseUrl: PRESET_PROVIDERS[providerType]?.defaultBaseUrl || '',
+      selectedModel: modelId,
+    };
+    const hasKey = Boolean(targetProvider.apiKey?.trim());
+
+    const nextSettings: ModelHubSettings = {
+      ...modelSettings,
+      defaultProvider: providerType,
+      providers: {
+        ...modelSettings.providers,
+        [providerType]: {
+          ...targetProvider,
+          selectedModel: modelId,
+          enabled: true,
+        },
+      },
+    };
+
+    onUpdateModelHubSettings?.(nextSettings);
+
+    const preset = PRESET_PROVIDERS[providerType];
+    const modelObj = preset?.models.find(m => m.id === modelId);
+    const mName = modelObj?.name || modelId;
+
+    if (!hasKey) {
+      showToast(`已切换至【${preset?.name?.split(' ')[0] || providerType} · ${mName}】，该服务商尚未配置 API Key，正在打开配置窗口…`);
+      onOpenModelHub();
+    } else {
+      showToast(`已快捷切换模型至：【${preset?.name?.split(' ')[0] || providerType} · ${mName}】`);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-zinc-50/60 dark:bg-[#0c0d12] overflow-hidden select-none">
       {/* 隐藏的文件上传 input */}
@@ -609,25 +656,71 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
 
         {/* 中栏：全功能 AI 交互对话框 */}
         <div className="flex-1 flex flex-col min-w-[320px] bg-white dark:bg-[#111218] overflow-hidden">
-          {/* 对话区顶栏信息 */}
-          <div className="h-11 px-4 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between text-xs bg-zinc-50/40 dark:bg-zinc-900/20 shrink-0">
-            <div className="flex items-center gap-2 truncate">
+          {/* 对话区顶栏信息与模型快捷切换 */}
+          <div className="h-12 px-3 sm:px-4 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between text-xs bg-zinc-50/50 dark:bg-zinc-900/30 shrink-0 gap-2">
+            <div className="flex items-center gap-2 min-w-0 truncate">
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-              <span className="font-semibold text-zinc-800 dark:text-zinc-200 truncate">
-                正在与【{selectedSkill?.name}】深度交互
-              </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 truncate hidden sm:inline-block font-mono">
-                {currentProviderKey}: {currentModelName}
+              <span className="font-semibold text-zinc-800 dark:text-zinc-200 truncate text-xs">
+                与【{selectedSkill?.name}】对话
               </span>
             </div>
 
-            <button
-              onClick={handleResetChat}
-              className="text-[11px] text-zinc-500 hover:text-blue-500 flex items-center gap-1 transition shrink-0 cursor-pointer"
-              title="清空当前消息，开始新对话"
-            >
-              <span>🔄</span> 新建对话
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {/* 模型快捷选择器 */}
+              <div className="flex items-center gap-1.5 bg-white dark:bg-zinc-800/90 border border-zinc-200/90 dark:border-zinc-700/80 rounded-lg px-2 py-1 text-[11px] shadow-2xs">
+                <span className="text-xs shrink-0 select-none">
+                  {PRESET_PROVIDERS[currentProviderKey]?.icon || '🤖'}
+                </span>
+                <select
+                  value={`${currentProviderKey}::${currentModelName}`}
+                  onChange={(e) => {
+                    const [pKey, mId] = e.target.value.split('::') as [ModelProviderType, string];
+                    handleQuickSwitchModel(pKey, mId);
+                  }}
+                  className="bg-transparent border-0 text-zinc-700 dark:text-zinc-200 text-[11px] font-medium focus:outline-none cursor-pointer pr-1 max-w-[125px] sm:max-w-[155px] md:max-w-[180px] truncate [color-scheme:light] dark:[color-scheme:dark]"
+                  title="快速切换当前对话所使用的大模型"
+                >
+                  {Object.entries(PRESET_PROVIDERS).map(([pType, preset]) => {
+                    const provConfig = modelSettings?.providers?.[pType as ModelProviderType];
+                    const hasKey = Boolean(provConfig?.apiKey?.trim());
+                    return (
+                      <optgroup
+                        key={pType}
+                        label={`${preset.icon} ${preset.name} ${hasKey ? '(已配Key)' : '(未配Key)'}`}
+                        className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 font-semibold"
+                      >
+                        {preset.models.map(m => (
+                          <option
+                            key={`${pType}::${m.id}`}
+                            value={`${pType}::${m.id}`}
+                            className="bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 py-1"
+                          >
+                            {m.name} {!hasKey ? ' (⚠️需填Key)' : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
+                </select>
+                <button
+                  type="button"
+                  onClick={onOpenModelHub}
+                  className="text-zinc-400 hover:text-blue-500 transition p-0.5 cursor-pointer shrink-0"
+                  title="打开大模型设置中心"
+                >
+                  ⚙️
+                </button>
+              </div>
+
+              <button
+                onClick={handleResetChat}
+                className="text-[11px] text-zinc-500 hover:text-blue-500 flex items-center gap-1 transition shrink-0 cursor-pointer px-2 py-1 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                title="清空当前消息，开始新对话"
+              >
+                <span>🔄</span>
+                <span className="hidden sm:inline">新对话</span>
+              </button>
+            </div>
           </div>
 
           {/* 消息滚动流 */}

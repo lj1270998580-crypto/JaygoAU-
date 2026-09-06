@@ -86,7 +86,7 @@ export default function AvatarStudio() {
   const [modelQuality, setModelQuality] = useState<number>(0); // 0基础版, 1高质版
 
   // 字幕样式配置
-  const [showSubtitle, setShowSubtitle] = useState<boolean>(true);
+  const [showSubtitle, setShowSubtitle] = useState<boolean>(false);
   const [subtitlePreset, setSubtitlePreset] = useState<string>('yellow-black');
   const [fontId, setFontId] = useState<string>('');
   const [fontSize, setFontSize] = useState<number>(54);
@@ -262,6 +262,28 @@ export default function AvatarStudio() {
     return customAvatars.find((a) => a.id === selectedCustomId) || customAvatars[0] || null;
   }, [customAvatars, selectedCustomId]);
 
+  // 当前选中的形象姿势
+  const activeFigure = useMemo(() => {
+    if (!currentAvatar?.figures || currentAvatar.figures.length === 0) return null;
+    return currentAvatar.figures.find((f) => f.type === selectedFigureType) || currentAvatar.figures[0];
+  }, [currentAvatar, selectedFigureType]);
+
+  // 当前模特出镜实时预览视频直链
+  const currentPreviewVideoUrl = useMemo(() => {
+    if (avatarTab === 'official') {
+      return activeFigure?.preview_video_url || currentAvatar?.figures?.[0]?.preview_video_url || null;
+    }
+    return currentCustomAvatar?.preview_url || null;
+  }, [avatarTab, activeFigure, currentAvatar, currentCustomAvatar]);
+
+  // 当前模特预览封面
+  const currentCoverUrl = useMemo(() => {
+    if (avatarTab === 'official') {
+      return activeFigure?.cover || currentAvatar?.figures?.[0]?.cover || '';
+    }
+    return currentCustomAvatar?.pic_url || '';
+  }, [avatarTab, activeFigure, currentAvatar, currentCustomAvatar]);
+
   useEffect(() => {
     if (currentAvatar && currentAvatar.figures && currentAvatar.figures.length > 0) {
       const exists = currentAvatar.figures.some((f) => f.type === selectedFigureType);
@@ -270,6 +292,14 @@ export default function AvatarStudio() {
       }
     }
   }, [currentAvatar]);
+
+  // 切换模特时自动重置试听状态，避免试听音频串音
+  useEffect(() => {
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+    }
+    setAudioPreviewing(null);
+  }, [selectedAvatarId, selectedCustomId]);
 
   // 筛选官方模特
   const filteredAvatars = useMemo(() => {
@@ -658,9 +688,9 @@ export default function AvatarStudio() {
   }
 
   return (
-    <div className="page flex flex-col h-full overflow-hidden p-0">
+    <div className="w-full h-full flex flex-col overflow-hidden bg-white dark:bg-[#0c0c0e]">
       {/* 顶部标题栏与视图切换 */}
-      <div className="px-8 pt-6 pb-4 border-b border-zinc-200/80 dark:border-zinc-800/80 flex items-center justify-between shrink-0 bg-white/50 dark:bg-[#0c0c0e]/50 backdrop-blur-md">
+      <div className="px-6 lg:px-8 py-4 border-b border-zinc-200/80 dark:border-zinc-800/80 flex items-center justify-between shrink-0 bg-white/50 dark:bg-[#0c0c0e]/50 backdrop-blur-md">
         <div>
           <div className="flex items-center gap-2.5">
             <h2 className="text-xl font-bold text-zinc-900 dark:text-white tracking-tight">蝉镜数字人工坊</h2>
@@ -718,8 +748,8 @@ export default function AvatarStudio() {
       <div className="flex-1 min-h-0 overflow-hidden">
         {activeView === 'create' ? (
           <div className="h-full flex flex-col md:flex-row overflow-hidden">
-            {/* 左侧配置栏 (可滚动) */}
-            <div className="w-full md:w-[60%] h-full overflow-y-auto p-6 space-y-6 border-r border-zinc-200/80 dark:border-zinc-800/80">
+            {/* 左侧配置栏 (自适应弹性填充，获得充裕创作空间) */}
+            <div className="flex-1 min-w-0 h-full overflow-y-auto p-6 lg:p-7 space-y-6">
               {/* 1. 模特挑选：官方模特 vs 我的专属克隆 */}
               <div>
                 <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3">
@@ -852,57 +882,6 @@ export default function AvatarStudio() {
                         })}
                       </div>
                     )}
-
-                    {/* 当前选中官方模特详情 & 动作姿势 */}
-                    {currentAvatar && (
-                      <div className="mt-3 p-3.5 glass-soft rounded-xl flex items-center justify-between border-blue-100 dark:border-blue-900/30">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg overflow-hidden bg-zinc-200 dark:bg-zinc-800 shrink-0">
-                            <img
-                              src={currentAvatar.figures?.[0]?.cover}
-                              alt={currentAvatar.name}
-                              className="w-full h-full object-cover object-top"
-                            />
-                          </div>
-                          <div>
-                            <div className="text-xs font-bold text-zinc-900 dark:text-white flex items-center gap-1.5">
-                              <span>{currentAvatar.name}</span>
-                              <span className="text-[10px] font-normal text-zinc-400">({currentAvatar.id})</span>
-                            </div>
-                            <div className="text-[11px] text-zinc-500 dark:text-zinc-400 flex items-center gap-2 mt-0.5">
-                              <span>推荐音色: {currentAvatar.audio_name || '默认真人音色'}</span>
-                              {currentAvatar.audio_preview && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleTogglePreviewAudio(currentAvatar.audio_preview)}
-                                  className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5 text-[10.5px]"
-                                >
-                                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                                  <span>{audioPreviewing === currentAvatar.audio_preview ? '停止试听' : '试听音色'}</span>
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {currentAvatar.figures && currentAvatar.figures.length > 0 && (
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[11px] text-zinc-400">姿势:</span>
-                            <select
-                              className="glass-input !h-7 !py-0 !text-xs"
-                              value={selectedFigureType}
-                              onChange={(e) => setSelectedFigureType(e.target.value)}
-                            >
-                              {currentAvatar.figures.map((f) => (
-                                <option key={f.type} value={f.type}>
-                                  {f.type === 'whole_body' ? '全身站姿' : f.type === 'sit_body' ? '坐姿' : f.type === 'circle_view' ? '圆形画幅' : f.type}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </>
                 ) : (
                   /* 专属克隆形象展示 */
@@ -984,31 +963,6 @@ export default function AvatarStudio() {
                         })}
                       </div>
                     )}
-
-                    {currentCustomAvatar && (
-                      <div className="mt-3 p-3.5 glass-soft rounded-xl flex items-center justify-between border-purple-100 dark:border-purple-900/30">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg overflow-hidden bg-zinc-200 dark:bg-zinc-800 shrink-0">
-                            {currentCustomAvatar.pic_url ? (
-                              <img src={currentCustomAvatar.pic_url} alt={currentCustomAvatar.name} className="w-full h-full object-cover object-top" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-zinc-400 text-xs">头像</div>
-                            )}
-                          </div>
-                          <div>
-                            <div className="text-xs font-bold text-zinc-900 dark:text-white flex items-center gap-1.5">
-                              <span>{currentCustomAvatar.name}</span>
-                              <span className="text-[10px] font-normal text-purple-600 dark:text-purple-400">
-                                ({currentCustomAvatar.source === 1 ? '蝉镜主站克隆' : 'API定制'})
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
-                              专属克隆数字人已自动锁定真人训练音容特征，将以最高逼真度驱动合成。
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </>
                 )}
               </div>
@@ -1031,7 +985,7 @@ export default function AvatarStudio() {
                           : 'text-zinc-500 hover:text-zinc-800'
                       }`}
                     >
-                      文本合成播报 (TTS)
+                      文本合成
                     </button>
                     <button
                       type="button"
@@ -1042,7 +996,7 @@ export default function AvatarStudio() {
                           : 'text-zinc-500 hover:text-zinc-800'
                       }`}
                     >
-                      音频驱动 (Audio)
+                      音频驱动
                     </button>
                   </div>
                 </div>
@@ -1412,84 +1366,75 @@ export default function AvatarStudio() {
 
               {/* 4. 视频参数配置 */}
               <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800/80 space-y-4">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   {/* 画幅比例 */}
                   <div>
-                    <label className="label">画幅比例</label>
-                    <div className="grid grid-cols-2 gap-1.5 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-lg text-xs">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">画幅比例</label>
+                      <span className="text-[10.5px] text-zinc-400">选择输出比例</span>
+                    </div>
+                    <div className="flex items-center bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-xl text-xs gap-1.5">
                       <button
                         type="button"
                         onClick={() => setAspectRatio('9:16')}
-                        className={`py-1.5 rounded text-center transition ${
+                        className={`flex-1 py-2 px-2.5 rounded-lg text-center transition flex items-center justify-center gap-1.5 whitespace-nowrap select-none ${
                           aspectRatio === '9:16'
-                            ? 'bg-white dark:bg-zinc-700 font-semibold text-zinc-900 dark:text-white shadow-xs'
-                            : 'text-zinc-600 dark:text-zinc-400'
+                            ? 'bg-white dark:bg-zinc-700 font-semibold text-blue-600 dark:text-blue-400 shadow-xs'
+                            : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
                         }`}
                       >
-                        9:16 竖屏 (短视频)
+                        <span className="text-sm">📱</span>
+                        <span>9:16 竖屏</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => setAspectRatio('16:9')}
-                        className={`py-1.5 rounded text-center transition ${
+                        className={`flex-1 py-2 px-2.5 rounded-lg text-center transition flex items-center justify-center gap-1.5 whitespace-nowrap select-none ${
                           aspectRatio === '16:9'
-                            ? 'bg-white dark:bg-zinc-700 font-semibold text-zinc-900 dark:text-white shadow-xs'
-                            : 'text-zinc-600 dark:text-zinc-400'
+                            ? 'bg-white dark:bg-zinc-700 font-semibold text-blue-600 dark:text-blue-400 shadow-xs'
+                            : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
                         }`}
                       >
-                        16:9 横屏 (宽屏)
+                        <span className="text-sm">🖥️</span>
+                        <span>16:9 横屏</span>
                       </button>
                     </div>
                   </div>
 
                   {/* 渲染品质 */}
                   <div>
-                    <label className="label">视频品质</label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">视频品质</label>
+                      <span className="text-[10.5px] text-zinc-400">面部与唇形渲染</span>
+                    </div>
                     <select
-                      className="glass-input w-full !text-xs !h-9"
+                      className="glass-input w-full !text-xs !h-10 rounded-xl"
                       value={modelQuality}
                       onChange={(e) => setModelQuality(Number(e.target.value))}
                     >
-                      <option value={0}>基础版 (渲染更快，口型标准)</option>
-                      <option value={1}>高质版 (面部更高清，表情细腻)</option>
+                      <option value={0}>⚡ 基础版 (渲染更快，口型对齐标准)</option>
+                      <option value={1}>✨ 高质版 (面部更高清，微表情细腻)</option>
                     </select>
                   </div>
                 </div>
 
-                {/* 提交按钮 */}
+                {/* 参数同步提示 */}
                 <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={handleCreateVideo}
-                    disabled={submitting || (avatarTab === 'official' ? !currentAvatar : !currentCustomAvatar)}
-                    className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold text-sm shadow-lg shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
-                  >
-                    {submitting ? (
-                      <>
-                        <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                        </svg>
-                        <span>{submitStage || '数字人合成中，请稍候…'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                          <polygon points="5 3 19 12 5 21 5 3" />
-                        </svg>
-                        <span>🎬 开始合成数字人视频</span>
-                      </>
-                    )}
-                  </button>
-                  <p className="text-[11px] text-center text-zinc-400 mt-2">
-                    合成耗时通常为 1-3 分钟，生成完成后可在右侧直接播放并保存到本地。
-                  </p>
+                  <div className="p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
+                      <span className="text-sm">🎯</span>
+                      <span>参数已就绪，请在右侧视窗预览出镜效果并一键合成</span>
+                    </div>
+                    <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap pl-2">
+                      成片视窗 👉
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* 右侧成片与进度监控视窗 */}
-            <div className="w-full md:w-[40%] h-full bg-zinc-50/60 dark:bg-[#101014] p-6 flex flex-col justify-between overflow-y-auto">
+            {/* 右侧专业成片视窗与监看台 (固定合适监看宽度，避免大屏两端留白失衡) */}
+            <div className="w-full md:w-[410px] lg:w-[450px] xl:w-[470px] shrink-0 h-full bg-zinc-50/70 dark:bg-[#101014] border-l border-zinc-200/80 dark:border-zinc-800/80 p-6 flex flex-col justify-between overflow-y-auto">
               <div>
                 <div className="section-title text-sm mb-3 flex items-center justify-between">
                   <span>实时渲染视窗</span>
@@ -1599,17 +1544,211 @@ export default function AvatarStudio() {
                     </div>
                   </div>
                 ) : (
-                  /* 状态 4: 空白待命状态 */
-                  <div className="h-72 rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 flex flex-col items-center justify-center p-6 text-center text-zinc-400">
-                    <div className="w-12 h-12 rounded-full bg-zinc-100 dark:bg-zinc-800/80 flex items-center justify-center mb-3 text-zinc-400">
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  /* 状态 4: 成片实时监看蓝图面板 (待命状态，充实两端空间) */
+                  <div className="space-y-4 animate-fade-in">
+                    <div className="glass rounded-2xl p-5 border border-zinc-200/80 dark:border-zinc-800 space-y-4 shadow-xs">
+                      <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800/80 pb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                          <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200">成片参数实时监看</span>
+                        </div>
+                        <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-medium border border-blue-200 dark:border-blue-900/60">
+                          待命就绪
+                        </span>
+                      </div>
+
+                      {/* 数字人出镜演示视频视窗 (点击播放实时预览口播神态与声音) */}
+                      <div className="rounded-xl overflow-hidden bg-black/95 border border-zinc-200/80 dark:border-zinc-800 relative group flex flex-col items-center justify-center">
+                        {currentPreviewVideoUrl ? (
+                          <div className="w-full relative">
+                            <video
+                              key={currentPreviewVideoUrl}
+                              src={currentPreviewVideoUrl}
+                              poster={currentCoverUrl}
+                              controls
+                              playsInline
+                              preload="metadata"
+                              className="w-full max-h-[250px] object-contain mx-auto bg-black rounded-lg"
+                            />
+                            <div className="absolute top-2 left-2 pointer-events-none bg-black/70 backdrop-blur-xs text-white text-[10.5px] px-2 py-0.5 rounded-md flex items-center gap-1.5 shadow-xs border border-white/10">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                              <span>出镜演示视频 (点击播放)</span>
+                            </div>
+                          </div>
+                        ) : currentCoverUrl ? (
+                          <div className="w-full py-3 flex flex-col items-center justify-center bg-gradient-to-b from-zinc-100/80 to-zinc-50 dark:from-zinc-900/50 dark:to-zinc-900/20">
+                            <img
+                              src={currentCoverUrl}
+                              alt="模特写真"
+                              className="h-36 object-contain rounded-lg shadow-xs"
+                            />
+                            <div className="mt-1.5 text-[11px] text-zinc-400 flex items-center gap-1">
+                              <span>📸 形象已锁定</span>
+                              <span className="opacity-70">(该模特暂无动态演示视频，可直接合成)</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="h-32 flex flex-col items-center justify-center text-zinc-400 text-xs">
+                            <span className="text-xl mb-1">👤</span>
+                            <span>请在左侧挑选数字人形象</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 当前选用模特详情与姿势音色设置 (居于右侧实时监看视窗，释放左侧纵向空间) */}
+                      <div className="p-3.5 rounded-xl bg-zinc-50/90 dark:bg-zinc-900/60 border border-zinc-200/70 dark:border-zinc-800/80 space-y-3">
+                        {/* 模特基本信息行 */}
+                        <div className="flex items-center gap-3">
+                          {currentCoverUrl ? (
+                            <img
+                              src={currentCoverUrl}
+                              alt="模特头像"
+                              className="w-12 h-12 rounded-xl object-cover border border-zinc-200 dark:border-zinc-700 shadow-xs shrink-0"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 rounded-xl bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-xl shrink-0">
+                              👤
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate">
+                                {avatarTab === 'official'
+                                  ? (currentAvatar?.name || '未选择官方模特')
+                                  : (currentCustomAvatar?.name || '未选择专属克隆')}
+                              </span>
+                              <span className="px-1.5 py-0.2 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200/60 dark:border-blue-800/60 text-[10px] shrink-0 font-medium">
+                                {avatarTab === 'official' ? '🌟 官方公共模特' : '✨ 专属克隆'}
+                              </span>
+                              {avatarTab === 'official' && currentAvatar?.gender && (
+                                <span className="text-[10px] text-zinc-500 dark:text-zinc-400 shrink-0">
+                                  {currentAvatar.gender === 'female' ? '女性' : currentAvatar.gender === 'male' ? '男性' : currentAvatar.gender}
+                                </span>
+                              )}
+                              {avatarTab === 'custom' && currentCustomAvatar && (
+                                <span className="text-[10px] text-purple-600 dark:text-purple-400 shrink-0">
+                                  {currentCustomAvatar.source === 1 ? '蝉镜主站克隆' : 'API定制'}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* 音色信息与试听 */}
+                            {avatarTab === 'official' && currentAvatar && (
+                              <div className="flex items-center gap-2 mt-1 text-[11px] text-zinc-500 dark:text-zinc-400 flex-wrap">
+                                <span className="truncate">音色: {currentAvatar.audio_name || '默认真人音色'}</span>
+                                {currentAvatar.audio_preview && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTogglePreviewAudio(currentAvatar.audio_preview)}
+                                    className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1 text-[10.5px] shrink-0 font-medium cursor-pointer"
+                                  >
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                                      <polygon points="5 3 19 12 5 21 5 3" />
+                                    </svg>
+                                    <span>{audioPreviewing === currentAvatar.audio_preview ? '停止试听' : '试听音色'}</span>
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {avatarTab === 'custom' && (
+                              <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                                专属克隆数字人已锁定真人训练音容特征
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 官方模特姿势切换（独立通栏展示，清晰宽松，不挤压文字组件） */}
+                        {avatarTab === 'official' && currentAvatar?.figures && currentAvatar.figures.length > 0 && (
+                          <div className="pt-2.5 border-t border-zinc-200/60 dark:border-zinc-800/60 flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                              <span>动作姿势:</span>
+                              {currentPreviewVideoUrl && (
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                  <span>支持出镜预览</span>
+                                </span>
+                              )}
+                            </div>
+                            <select
+                              className="glass-input !h-7 !py-0 !px-2 !text-xs bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 rounded-lg cursor-pointer max-w-[140px]"
+                              value={selectedFigureType}
+                              onChange={(e) => setSelectedFigureType(e.target.value)}
+                            >
+                              {currentAvatar.figures.map((f) => (
+                                <option key={f.type} value={f.type}>
+                                  {f.type === 'whole_body' ? '全身站姿' : f.type === 'sit_body' ? '坐姿' : f.type === 'circle_view' ? '圆形画幅' : f.type}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 核心规格参数矩阵 */}
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-800/60">
+                          <div className="text-[10.5px] text-zinc-400 mb-0.5">画幅比例</div>
+                          <div className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
+                            <span>{aspectRatio === '9:16' ? '📱 9:16 竖屏' : '🖥️ 16:9 横屏'}</span>
+                          </div>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-800/60">
+                          <div className="text-[10.5px] text-zinc-400 mb-0.5">视频品质</div>
+                          <div className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
+                            <span>{modelQuality === 1 ? '✨ 高质版 (细腻)' : '⚡ 基础版 (极速)'}</span>
+                          </div>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-800/60">
+                          <div className="text-[10.5px] text-zinc-400 mb-0.5">驱动来源</div>
+                          <div className="font-semibold text-zinc-800 dark:text-zinc-200 truncate">
+                            {driveType === 'tts' ? '✍️ 文本合成' : driveType === 'audio' ? '🎵 本地音频' : '📁 历史成片音频'}
+                          </div>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-800/60">
+                          <div className="text-[10.5px] text-zinc-400 mb-0.5">成片字幕</div>
+                          <div className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
+                            <span className={showSubtitle ? 'text-emerald-500' : 'text-zinc-400'}>
+                              {showSubtitle ? '✓ 已启用字幕' : '✕ 未勾选字幕'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 播报内容统计 */}
+                      {driveType === 'tts' && (
+                        <div className="p-3 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100/70 dark:border-blue-900/40 text-xs">
+                          <div className="flex items-center justify-between text-blue-700 dark:text-blue-300 font-medium">
+                            <span>当前播报脚本</span>
+                            <span className="font-mono">{scriptText.trim().length} 字</span>
+                          </div>
+                          <p className="text-[11px] text-blue-600/80 dark:text-blue-400/80 mt-1">
+                            {scriptText.trim().length > 0
+                              ? `预计视频成片时长约 ${Math.max(3, Math.ceil(scriptText.trim().length / 4.5))} 秒`
+                              : '请在左侧输入播报台词或上传驱动音频'}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* 待命引导提示 */}
+                      <div className="text-[11px] text-zinc-400 leading-relaxed text-center pt-1">
+                        ✓ 参数已实时同步，合成后在此预览成片与下载
+                      </div>
+                    </div>
+
+                    {/* 唯一主合成大按钮 */}
+                    <button
+                      type="button"
+                      onClick={handleCreateVideo}
+                      disabled={submitting || (avatarTab === 'official' ? !currentAvatar : !currentCustomAvatar)}
+                      className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold text-sm shadow-lg shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                         <polygon points="5 3 19 12 5 21 5 3" />
                       </svg>
-                    </div>
-                    <div className="text-xs font-medium text-zinc-600 dark:text-zinc-400">暂无进行中的合成任务</div>
-                    <div className="text-[11px] text-zinc-400 mt-1 max-w-[200px]">
-                      在左侧挑选形象并输入播报脚本或音频，点击「开始合成」即可在此预览
-                    </div>
+                      <span>🎬 开始合成数字人视频</span>
+                    </button>
                   </div>
                 )}
               </div>
