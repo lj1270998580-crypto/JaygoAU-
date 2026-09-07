@@ -11,3 +11,5 @@ release-out/
 # 服务端密匙与部署产物（绝不入库 / 绝不打进客户端包）
 server/.env
 server/updates/
+release-pkg/
+

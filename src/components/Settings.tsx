@@ -16,7 +16,20 @@ function Section({ title, desc, children }: { title: string; desc?: string; chil
 }
 
 export default function Settings() {
-  const { settings, hasKey, setApiKey, clearApiKey, patchSettings, showToast, modelHubSettings, setModelHubSettings } = useStore();
+  const {
+    settings,
+    hasKey,
+    setApiKey,
+    clearApiKey,
+    patchSettings,
+    showToast,
+    modelHubSettings,
+    setModelHubSettings,
+    appVersion,
+    update,
+    checkUpdates,
+    setChangelogOpen,
+  } = useStore();
   const [modelModalOpen, setModelModalOpen] = useState(false);
   const [keyInput, setKeyInput] = useState('');
   const [show, setShow] = useState(false);
@@ -509,6 +522,45 @@ export default function Settings() {
                 </div>
               </div>
             </label>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="版本更新与更新日志" desc="查看当前运行版本、在线检测更新与全版本演进记录。">
+        <div className="glass-soft p-4 rounded-xl flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-mono font-bold text-xs border border-blue-200/60 dark:border-blue-800/60 shadow-inner">
+              v{appVersion || '0.5.7'}
+            </div>
+            <div>
+              <div className="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                <span>Jaygo AU 自媒体工作台</span>
+                <span className="px-1.5 py-0.2 rounded text-[10px] bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 font-mono">
+                  {update.available ? `有新版 v${update.available.version}` : '已是最新版'}
+                </span>
+              </div>
+              <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">
+                语音合成 · 声音复刻 · 蝉镜数字人 · 智能媒体转录 · AI 文案工坊
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => checkUpdates()}
+              disabled={update.checking}
+              className="btn-modern-ghost text-xs"
+            >
+              {update.checking ? '检查中…' : '检查更新'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setChangelogOpen(true)}
+              className="btn-modern-primary text-xs"
+            >
+              更新日志
+            </button>
           </div>
         </div>
       </Section>

@@ -440,3 +440,72 @@ audio {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* ---------- 现代 AI 输入框流光动效与卡片体系 ---------- */
+@keyframes aiStreamerFlow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.ai-input-streamer-card {
+  position: relative;
+  border-radius: 1rem;
+  padding: 1.5px;
+  background: rgba(228, 228, 231, 0.9);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+html.dark .ai-input-streamer-card {
+  background: rgba(39, 39, 42, 0.85);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.ai-input-streamer-card:hover {
+  background: rgba(212, 212, 216, 1);
+}
+
+html.dark .ai-input-streamer-card:hover {
+  background: rgba(63, 63, 70, 0.95);
+}
+
+/* 焦点激活时：无缝流转炫彩流光与呼吸柔光晕影 */
+.ai-input-streamer-card:focus-within {
+  background: linear-gradient(
+    115deg,
+    #3b82f6 0%,
+    #8b5cf6 25%,
+    #ec4899 50%,
+    #06b6d4 75%,
+    #3b82f6 100%
+  );
+  background-size: 250% 250%;
+  animation: aiStreamerFlow 4s ease infinite;
+  box-shadow:
+    0 0 0 1px rgba(99, 102, 241, 0.3),
+    0 0 22px -3px rgba(59, 130, 246, 0.35),
+    0 0 45px -8px rgba(168, 85, 247, 0.25);
+}
+
+.ai-input-streamer-inner {
+  width: 100%;
+  height: 100%;
+  border-radius: calc(1rem - 1.5px);
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: background-color 0.2s;
+}
+
+html.dark .ai-input-streamer-inner {
+  background: #14151c;
+}
+

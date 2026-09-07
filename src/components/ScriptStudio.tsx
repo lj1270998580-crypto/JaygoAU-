@@ -6,6 +6,29 @@ import type { ModelHubSettings, ModelProviderType } from '../lib/modelHubTypes';
 import { PRESET_PROVIDERS } from '../lib/modelHubTypes';
 import { extractStyleFromSamples } from '../lib/styleExtractor';
 import { extractCleanScript } from '../lib/scriptSanitizer';
+import {
+  Sparkles,
+  Paperclip,
+  ArrowUp,
+  RotateCcw,
+  SlidersHorizontal,
+  BookmarkPlus,
+  Copy,
+  Check,
+  X,
+  FileText,
+  Trash2,
+  Upload,
+  Wand2,
+  ChevronRight,
+  Bot,
+  Mic,
+  Video,
+  MessageSquare,
+  Layers,
+} from 'lucide-react';
+import { ChatMessageRenderer } from './ChatMessageRenderer';
+
 
 interface Props {
   modelSettings: ModelHubSettings;
@@ -503,19 +526,19 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
             className="btn-modern-ghost"
             title="导入 .skill.md 技能文件"
           >
-            <span>📥</span> <span>导入技能</span>
+            <Upload className="w-3.5 h-3.5 text-zinc-500" /> <span>导入技能</span>
           </button>
           <button
             onClick={() => setExtractModalOpen(true)}
             className="btn-modern-purple"
           >
-            <span>✨</span> <span>上传文档提炼风格</span>
+            <Sparkles className="w-3.5 h-3.5" /> <span>上传文档提炼风格</span>
           </button>
           <button
             onClick={onOpenModelHub}
             className="btn-modern-ghost"
           >
-            <span>⚡</span> <span>模型设置</span>
+            <SlidersHorizontal className="w-3.5 h-3.5 text-zinc-500" /> <span>模型设置</span>
           </button>
         </div>
       </div>
@@ -558,7 +581,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
             className="w-full p-2.5 rounded-xl border border-dashed border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20 hover:border-purple-500 text-purple-700 dark:text-purple-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-2xs cursor-pointer"
             title="上传你的历史文章或爆款文案，AI 自动学习你的行文风格"
           >
-            <span>📁 上传旧文章提炼风格</span>
+            <Wand2 className="w-3.5 h-3.5" /> <span>上传旧文章提炼风格</span>
           </button>
 
           <div className="space-y-2 flex-1 overflow-y-auto">
@@ -605,9 +628,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                         className="p-1 rounded-md text-zinc-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition opacity-0 group-hover:opacity-100 cursor-pointer"
                         title={`删除风格【${s.name}】`}
                       >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        </svg>
+                        <Trash2 className="w-3 h-3" />
                       </button>
                     </div>
                   </div>
@@ -708,44 +729,44 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                   className="text-zinc-400 hover:text-blue-500 transition p-0.5 cursor-pointer shrink-0"
                   title="打开大模型设置中心"
                 >
-                  ⚙️
+                  <SlidersHorizontal className="w-3 h-3 text-zinc-400 hover:text-blue-500 transition" />
                 </button>
               </div>
 
               <button
                 onClick={handleResetChat}
-                className="text-[11px] text-zinc-500 hover:text-blue-500 flex items-center gap-1 transition shrink-0 cursor-pointer px-2 py-1 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                className="text-[11px] text-zinc-500 hover:text-blue-500 flex items-center gap-1.5 transition shrink-0 cursor-pointer px-2.5 py-1 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 group"
                 title="清空当前消息，开始新对话"
               >
-                <span>🔄</span>
+                <RotateCcw className="w-3 h-3 text-zinc-400 group-hover:text-blue-500 transition" />
                 <span className="hidden sm:inline">新对话</span>
               </button>
             </div>
           </div>
 
           {/* 消息滚动流 */}
-          <div className="flex-1 p-4 overflow-y-auto space-y-4 select-text">
+          <div className="flex-1 p-4 sm:p-5 overflow-y-auto space-y-5 select-text">
             {messages.map(msg => (
               <div
                 key={msg.id}
                 className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
               >
                 <div
-                  className={`max-w-[88%] rounded-2xl p-3.5 text-xs leading-relaxed transition shadow-xs ${
+                  className={`transition shadow-xs ${
                     msg.role === 'user'
-                      ? 'bg-blue-600 text-white rounded-br-xs'
-                      : 'bg-zinc-100/90 dark:bg-[#191a24] text-zinc-800 dark:text-zinc-200 border border-zinc-200/70 dark:border-zinc-800 rounded-bl-xs'
+                      ? 'max-w-[85%] rounded-2xl rounded-tr-xs px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white'
+                      : 'max-w-[92%] rounded-2xl rounded-tl-xs px-4 py-3.5 bg-white dark:bg-[#15161f] text-zinc-900 dark:text-zinc-100 border border-zinc-200/80 dark:border-zinc-800/80'
                   }`}
                 >
                   {/* 用户上传的参考文件徽标 */}
                   {msg.attachments && msg.attachments.length > 0 && (
-                    <div className="mb-2 space-y-1">
+                    <div className="mb-2.5 space-y-1">
                       {msg.attachments.map(att => (
                         <div
                           key={att.id}
-                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/15 text-[11px] text-white/90"
+                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/20 text-[11px] text-white/95"
                         >
-                          <span>📄</span>
+                          <FileText className="w-3.5 h-3.5 text-white/80" />
                           <span className="font-mono font-medium truncate max-w-[200px]">{att.name}</span>
                           <span className="opacity-70 text-[10px]">({Math.round(att.size / 1024)} KB)</span>
                         </div>
@@ -753,15 +774,16 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                     </div>
                   )}
 
-                  {/* 消息文字内容：彻底消除首行多余空行 */}
-                  <div className="whitespace-pre-wrap select-text font-sans">
-                    {msg.content.trimStart()}
-                  </div>
+                  {/* 现代通用 AI 排版渲染器 */}
+                  <ChatMessageRenderer
+                    content={msg.content.trimStart()}
+                    role={msg.role}
+                  />
                 </div>
 
-                {/* AI 回复下方的快捷动作栏（仅保留精修台词与复制，流转配音/数字人聚焦在右侧精选台词看板） */}
+                {/* AI 回复下方的快捷动作栏 */}
                 {msg.role === 'assistant' && msg.content && (
-                  <div className="flex items-center flex-wrap gap-1.5 mt-2">
+                  <div className="flex items-center flex-wrap gap-2 mt-2 ml-1">
                     <button
                       onClick={() => {
                         const clean = extractCleanScript(msg.content);
@@ -771,7 +793,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                       className="action-pill hover:border-blue-400/80 dark:hover:border-blue-500/80 hover:text-blue-600 dark:hover:text-blue-400"
                       title="剔除客套废话并置入右侧精选台词区进行精修与流转"
                     >
-                      <span className="text-xs">📌</span>
+                      <BookmarkPlus className="w-3.5 h-3.5 text-blue-500" />
                       <span>设为精修台词</span>
                     </button>
                     <button
@@ -782,7 +804,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                       }}
                       className="action-pill hover:border-zinc-400 dark:hover:border-zinc-500"
                     >
-                      <span className="text-xs">📋</span>
+                      <Copy className="w-3.5 h-3.5 text-zinc-400" />
                       <span>复制台词</span>
                     </button>
                   </div>
@@ -790,28 +812,29 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
               </div>
             ))}
 
-            {/* 流式生成中的当前气泡：彻底消除首行多余空行 */}
+            {/* 流式生成中的当前气泡 */}
             {isGenerating && streamingDelta && (
               <div className="flex flex-col items-start animate-in fade-in">
-                <div className="max-w-[88%] rounded-2xl rounded-bl-xs p-3.5 text-xs leading-relaxed bg-zinc-100/90 dark:bg-[#191a24] text-zinc-800 dark:text-zinc-200 border border-blue-500/40 shadow-xs">
-                  <div className="whitespace-pre-wrap select-text font-sans">
-                    {streamingDelta.trimStart()}
-                    <span className="inline-block w-1.5 h-3.5 ml-1 bg-blue-500 animate-pulse align-middle" />
-                  </div>
+                <div className="max-w-[92%] rounded-2xl rounded-tl-xs px-4 py-3.5 bg-white dark:bg-[#15161f] text-zinc-900 dark:text-zinc-100 border border-blue-500/50 shadow-sm">
+                  <ChatMessageRenderer
+                    content={streamingDelta.trimStart()}
+                    role="assistant"
+                    isStreaming={true}
+                  />
                 </div>
               </div>
             )}
 
-            {/* 正在思考中的等待指示 (DeepSeek/ChatGPT 风格) */}
+            {/* 正在思考中的等待指示 */}
             {isGenerating && !streamingDelta && (
-              <div className="flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-white dark:bg-[#191a24] border border-zinc-200/80 dark:border-zinc-800 shadow-xs w-fit">
+              <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-white dark:bg-[#191a24] border border-zinc-200/80 dark:border-zinc-800 shadow-xs w-fit">
                 <div className="flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:-0.3s]" />
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:-0.15s]" />
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce" />
                 </div>
                 <span className="text-xs font-medium text-zinc-600 dark:text-zinc-300 select-none">
-                  正在思考中...
+                  正在构思文案中...
                 </span>
               </div>
             )}
@@ -829,7 +852,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                     key={file.id}
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-900 text-xs text-blue-700 dark:text-blue-300"
                   >
-                    <span>📄</span>
+                    <FileText className="w-3.5 h-3.5 text-blue-500" />
                     <span className="font-medium truncate max-w-[180px]">{file.name}</span>
                     <span className="text-[10px] opacity-60">({Math.round(file.size / 1024)} KB)</span>
                     <button
@@ -837,61 +860,63 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                       className="ml-1 hover:text-rose-500 text-blue-400 cursor-pointer"
                       title="移除此附件"
                     >
-                      ✕
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 ))}
               </div>
             )}
 
-            {/* 输入框与工具栏 */}
-            <div className="relative rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/60 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 transition">
-              <textarea
-                rows={3}
-                value={inputValue}
-                onChange={e => setInputValue(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                placeholder={`输入你的想法、向【${selectedSkill?.name}】提问，或上传素材让模型理解（Ctrl+Enter 发送）...`}
-                className="w-full p-3 bg-transparent text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden resize-none leading-relaxed select-text"
-              />
+            {/* 输入框与工具栏：外层高质感流光边框动画与精致内层 */}
+            <div className="ai-input-streamer-card">
+              <div className="ai-input-streamer-inner">
+                <textarea
+                  rows={3}
+                  value={inputValue}
+                  onChange={e => setInputValue(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
+                  placeholder={`输入你的想法、向【${selectedSkill?.name}】提问，或上传素材让模型理解（Ctrl+Enter 发送）...`}
+                  className="w-full p-3.5 bg-transparent text-[13.5px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none ring-0 border-0 focus:outline-none focus:ring-0 focus:border-0 resize-none leading-relaxed select-text shadow-none"
+                />
 
-              <div className="flex items-center justify-between px-3 pb-2.5 pt-1">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => fileInputAttachmentRef.current?.click()}
-                    className="p-1.5 rounded-lg hover:bg-zinc-200/60 dark:hover:bg-zinc-800 text-zinc-500 hover:text-blue-600 transition flex items-center gap-1 text-xs cursor-pointer"
-                    title="上传本地素材或台词文件 (.txt, .md, .docx, .pdf, .json, .csv)"
-                  >
-                    <span className="text-sm">📎</span>
-                    <span className="text-[11px] hidden sm:inline">上传参考文件</span>
-                  </button>
-                </div>
+                <div className="flex items-center justify-between px-3.5 pb-2.5 pt-1.5 border-t border-zinc-100/90 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-900/30">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => fileInputAttachmentRef.current?.click()}
+                      className="px-2.5 py-1.5 rounded-lg hover:bg-zinc-200/60 dark:hover:bg-zinc-800 text-zinc-500 hover:text-blue-600 transition flex items-center gap-1.5 text-xs cursor-pointer group"
+                      title="上传本地素材或台词文件 (.txt, .md, .docx, .pdf, .json, .csv)"
+                    >
+                      <Paperclip className="w-3.5 h-3.5 group-hover:rotate-45 transition-transform text-zinc-400 group-hover:text-blue-500" />
+                      <span className="text-[11.5px] hidden sm:inline">上传参考文件</span>
+                    </button>
+                  </div>
 
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-zinc-400 hidden sm:inline">Ctrl + Enter 发送</span>
-                  <button
-                    onClick={() => handleSendMessage()}
-                    disabled={isGenerating || (!inputValue.trim() && pendingAttachments.length === 0)}
-                    className="btn-modern-primary px-4 py-1.5 min-w-[76px]"
-                  >
-                    {isGenerating ? (
-                      <>
-                        <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        <span>思考中</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>发送</span>
-                        <span>↑</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] text-zinc-400 hidden sm:inline font-mono">Ctrl + Enter 发送</span>
+                    <button
+                      onClick={() => handleSendMessage()}
+                      disabled={isGenerating || (!inputValue.trim() && pendingAttachments.length === 0)}
+                      className="btn-modern-primary px-4 py-1.5 min-w-[80px] text-xs flex items-center justify-center gap-1.5"
+                    >
+                      {isGenerating ? (
+                        <>
+                          <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          <span>思考中</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>发送</span>
+                          <ArrowUp className="w-3.5 h-3.5 stroke-[2.5]" />
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -919,7 +944,8 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
         >
           <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/80">
             <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-              <span>📋</span> 精选台词与流转中心
+              <Layers className="w-4 h-4 text-blue-500" />
+              <span>精选台词与流转中心</span>
             </span>
             <div className="flex items-center gap-2">
               {pinnedScript && (
@@ -930,10 +956,11 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                       setPinnedScript(clean);
                       showToast('已智能剔除客套语、空行与标记！');
                     }}
-                    className="text-[11px] text-purple-600 dark:text-purple-400 hover:underline cursor-pointer flex items-center gap-0.5 font-medium"
+                    className="text-[11px] text-purple-600 dark:text-purple-400 hover:underline cursor-pointer flex items-center gap-1 font-medium"
                     title="智能剔除前置寒暄、末尾客套话与空行"
                   >
-                    <span>✨ 智能净洗</span>
+                    <Wand2 className="w-3 h-3 text-purple-500" />
+                    <span>智能净洗</span>
                   </button>
                   <button
                     onClick={() => {
@@ -967,7 +994,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                   value={pinnedScript}
                   onChange={e => setPinnedScript(e.target.value)}
                   placeholder="可在此微调当前精选文案..."
-                  className="flex-1 w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200/80 dark:border-zinc-800 text-xs leading-relaxed text-zinc-800 dark:text-zinc-200 resize-none focus:outline-hidden focus:border-blue-500 select-text font-sans"
+                  className="flex-1 w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200/80 dark:border-zinc-800 text-xs leading-relaxed text-zinc-800 dark:text-zinc-200 resize-none outline-none focus:outline-none ring-0 focus:ring-0 focus:border-blue-500 select-text font-sans"
                 />
                 <div className="flex items-center justify-between text-[11px] text-zinc-400 px-1">
                   <span>总字数: <strong className="text-zinc-700 dark:text-zinc-200">{pinnedScript.length}</strong> 字</span>
@@ -976,7 +1003,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
               </div>
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-center p-6 text-zinc-400 space-y-2">
-                <span className="text-3xl opacity-40">💬</span>
+                <MessageSquare className="w-10 h-10 opacity-30 text-zinc-400 stroke-[1.5]" />
                 <p className="text-xs leading-relaxed">在对话中生成满意的文案后，点击【设为精修台词】或直接对话生成，即可在此打磨并一键推往生产流水线</p>
               </div>
             )}
@@ -997,7 +1024,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className="w-8 h-8 rounded-xl bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 flex items-center justify-center text-base shrink-0 shadow-inner">
-                      🎙️
+                      <Mic className="w-4 h-4" />
                     </div>
                     <div className="min-w-0">
                       <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 truncate">
@@ -1009,7 +1036,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                       </div>
                     </div>
                   </div>
-                  <span className="text-purple-500 group-hover:translate-x-0.5 transition-transform text-xs font-bold shrink-0 ml-1">→</span>
+                  <ChevronRight className="w-4 h-4 text-purple-500 group-hover:translate-x-0.5 transition-transform shrink-0 ml-1" />
                 </div>
               </div>
 
@@ -1025,7 +1052,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className="w-8 h-8 rounded-xl bg-cyan-100 dark:bg-cyan-900/40 text-cyan-600 dark:text-cyan-400 flex items-center justify-center text-base shrink-0 shadow-inner">
-                      🎬
+                      <Video className="w-4 h-4" />
                     </div>
                     <div className="min-w-0">
                       <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 truncate">
@@ -1037,7 +1064,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                       </div>
                     </div>
                   </div>
-                  <span className="text-cyan-500 group-hover:translate-x-0.5 transition-transform text-xs font-bold shrink-0 ml-1">→</span>
+                  <ChevronRight className="w-4 h-4 text-cyan-500 group-hover:translate-x-0.5 transition-transform shrink-0 ml-1" />
                 </div>
               </div>
             </div>
@@ -1051,13 +1078,14 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
           <div className="w-full max-w-2xl bg-white dark:bg-[#121318] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl p-6 space-y-4 max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/80">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                <span>✨</span> 上传历史爆款文章 · AI 自动逆向提炼专属风格画像
+                <Sparkles className="w-4 h-4 text-purple-500" />
+                <span>上传历史爆款文章 · AI 自动逆向提炼专属风格画像</span>
               </h3>
               <button
                 onClick={() => setExtractModalOpen(false)}
-                className="text-zinc-400 hover:text-zinc-600"
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -1076,7 +1104,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                   value={extractTeacherName}
                   onChange={e => setExtractTeacherName(e.target.value)}
                   placeholder="例如: 陈老师 · 爆款商业思维 / 李学姐 · 治愈情感"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:border-blue-500 transition"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:outline-none ring-0 focus:ring-0 focus:border-blue-500 transition"
                 />
               </div>
 
@@ -1155,7 +1183,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                   className="p-6 rounded-2xl border-2 border-dashed border-purple-300 dark:border-purple-800/60 bg-purple-50/40 dark:bg-purple-950/20 hover:border-purple-500 dark:hover:border-purple-600 transition flex flex-col items-center justify-center gap-2 cursor-pointer group text-center"
                 >
                   <div className="w-12 h-12 rounded-2xl bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 flex items-center justify-center text-2xl group-hover:scale-105 transition-transform shadow-inner">
-                    📑
+                    <FileText className="w-6 h-6" />
                   </div>
                   <div>
                     <div className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
@@ -1224,7 +1252,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                           className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-800/80 border border-zinc-200/60 dark:border-zinc-700/60 text-xs text-zinc-800 dark:text-zinc-200"
                         >
                           <div className="flex items-center gap-2 min-w-0">
-                            <span>📄</span>
+                            <FileText className="w-3.5 h-3.5 text-purple-500 shrink-0" />
                             <span className="font-medium truncate max-w-[280px]">{item.name}</span>
                             <span className="text-[10px] text-zinc-400 font-mono">({Math.round(item.size / 1024)} KB · {item.text.length} 字)</span>
                           </div>
@@ -1233,7 +1261,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                             className="text-zinc-400 hover:text-rose-500 text-xs px-1 cursor-pointer"
                             title="移除此文档"
                           >
-                            ✕
+                            <X className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       ))}
@@ -1252,7 +1280,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                   value={extractSample1}
                   onChange={e => setExtractSample1(e.target.value)}
                   placeholder="如果历史文章没有保存在文件中，也可以直接复制粘贴到这里..."
-                  className="w-full p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs leading-relaxed text-zinc-900 dark:text-zinc-100 resize-none font-sans focus:outline-hidden focus:border-blue-500"
+                  className="w-full p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs leading-relaxed text-zinc-900 dark:text-zinc-100 resize-none font-sans outline-none focus:outline-none ring-0 focus:ring-0 focus:border-blue-500"
                 />
               </div>
             </div>

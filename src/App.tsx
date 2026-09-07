@@ -13,6 +13,7 @@ import MediaExtractor from './components/MediaExtractor';
 import { ScriptStudio } from './components/ScriptStudio';
 import { WorkflowStudio } from './components/WorkflowStudio';
 import { ModelHubModal } from './components/ModelHubModal';
+import { ChangelogModal } from './components/ChangelogModal';
 
 const Icon = {
   script: (
@@ -138,7 +139,7 @@ const TAB_BREADCRUMBS: Record<Tab, { group: string; label: string }> = {
 
 // 左下角三合一系统状态胶囊
 function SystemStatusCapsule() {
-  const { hasKey, balance, refreshBalance, appVersion, update, checkUpdates, downloadUpdate, quitInstallUpdate } =
+  const { hasKey, balance, refreshBalance, appVersion, update, checkUpdates, downloadUpdate, quitInstallUpdate, setChangelogOpen } =
     useStore();
   const [openDetail, setOpenDetail] = useState(false);
   const capsuleRef = useRef<HTMLDivElement | null>(null);
@@ -236,37 +237,65 @@ function SystemStatusCapsule() {
           </div>
 
           {/* 版本与升级 */}
-          <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-            <span className="text-zinc-500 dark:text-zinc-400 font-mono text-[11px]">
-              当前版本：v{appVersion || '0.3.0'}
-            </span>
-            {hasNewVer ? (
-              update.downloaded ? (
+          <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-500 dark:text-zinc-400 font-mono text-[11px]">
+                当前版本：v{appVersion || '0.5.7'}
+              </span>
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={quitInstallUpdate}
-                  className="px-2 py-1 rounded bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700 transition"
+                  onClick={() => checkUpdates()}
+                  disabled={update.checking}
+                  className="text-blue-600 dark:text-blue-400 hover:underline text-[11px] cursor-pointer"
                 >
-                  重启完成升级
+                  {update.checking ? '检查中…' : update.notAvailable ? '重新检查' : '检查更新'}
                 </button>
-              ) : (
+                <span className="text-zinc-300 dark:text-zinc-700 text-[10px]">|</span>
                 <button
                   type="button"
-                  onClick={downloadUpdate}
-                  className="px-2 py-1 rounded bg-blue-600 text-white text-[11px] font-medium hover:bg-blue-700 transition"
+                  onClick={() => {
+                    setOpenDetail(false);
+                    setChangelogOpen(true);
+                  }}
+                  className="text-purple-600 dark:text-purple-400 hover:underline text-[11px] cursor-pointer font-medium"
+                  title="查看完整版本更新时间线与历史日志"
                 >
-                  {update.progress > 0 ? `下载中 ${Math.round(update.progress)}%` : `下载 v${update.available?.version}`}
+                  更新日志
                 </button>
-              )
-            ) : (
-              <button
-                type="button"
-                onClick={() => checkUpdates()}
-                disabled={update.checking}
-                className="text-blue-600 dark:text-blue-400 hover:underline text-[11px]"
-              >
-                {update.checking ? '检查中…' : update.notAvailable ? '已是最新版 (重新检查)' : '检查更新'}
-              </button>
+              </div>
+            </div>
+
+            {hasNewVer && (
+              <div className="flex items-center justify-between pt-1 border-t border-dashed border-zinc-200 dark:border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenDetail(false);
+                    setChangelogOpen(true);
+                  }}
+                  className="text-[11px] text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
+                >
+                  查看新版更新说明 →
+                </button>
+                {update.downloaded ? (
+                  <button
+                    type="button"
+                    onClick={quitInstallUpdate}
+                    className="px-2 py-1 rounded bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700 transition cursor-pointer"
+                  >
+                    重启完成升级
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={downloadUpdate}
+                    className="px-2 py-1 rounded bg-blue-600 text-white text-[11px] font-medium hover:bg-blue-700 transition cursor-pointer"
+                  >
+                    {update.progress > 0 ? `下载中 ${Math.round(update.progress)}%` : `下载 v${update.available?.version}`}
+                  </button>
+                )}
+              </div>
             )}
           </div>
           {update.error && (
@@ -297,6 +326,8 @@ export default function App() {
     setModelHubSettings,
     setPendingSynthText,
     setPendingAvatarText,
+    changelogOpen,
+    setChangelogOpen,
   } = useStore();
   const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(() => new Set([tab]));
   const [modelHubOpen, setModelHubOpen] = useState(false);
@@ -608,6 +639,12 @@ export default function App() {
         onClose={() => setModelHubOpen(false)}
         settings={modelHubSettings}
         onSave={(s) => setModelHubSettings(s)}
+      />
+
+      {/* 版本更新日志与时间线 Modal */}
+      <ChangelogModal
+        open={changelogOpen}
+        onClose={() => setChangelogOpen(false)}
       />
 
       {/* 悬浮 Toast */}
