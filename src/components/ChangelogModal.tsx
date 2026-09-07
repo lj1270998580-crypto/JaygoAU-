@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { CHANGELOGS, ChangelogItem } from '../data/changelogs';
 import { useStore } from '../store';
 import {
@@ -27,7 +27,7 @@ export function ChangelogModal({ open, onClose }: Props) {
 
   if (!open) return null;
 
-  const currentVer = appVersion || '0.5.7';
+  const currentVer = appVersion || '0.5.8';
   const hasNewVer = Boolean(update.available && update.available.version !== currentVer);
 
   return (

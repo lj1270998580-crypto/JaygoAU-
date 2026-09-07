@@ -1418,16 +1418,33 @@ export default function AvatarStudio() {
                   </div>
                 </div>
 
-                {/* 参数同步提示 */}
+                {/* 参数同步提示与制作入口 */}
                 <div className="pt-2">
                   <div className="p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
                       <span className="text-sm">🎯</span>
-                      <span>参数已就绪，请在右侧视窗预览出镜效果并一键合成</span>
+                      <span>
+                        {currentTask && currentTask.status === 30
+                          ? '上一个视频已合成完毕，可随时开启下一个制作'
+                          : '参数已就绪，请在右侧视窗预览出镜效果并一键合成'}
+                      </span>
                     </div>
-                    <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap pl-2">
-                      成片视窗 👉
-                    </span>
+                    {currentTask && currentTask.status === 30 ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCurrentTaskId(null);
+                          setCurrentTask(null);
+                        }}
+                        className="text-[11px] px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold transition cursor-pointer shrink-0 ml-2"
+                      >
+                        制作下一个 →
+                      </button>
+                    ) : (
+                      <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap pl-2">
+                        成片视窗 👉
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1437,10 +1454,33 @@ export default function AvatarStudio() {
             <div className="w-full md:w-[410px] lg:w-[450px] xl:w-[470px] shrink-0 h-full bg-zinc-50/70 dark:bg-[#101014] border-l border-zinc-200/80 dark:border-zinc-800/80 p-6 flex flex-col justify-between overflow-y-auto">
               <div>
                 <div className="section-title text-sm mb-3 flex items-center justify-between">
-                  <span>实时渲染视窗</span>
-                  {currentTaskId && (
-                    <span className="text-[10px] font-mono text-zinc-400">ID: {currentTaskId.slice(-8)}</span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <span>实时渲染视窗</span>
+                    {currentTask && currentTask.status === 30 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 font-medium border border-emerald-200 dark:border-emerald-800">
+                        成片已就绪
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {currentTaskId && (
+                      <span className="text-[10px] font-mono text-zinc-400">ID: {currentTaskId.slice(-8)}</span>
+                    )}
+                    {currentTask && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCurrentTaskId(null);
+                          setCurrentTask(null);
+                        }}
+                        className="text-[11px] px-2 py-0.5 rounded-lg bg-zinc-200/80 hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 font-medium transition cursor-pointer flex items-center gap-1"
+                        title="清空当前成片，返回配置面板并可直接合成新视频"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        <span>新建视频</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* 状态 1: 生成中 (轮询进度卡片) */}
@@ -1512,6 +1552,30 @@ export default function AvatarStudio() {
                         title="复制云端直链"
                       >
                         复制链接
+                      </button>
+                    </div>
+
+                    {/* 连续制作下一个视频 / 快速重新合成 专区 */}
+                    <div className="pt-3 border-t border-zinc-200/80 dark:border-zinc-800 space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCurrentTaskId(null);
+                          setCurrentTask(null);
+                        }}
+                        className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold text-xs shadow-md shadow-blue-500/20 transition flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        <span>制作下一个数字人视频</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCreateVideo}
+                        disabled={submitting || (avatarTab === 'official' ? !currentAvatar : !currentCustomAvatar)}
+                        className="w-full py-2.5 px-4 rounded-xl border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800/80 text-zinc-700 dark:text-zinc-300 font-medium text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                        <span>以当前左侧参数重新合成</span>
                       </button>
                     </div>
                   </div>
