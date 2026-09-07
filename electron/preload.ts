@@ -203,6 +203,10 @@ const api = {
   extractMedia: (input: string) => ipcRenderer.invoke('extract-media', input),
   downloadExtractedMedia: (args: { mediaInfo: any; type: 'video' | 'audio' }) =>
     ipcRenderer.invoke('download-extracted-media', args),
+  downloadExtractedImage: (args: { imageUrl: string; defaultName?: string }) =>
+    ipcRenderer.invoke('download-extracted-image', args),
+  downloadAllExtractedImages: (args: { images: string[]; title: string }) =>
+    ipcRenderer.invoke('download-all-extracted-images', args),
   extractMediaForTranscribe: (args: { mediaInfo: any }) =>
     ipcRenderer.invoke('extract-media-for-transcribe', args),
   showItemInFolder: (filePath: string) =>

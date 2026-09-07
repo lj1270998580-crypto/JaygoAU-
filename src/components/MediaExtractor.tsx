@@ -15,7 +15,8 @@ export default function MediaExtractor() {
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
   const [currentMedia, setCurrentMedia] = useState<ParsedMediaInfo | null>(null);
-  const [downloadingType, setDownloadingType] = useState<'video' | 'audio' | 'transcribe' | null>(null);
+  const [activeImageIndex, setActiveImageIndex] = useState<number>(0);
+  const [downloadingType, setDownloadingType] = useState<'video' | 'audio' | 'image' | 'all-images' | 'transcribe' | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [lastSavedPath, setLastSavedPath] = useState<string | null>(null);
   const [extractError, setExtractError] = useState<string | null>(null);
@@ -91,12 +92,14 @@ export default function MediaExtractor() {
 
     setLoading(true);
     setCurrentMedia(null);
+    setActiveImageIndex(0);
     setLastSavedPath(null);
     setExtractError(null);
 
     try {
       const res = await (window as any).JaygoAPI.extractMedia(raw);
       setCurrentMedia(res);
+      setActiveImageIndex(0);
       saveHistory(res);
       showToast(`成功解析来自「${res.platformName}」的作品！`, 'ok');
     } catch (err: any) {
@@ -105,6 +108,50 @@ export default function MediaExtractor() {
       showToast(errMsg, 'err');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 下载当前单张图片
+  const handleDownloadImage = async (index: number) => {
+    if (!currentMedia || !currentMedia.images || !currentMedia.images[index]) return;
+    setDownloadingType('image');
+
+    try {
+      const pad = String(index + 1).padStart(2, '0');
+      const safeTitle = (currentMedia.title || 'image').slice(0, 30);
+      const res = await (window as any).JaygoAPI.downloadExtractedImage({
+        imageUrl: currentMedia.images[index],
+        defaultName: `${safeTitle}_${pad}`,
+      });
+
+      if (!res) return;
+      setLastSavedPath(res.path);
+      showToast(`第 ${index + 1} 张高清图片已保存到本地！`, 'ok');
+    } catch (err: any) {
+      showToast(`保存图片失败: ${err?.message || '未知错误'}`, 'err');
+    } finally {
+      setDownloadingType(null);
+    }
+  };
+
+  // 一键批量保存全部图片到独立目录
+  const handleDownloadAllImages = async () => {
+    if (!currentMedia || !currentMedia.images || currentMedia.images.length === 0) return;
+    setDownloadingType('all-images');
+
+    try {
+      const res = await (window as any).JaygoAPI.downloadAllExtractedImages({
+        images: currentMedia.images,
+        title: currentMedia.title || 'images',
+      });
+
+      if (!res) return;
+      setLastSavedPath(res.folderPath);
+      showToast(`全部 ${res.count} 张高清原图已保存到文件夹！`, 'ok');
+    } catch (err: any) {
+      showToast(`批量保存失败: ${err?.message || '未知错误'}`, 'err');
+    } finally {
+      setDownloadingType(null);
     }
   };
 
@@ -304,223 +351,373 @@ export default function MediaExtractor() {
       </div>
 
       {/* 解析结果展示视窗 */}
-      {currentMedia && (
-        <div className="rounded-2xl border border-blue-100 dark:border-blue-950/80 bg-blue-50/20 dark:bg-blue-950/10 p-5 mb-8 shadow-xs animate-fade-in">
-          <div className="flex items-center justify-between pb-3 mb-4 border-b border-zinc-200/60 dark:border-zinc-800/80">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-600 text-white">
-                <span>{currentMedia.platformName}</span>
-              </span>
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">解析成功</span>
-            </div>
+      {currentMedia && (() => {
+        const isImageNote = Boolean(
+          currentMedia.mediaType === 'images' ||
+          (!currentMedia.videoUrl && currentMedia.images && currentMedia.images.length > 0)
+        );
 
-            {lastSavedPath && (
+        return (
+          <div className="rounded-2xl border border-blue-100 dark:border-blue-950/80 bg-blue-50/20 dark:bg-blue-950/10 p-5 mb-8 shadow-xs animate-fade-in">
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-zinc-200/60 dark:border-zinc-800/80">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">✓ 已保存到本地</span>
-                <button
-                  type="button"
-                  onClick={handleShowInFolder}
-                  className="px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 transition"
-                >
-                  打开所在目录
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="flex flex-col lg:flex-row gap-6">
-            {/* 左侧：封面/媒体播放器预览 */}
-            <div className="w-full lg:w-[380px] shrink-0">
-              <div className="rounded-xl overflow-hidden border border-zinc-200/80 dark:border-zinc-800 bg-black aspect-video flex items-center justify-center relative group">
-                {currentMedia.videoUrl ? (
-                  <video
-                    ref={videoRef}
-                    key={currentMedia.videoUrl}
-                    controls
-                    poster={currentMedia.coverUrl}
-                    src={currentMedia.videoUrl}
-                    onPlay={() => {
-                      if (audioRef.current && audioRef.current.paused) {
-                        audioRef.current.play().catch(() => {});
-                      }
-                    }}
-                    onPause={() => {
-                      if (audioRef.current && !audioRef.current.paused) {
-                        audioRef.current.pause();
-                      }
-                    }}
-                    onSeeking={() => {
-                      if (audioRef.current && videoRef.current) {
-                        audioRef.current.currentTime = videoRef.current.currentTime;
-                      }
-                    }}
-                    onVolumeChange={() => {
-                      if (audioRef.current && videoRef.current) {
-                        audioRef.current.volume = videoRef.current.volume;
-                        audioRef.current.muted = videoRef.current.muted;
-                      }
-                    }}
-                    className="w-full h-full object-contain"
-                  />
-                ) : currentMedia.coverUrl ? (
-                  <img
-                    src={currentMedia.coverUrl}
-                    alt={currentMedia.title}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="text-zinc-500 text-xs">无媒体画面预览</div>
-                )}
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-600 text-white">
+                  <span>{currentMedia.platformName}</span>
+                </span>
+                <span className={`px-2 py-0.5 rounded-md text-[11px] font-medium ${
+                  isImageNote
+                    ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300 border border-rose-200/60 dark:border-rose-900/60'
+                    : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-900/60'
+                }`}>
+                  {isImageNote ? '📸 高清图文作品' : '🎬 高清短视频'}
+                </span>
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">解析成功</span>
               </div>
 
-              {/* 独立音频播放器（若有） */}
-              {currentMedia.audioUrl && (
-                <div className="mt-3 p-2.5 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white/80 dark:bg-[#18181c]">
-                  <div className="text-[11px] font-medium text-zinc-500 mb-1 flex items-center gap-1">
-                    <span>🎵</span>
-                    <span>原声伴奏/独立音频试听：</span>
-                  </div>
-                  <audio
-                    ref={audioRef}
-                    controls
-                    src={currentMedia.audioUrl}
-                    className="w-full h-8"
-                  />
+              {lastSavedPath && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">✓ 已保存到本地</span>
+                  <button
+                    type="button"
+                    onClick={handleShowInFolder}
+                    className="px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 transition"
+                  >
+                    打开所在目录
+                  </button>
                 </div>
               )}
             </div>
 
-            {/* 右侧：详细元数据与功能操作区 */}
-            <div className="flex-1 min-w-0 flex flex-col justify-between">
-              <div>
-                {/* 标题与复制 */}
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="text-sm sm:text-[15px] font-semibold text-zinc-900 dark:text-white leading-snug break-all line-clamp-3">
-                    {currentMedia.title}
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => copyText(currentMedia.title, '标题')}
-                    className="shrink-0 text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 mt-0.5"
-                  >
-                    <span>📋</span>
-                    <span>复制标题</span>
-                  </button>
+            <div className="flex flex-col lg:flex-row gap-6">
+              {/* 左侧：封面/媒体播放器/图集画廊预览 */}
+              <div className="w-full lg:w-[380px] shrink-0 flex flex-col gap-3">
+                <div className="rounded-xl overflow-hidden border border-zinc-200/80 dark:border-zinc-800 bg-black aspect-video flex items-center justify-center relative group select-none">
+                  {!isImageNote && currentMedia.videoUrl ? (
+                    <video
+                      ref={videoRef}
+                      key={currentMedia.videoUrl}
+                      controls
+                      poster={currentMedia.coverUrl}
+                      src={currentMedia.videoUrl}
+                      onPlay={() => {
+                        if (audioRef.current && audioRef.current.paused) {
+                          audioRef.current.play().catch(() => {});
+                        }
+                      }}
+                      onPause={() => {
+                        if (audioRef.current && !audioRef.current.paused) {
+                          audioRef.current.pause();
+                        }
+                      }}
+                      onSeeking={() => {
+                        if (audioRef.current && videoRef.current) {
+                          audioRef.current.currentTime = videoRef.current.currentTime;
+                        }
+                      }}
+                      onVolumeChange={() => {
+                        if (audioRef.current && videoRef.current) {
+                          audioRef.current.volume = videoRef.current.volume;
+                          audioRef.current.muted = videoRef.current.muted;
+                        }
+                      }}
+                      className="w-full h-full object-contain"
+                    />
+                  ) : isImageNote && currentMedia.images && currentMedia.images.length > 0 ? (
+                    <>
+                      <img
+                        src={currentMedia.images[activeImageIndex] || currentMedia.coverUrl}
+                        alt={currentMedia.title}
+                        className="w-full h-full object-contain"
+                      />
+                      {/* 图集序号指示角标 */}
+                      <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-[11px] font-medium text-white/90 border border-white/10 shadow-xs">
+                        {activeImageIndex + 1} / {currentMedia.images.length}
+                      </div>
+
+                      {/* 左右翻页微按钮 */}
+                      {currentMedia.images.length > 1 && (
+                        <>
+                          {activeImageIndex > 0 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveImageIndex((prev) => Math.max(0, prev - 1));
+                              }}
+                              className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/60 hover:bg-black/80 text-white text-base font-bold flex items-center justify-center transition opacity-0 group-hover:opacity-100 shadow-md"
+                              title="上一张"
+                            >
+                              ‹
+                            </button>
+                          )}
+                          {activeImageIndex < currentMedia.images.length - 1 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveImageIndex((prev) => Math.min(currentMedia.images!.length - 1, prev + 1));
+                              }}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/60 hover:bg-black/80 text-white text-base font-bold flex items-center justify-center transition opacity-0 group-hover:opacity-100 shadow-md"
+                              title="下一张"
+                            >
+                              ›
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </>
+                  ) : currentMedia.coverUrl ? (
+                    <img
+                      src={currentMedia.coverUrl}
+                      alt={currentMedia.title}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="text-zinc-500 text-xs">无媒体画面预览</div>
+                  )}
                 </div>
 
-                {/* 作者信息与时长 */}
-                <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-zinc-600 dark:text-zinc-400">
-                  <div className="flex items-center gap-2">
-                    {currentMedia.authorAvatar && (
-                      <img
-                        src={currentMedia.authorAvatar}
-                        alt=""
-                        className="w-5 h-5 rounded-full object-cover border border-zinc-200 dark:border-zinc-700"
-                      />
-                    )}
-                    <span className="font-medium text-zinc-800 dark:text-zinc-200">{currentMedia.author}</span>
+                {/* 图文作品缩略图轮播排条 */}
+                {isImageNote && currentMedia.images && currentMedia.images.length > 1 && (
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full custom-scrollbar">
+                    {currentMedia.images.map((imgUrl, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setActiveImageIndex(idx)}
+                        className={`shrink-0 w-12 h-12 rounded-lg overflow-hidden border-2 transition relative ${
+                          idx === activeImageIndex
+                            ? 'border-blue-500 ring-2 ring-blue-500/30'
+                            : 'border-transparent opacity-60 hover:opacity-100'
+                        }`}
+                      >
+                        <img src={imgUrl} alt="" className="w-full h-full object-cover" />
+                        <span className="absolute bottom-0 right-0 bg-black/75 text-[9px] text-white px-1 leading-none rounded-tl">
+                          {idx + 1}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* 独立音频播放器（若有） */}
+                {currentMedia.audioUrl && (
+                  <div className="p-2.5 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white/80 dark:bg-[#18181c]">
+                    <div className="text-[11px] font-medium text-zinc-500 mb-1 flex items-center gap-1">
+                      <span>🎵</span>
+                      <span>原声伴奏 / 背景音乐试听：</span>
+                    </div>
+                    <audio
+                      ref={audioRef}
+                      controls
+                      src={currentMedia.audioUrl}
+                      className="w-full h-8"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* 右侧：详细元数据与功能操作区 */}
+              <div className="flex-1 min-w-0 flex flex-col justify-between">
+                <div>
+                  {/* 标题与复制 */}
+                  <div className="flex items-start justify-between gap-3">
+                    <h3 className="text-sm sm:text-[15px] font-semibold text-zinc-900 dark:text-white leading-snug break-all line-clamp-3">
+                      {currentMedia.title}
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => copyText(currentMedia.title, '标题')}
+                      className="shrink-0 text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 mt-0.5 font-medium"
+                    >
+                      <span>📋</span>
+                      <span>复制标题</span>
+                    </button>
                   </div>
 
-                  {currentMedia.durationSec !== undefined && currentMedia.durationSec > 0 && (
-                    <div className="flex items-center gap-1 text-zinc-500">
-                      <span>⏱️</span>
-                      <span>
-                        {Math.floor(currentMedia.durationSec / 60)}分
-                        {(currentMedia.durationSec % 60).toString().padStart(2, '0')}秒
-                      </span>
+                  {/* 作者信息与时长/图片数 */}
+                  <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-zinc-600 dark:text-zinc-400">
+                    <div className="flex items-center gap-2">
+                      {currentMedia.authorAvatar && (
+                        <img
+                          src={currentMedia.authorAvatar}
+                          alt=""
+                          className="w-5 h-5 rounded-full object-cover border border-zinc-200 dark:border-zinc-700"
+                        />
+                      )}
+                      <span className="font-medium text-zinc-800 dark:text-zinc-200">{currentMedia.author}</span>
+                    </div>
+
+                    {currentMedia.durationSec !== undefined && currentMedia.durationSec > 0 && (
+                      <div className="flex items-center gap-1 text-zinc-500">
+                        <span>⏱️</span>
+                        <span>
+                          {Math.floor(currentMedia.durationSec / 60)}分
+                          {(currentMedia.durationSec % 60).toString().padStart(2, '0')}秒
+                        </span>
+                      </div>
+                    )}
+
+                    {currentMedia.images && currentMedia.images.length > 0 && (
+                      <div className="flex items-center gap-1 text-zinc-500">
+                        <span>🖼️</span>
+                        <span>共 {currentMedia.images.length} 张超清原图</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 正文完整描述文案展示卡片 */}
+                  {currentMedia.desc && (
+                    <div className="mt-4 p-3.5 rounded-xl bg-white dark:bg-[#18181c] border border-zinc-200/80 dark:border-zinc-800 shadow-2xs">
+                      <div className="flex items-center justify-between text-[11px] font-medium text-zinc-500 mb-2">
+                        <span className="flex items-center gap-1 text-zinc-700 dark:text-zinc-300 font-semibold">
+                          <span>📝</span>
+                          <span>作品正文文案</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => copyText(currentMedia.desc!, '正文内容')}
+                          className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-medium text-xs"
+                        >
+                          <span>📋</span>
+                          <span>复制正文</span>
+                        </button>
+                      </div>
+                      <div className="text-xs text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap max-h-44 overflow-y-auto leading-relaxed select-text font-sans break-all custom-scrollbar">
+                        {currentMedia.desc}
+                      </div>
                     </div>
                   )}
                 </div>
 
-                {/* 图集提示（若是图集作品） */}
-                {currentMedia.images && currentMedia.images.length > 0 && (
-                  <div className="mt-3 text-xs text-zinc-500 flex items-center gap-1.5">
-                    <span>🖼️</span>
-                    <span>该作品包含 {currentMedia.images.length} 张高清原图</span>
-                  </div>
-                )}
-              </div>
-
-              {/* 核心动作按钮矩阵 */}
-              <div className="mt-6 pt-4 border-t border-zinc-200/60 dark:border-zinc-800/80 flex flex-wrap items-center gap-3">
-                {/* 1. 下载无水印视频 */}
-                {currentMedia.videoUrl && (
-                  <button
-                    type="button"
-                    disabled={Boolean(downloadingType)}
-                    onClick={() => handleDownload('video')}
-                    className="px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition flex items-center gap-2 shadow-xs"
-                  >
-                    {downloadingType === 'video' ? (
-                      <>
-                        <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                        <span>下载中…</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>🎬</span>
-                        <span>下载无水印视频 (MP4)</span>
-                      </>
-                    )}
-                  </button>
-                )}
-
-                {/* 2. 提取纯音频 MP3 */}
-                <button
-                  type="button"
-                  disabled={Boolean(downloadingType)}
-                  onClick={() => handleDownload('audio')}
-                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-zinc-800 dark:text-zinc-200 bg-white dark:bg-[#1a1a20] border border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600 transition flex items-center gap-2 shadow-2xs"
-                >
-                  {downloadingType === 'audio' ? (
+                {/* 核心动作按钮矩阵 */}
+                <div className="mt-6 pt-4 border-t border-zinc-200/60 dark:border-zinc-800/80 flex flex-wrap items-center gap-3">
+                  {/* 图文模式：下载单张图片与批量打包 */}
+                  {isImageNote && currentMedia.images && currentMedia.images.length > 0 && (
                     <>
-                      <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-zinc-400 border-t-transparent animate-spin" />
-                      <span>正在转码 MP3…</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>🎵</span>
-                      <span>提取纯音频 (MP3)</span>
+                      <button
+                        type="button"
+                        disabled={Boolean(downloadingType)}
+                        onClick={() => handleDownloadImage(activeImageIndex)}
+                        className="px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition flex items-center gap-2 shadow-xs"
+                      >
+                        {downloadingType === 'image' ? (
+                          <>
+                            <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                            <span>保存当前图中…</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>🖼️</span>
+                            <span>下载当前大图 (第 {activeImageIndex + 1} 张)</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={Boolean(downloadingType)}
+                        onClick={handleDownloadAllImages}
+                        className="px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 transition flex items-center gap-2 shadow-xs"
+                      >
+                        {downloadingType === 'all-images' ? (
+                          <>
+                            <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                            <span>批量保存中…</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>📦</span>
+                            <span>批量保存全部原图 ({currentMedia.images.length}张)</span>
+                          </>
+                        )}
+                      </button>
                     </>
                   )}
-                </button>
 
-                {/* 3. 一键发送到视音频转录 */}
-                <button
-                  type="button"
-                  disabled={Boolean(downloadingType)}
-                  onClick={handleSendToTranscribe}
-                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition flex items-center gap-2"
-                >
-                  {downloadingType === 'transcribe' ? (
-                    <>
-                      <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin" />
-                      <span>正在提取音频…</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>📝</span>
-                      <span>一键转录文案 (ASR 2.0)</span>
-                    </>
+                  {/* 视频模式：下载无水印视频 */}
+                  {!isImageNote && currentMedia.videoUrl && (
+                    <button
+                      type="button"
+                      disabled={Boolean(downloadingType)}
+                      onClick={() => handleDownload('video')}
+                      className="px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition flex items-center gap-2 shadow-xs"
+                    >
+                      {downloadingType === 'video' ? (
+                        <>
+                          <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                          <span>下载中…</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>🎬</span>
+                          <span>下载无水印视频 (MP4)</span>
+                        </>
+                      )}
+                    </button>
                   )}
-                </button>
 
-                {/* 4. 复制直链 */}
-                {currentMedia.videoUrl && (
-                  <button
-                    type="button"
-                    onClick={() => copyText(currentMedia.videoUrl!, '视频直链')}
-                    className="px-3 py-2 rounded-xl text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 transition flex items-center gap-1"
-                  >
-                    <span>🔗</span>
-                    <span>复制直链</span>
-                  </button>
-                )}
+                  {/* 音频提取/下载（若作品有视频流或独立音频流） */}
+                  {(currentMedia.audioUrl || currentMedia.videoUrl) && (
+                    <button
+                      type="button"
+                      disabled={Boolean(downloadingType)}
+                      onClick={() => handleDownload('audio')}
+                      className="px-4 py-2.5 rounded-xl text-xs font-semibold text-zinc-800 dark:text-zinc-200 bg-white dark:bg-[#1a1a20] border border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600 transition flex items-center gap-2 shadow-2xs"
+                    >
+                      {downloadingType === 'audio' ? (
+                        <>
+                          <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-zinc-400 border-t-transparent animate-spin" />
+                          <span>正在转码 MP3…</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>🎵</span>
+                          <span>{isImageNote ? '提取背景音乐 (MP3)' : '提取纯音频 (MP3)'}</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  {/* 一键发送到视音频转录 */}
+                  {(currentMedia.audioUrl || currentMedia.videoUrl) && (
+                    <button
+                      type="button"
+                      disabled={Boolean(downloadingType)}
+                      onClick={handleSendToTranscribe}
+                      className="px-4 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition flex items-center gap-2"
+                    >
+                      {downloadingType === 'transcribe' ? (
+                        <>
+                          <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin" />
+                          <span>正在提取音频…</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>📝</span>
+                          <span>一键转录文案 (ASR 2.0)</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  {/* 复制直链 */}
+                  {currentMedia.videoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => copyText(currentMedia.videoUrl!, '视频直链')}
+                      className="px-3 py-2 rounded-xl text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 transition flex items-center gap-1"
+                    >
+                      <span>🔗</span>
+                      <span>复制直链</span>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* 历史解析记录列表 */}
       <div>
@@ -554,6 +751,7 @@ export default function MediaExtractor() {
                 key={item.id}
                 onClick={() => {
                   setCurrentMedia(item.media);
+                  setActiveImageIndex(0);
                   setLastSavedPath(null);
                 }}
                 className="group relative rounded-xl border border-zinc-200/80 dark:border-zinc-800/80 bg-white dark:bg-[#141418] p-3 hover:border-blue-400 dark:hover:border-blue-600 transition cursor-pointer flex gap-3 items-center shadow-2xs"
@@ -567,10 +765,12 @@ export default function MediaExtractor() {
                       className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                     />
                   ) : (
-                    <div className="w-full h-full grid place-items-center text-lg">🎬</div>
+                    <div className="w-full h-full grid place-items-center text-lg">
+                      {item.media.mediaType === 'images' ? '📸' : '🎬'}
+                    </div>
                   )}
                   <span className="absolute bottom-1 right-1 px-1 py-0.2 rounded text-[9px] font-semibold bg-black/70 text-white">
-                    {item.media.platformName}
+                    {item.media.mediaType === 'images' ? '图文' : item.media.platformName}
                   </span>
                 </div>
 

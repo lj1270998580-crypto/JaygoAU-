@@ -167,6 +167,8 @@ export interface JaygoAPI {
   // ---- 多平台媒体/短视频无水印提取 ----
   extractMedia(input: string): Promise<ParsedMediaInfo>;
   downloadExtractedMedia(a: { mediaInfo: ParsedMediaInfo; type: 'video' | 'audio' }): Promise<{ path: string; size: number } | null>;
+  downloadExtractedImage(a: { imageUrl: string; defaultName?: string }): Promise<{ path: string; size: number } | null>;
+  downloadAllExtractedImages(a: { images: string[]; title: string }): Promise<{ folderPath: string; count: number } | null>;
   extractMediaForTranscribe(a: { mediaInfo: ParsedMediaInfo }): Promise<{ filePath: string; fileName: string }>;
   showItemInFolder(path: string): Promise<boolean>;
   // ---- 历史文章与多格式文档解析 (.txt, .md, .pdf, .docx, .json, .csv) ----
@@ -177,7 +179,9 @@ export interface JaygoAPI {
 export interface ParsedMediaInfo {
   platform: 'douyin' | 'bilibili' | 'kuaishou' | 'xiaohongshu' | 'generic';
   platformName: string;
+  mediaType?: 'video' | 'images';
   title: string;
+  desc?: string;
   author: string;
   authorAvatar?: string;
   coverUrl?: string;

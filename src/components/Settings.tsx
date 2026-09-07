@@ -530,7 +530,7 @@ export default function Settings() {
         <div className="glass-soft p-4 rounded-xl flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-mono font-bold text-xs border border-blue-200/60 dark:border-blue-800/60 shadow-inner">
-              v{appVersion || '0.5.8'}
+              v{appVersion || '0.5.9'}
             </div>
             <div>
               <div className="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">

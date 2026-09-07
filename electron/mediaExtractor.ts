@@ -9,7 +9,9 @@ import { BrowserWindow } from 'electron';
 export interface ParsedMediaInfo {
   platform: 'douyin' | 'bilibili' | 'kuaishou' | 'xiaohongshu' | 'generic';
   platformName: string;
+  mediaType?: 'video' | 'images';
   title: string;
+  desc?: string;
   author: string;
   authorAvatar?: string;
   coverUrl?: string;
@@ -24,7 +26,7 @@ export interface ParsedMediaInfo {
 const MOBILE_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
 const PC_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 // 智能清洗输入文本，提取首个 URL 并判别平台
 export function cleanAndDetectUrl(input: string): { url: string; platform: ParsedMediaInfo['platform'] } | null {
@@ -40,14 +42,14 @@ export function cleanAndDetectUrl(input: string): { url: string; platform: Parse
   const biliMatch = text.match(/https?:\/\/(?:b23\.tv|www\.bilibili\.com\/video\/[a-zA-Z0-9]+)[^\s\u4e00-\u9fa5<>'\"()（）]*/i);
   if (biliMatch) return { url: biliMatch[0].replace(/[\.,;!]+$/, ''), platform: 'bilibili' };
 
-  // 3. 快手
+  // 3. 快手 (支持 v.kuaishou.com, www.kuaishou.com, v.m.chenzhongtech.com, kuaishou.com)
   const ksMatch = text.match(/https?:\/\/(?:v|www)\.kuaishou\.com\/[^\s\u4e00-\u9fa5<>'\"()（）]+/i) ||
-                  text.match(/https?:\/\/v\.m\.chenzhongtech\.com\/fw\/photo\/[^\s\u4e00-\u9fa5<>'\"()（）]+/i);
+                  text.match(/https?:\/\/v\.m\.chenzhongtech\.com\/fw\/photo\/[^\s\u4e00-\u9fa5<>'\"()（）]+/i) ||
+                  text.match(/https?:\/\/kuaishou\.com\/[^\s\u4e00-\u9fa5<>'\"()（）]+/i);
   if (ksMatch) return { url: ksMatch[0].replace(/[\.,;!]+$/, ''), platform: 'kuaishou' };
 
-  // 4. 小红书
-  const xhsMatch = text.match(/https?:\/\/(?:xhslink\.com|www\.xiaohongshu\.com\/explore\/[a-zA-Z0-9]+)[^\s\u4e00-\u9fa5<>'\"()（）]*/i) ||
-                   text.match(/https?:\/\/www\.xiaohongshu\.com\/discovery\/item\/[a-zA-Z0-9]+[^\s\u4e00-\u9fa5<>'\"()（）]*/i);
+  // 4. 小红书 (支持 xhslink.com, xhslink.cn, www.xiaohongshu.com/discovery/item, explore)
+  const xhsMatch = text.match(/https?:\/\/(?:xhslink\.(?:com|cn)\/[^\s\u4e00-\u9fa5<>'\"()（）]+|www\.xiaohongshu\.com\/(?:discovery\/item|explore)\/[a-zA-Z0-9]+[^\s\u4e00-\u9fa5<>'\"()（）]*)/i);
   if (xhsMatch) return { url: xhsMatch[0].replace(/[\.,;!]+$/, ''), platform: 'xiaohongshu' };
 
   // 5. 通用网络音视频链接
@@ -65,14 +67,15 @@ const CLEAN_MOBILE_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1';
 
 // 递归跟随 HTTP 302 重定向获取抖音 itemId 或最终长链
-async function resolveDouyinRedirect(url: string): Promise<{ targetUrl: string; itemId: string | null }> {
+async function resolveDouyinRedirect(url: string): Promise<{ targetUrl: string; itemId: string | null; isNote: boolean }> {
   let cur = url;
   let itemId: string | null = null;
+  let isNote = false;
 
   // 先从传入链接本身检查是否有 itemId
-  const directMatch = cur.match(/(?:video|note)\/(\d+)/);
+  const directMatch = cur.match(/(video|note)\/(\d+)/);
   if (directMatch) {
-    return { targetUrl: cur, itemId: directMatch[1] };
+    return { targetUrl: cur, itemId: directMatch[2], isNote: directMatch[1] === 'note' };
   }
 
   for (let i = 0; i < 5; i++) {
@@ -88,9 +91,10 @@ async function resolveDouyinRedirect(url: string): Promise<{ targetUrl: string; 
       const loc = res.headers.get('location');
       if (loc) {
         cur = loc.startsWith('http') ? loc : new URL(loc, cur).href;
-        const m = cur.match(/(?:video|note)\/(\d+)/);
+        const m = cur.match(/(video|note)\/(\d+)/);
         if (m) {
-          itemId = m[1];
+          itemId = m[2];
+          isNote = m[1] === 'note';
           break; // 只要提取到了 itemId，立刻停止重定向，节省网络延迟
         }
       } else {
@@ -100,14 +104,18 @@ async function resolveDouyinRedirect(url: string): Promise<{ targetUrl: string; 
       break;
     }
   }
-  return { targetUrl: cur, itemId };
+  return { targetUrl: cur, itemId, isNote };
 }
 
 // ---- 1. 抖音解析器（内置短链重定向、桌面端 Chromium 引擎与全网流嗅探双轨提取） ----
 async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaInfo> {
-  const { targetUrl, itemId } = await resolveDouyinRedirect(rawUrl);
-  // 针对抖音风控，强行切换至桌面端 video/{itemId} 页面，彻底绕过移动端「抱歉出错了，请在抖音内观看」拦截
-  const desktopUrl = itemId ? `https://www.douyin.com/video/${itemId}` : targetUrl;
+  const { targetUrl, itemId, isNote } = await resolveDouyinRedirect(rawUrl);
+  // 针对抖音风控，强行切换至桌面端页面（视频为 /video/{itemId}，图文为 /note/{itemId}）
+  const desktopUrl = itemId
+    ? isNote
+      ? `https://www.douyin.com/note/${itemId}`
+      : `https://www.douyin.com/video/${itemId}`
+    : targetUrl;
 
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -223,7 +231,8 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
         const info = await win.webContents.executeJavaScript(`
           (() => {
             const title = (document.title || '').replace(/ - 抖音$/, '').replace(/\\| 抖音$/, '').trim() || '抖音作品';
-            const desc = document.querySelector('meta[name="description"]')?.content || '';
+            const descEl = document.querySelector('meta[name="description"]');
+            const desc = descEl ? descEl.getAttribute('content') || '' : '';
 
             let author = '';
             const authorMatch = desc.match(/ - (.*?)于\\d{8}发布/);
@@ -233,22 +242,36 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
               if (el) author = (el.textContent || '').trim();
             }
 
+            // 提取所有高清原图（排除头像、图标等非作品图）
             const imgs = Array.from(document.querySelectorAll('img')).map(i => i.src);
-            const cover = imgs.find(s => s.includes('douyinpic.com') && !s.includes('avatar')) || '';
+            const noteImages = imgs
+              .filter(s => s.includes('douyinpic.com') && !s.includes('avatar') && !s.includes('icon') && !s.includes('user-avatar'))
+              .map(s => s.replace(/~.*$/, '')); // 移除缩放参数获取无损大图
+
+            const uniqueImages = Array.from(new Set(noteImages));
+            const cover = uniqueImages[0] || (imgs.find(s => s.includes('douyinpic.com') && !s.includes('avatar')) || '');
             const avatar = imgs.find(s => s.includes('avatar')) || '';
+            const isNotePage = window.location.href.includes('/note/');
 
             return {
               title,
+              desc,
               author: author || '抖音创作者',
               authorAvatar: avatar,
               coverUrl: cover,
+              images: uniqueImages.length > 0 ? uniqueImages : undefined,
+              isNotePage,
             };
           })()
         `);
 
-        if (info && (capturedVideo || capturedAudio)) {
+        // 条件 A: 捕获到视频流（常规视频）
+        // 条件 B: 图文作品（包含多张图片或当前属于 note 页面，且不需要硬等视频流）
+        const isPhotoNoteReady = info && (info.isNotePage || (info.images && info.images.length > 1)) && pollCount >= 6;
+
+        if (info && (capturedVideo || capturedAudio || isPhotoNoteReady)) {
           // 如果捕获到视频但还未捕获到音频，给少量轮询时间等待可能分离的音频流
-          if (capturedVideo && !capturedAudio && pollCount < 15) {
+          if (capturedVideo && !capturedAudio && pollCount < 15 && !info.isNotePage) {
             return;
           }
 
@@ -258,12 +281,15 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
           resolve({
             platform: 'douyin',
             platformName: '抖音',
+            mediaType: capturedVideo ? 'video' : 'images',
             title: info.title,
+            desc: info.desc,
             author: info.author,
             authorAvatar: info.authorAvatar,
             coverUrl: info.coverUrl,
             videoUrl: capturedVideo || undefined,
             audioUrl: capturedAudio || undefined,
+            images: info.images && info.images.length > 0 ? info.images : undefined,
             originalUrl: targetUrl,
             headers: {
               'User-Agent': PC_UA,
@@ -333,144 +359,214 @@ async function parseBilibili(targetUrl: string): Promise<ParsedMediaInfo> {
   };
 }
 
-// ---- 3. 快手解析器 ----
+// ---- 3. 快手解析器（支持短链多级跳转与 Apollo GraphQL 状态解析） ----
 async function parseKuaishou(targetUrl: string): Promise<ParsedMediaInfo> {
-  let realUrl = targetUrl;
-  if (realUrl.includes('v.kuaishou.com')) {
-    const headRes = await fetch(realUrl, {
-      redirect: 'manual',
-      headers: { 'User-Agent': MOBILE_UA },
-    });
-    const loc = headRes.headers.get('location');
-    if (loc) realUrl = loc;
+  let target = targetUrl;
+  for (let i = 0; i < 5; i++) {
+    try {
+      const res = await fetch(target, {
+        method: 'GET',
+        redirect: 'manual',
+        headers: {
+          'User-Agent': PC_UA,
+          'Referer': 'https://v.kuaishou.com/',
+        },
+      });
+      const loc = res.headers.get('location');
+      if (loc) {
+        target = loc.startsWith('http') ? loc : new URL(loc, target).href;
+      } else {
+        break;
+      }
+    } catch {
+      break;
+    }
   }
 
-  // 请求快手移动端页面
-  const pageRes = await fetch(realUrl, {
+  const pageRes = await fetch(target, {
     headers: {
-      'User-Agent': MOBILE_UA,
-      'Referer': 'https://v.kuaishou.com/',
+      'User-Agent': PC_UA,
+      'Referer': 'https://www.kuaishou.com/',
       'Cookie': 'did=web_' + Math.random().toString(36).slice(2),
     },
   });
   const html = await pageRes.text();
 
+  const apolloIdx = html.indexOf('window.__APOLLO_STATE__');
+  if (apolloIdx === -1) {
+    throw new Error('未能在快手页面提取到有效数据结构，可能作品已下架');
+  }
+
+  const start = html.indexOf('{', apolloIdx);
+  let depth = 0;
+  let end = -1;
+  for (let i = start; i < html.length; i++) {
+    if (html[i] === '{') depth++;
+    else if (html[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        end = i + 1;
+        break;
+      }
+    }
+  }
+
+  if (end === -1) {
+    throw new Error('解析快手数据结构失败');
+  }
+
+  const rawStr = html.slice(start, end).trim();
+  const data = JSON.parse(rawStr);
+  const client = data['defaultClient'] || data;
+
   let photo: any = null;
+  let authorObj: any = null;
 
-  // 查找 INIT_STATE
-  const initIdx = html.indexOf('window.INIT_STATE');
-  if (initIdx !== -1) {
-    const start = html.indexOf('{', initIdx);
-    const end = html.indexOf('</script>', start);
-    if (start !== -1 && end !== -1) {
-      try {
-        const jsonStr = html.slice(start, end).trim().replace(/;$/, '');
-        const state = JSON.parse(jsonStr);
-        photo = state.photo || state.share?.photo || state.currentWork;
-      } catch {}
+  for (const k of Object.keys(client)) {
+    const item = client[k];
+    if (k.startsWith('VisionVideoDetailPhoto:')) {
+      photo = item;
+    } else if (k.startsWith('VisionVideoDetailAuthor:')) {
+      authorObj = item;
     }
   }
 
-  // 正则兜底查找视频直链
   if (!photo) {
-    const mvMatch = html.match(/"mainMvUrls":\s*\[\s*\{"url":\s*"([^"]+)"/);
-    const captionMatch = html.match(/"caption":\s*"([^"]+)"/);
-    const userMatch = html.match(/"userName":\s*"([^"]+)"/);
-    const coverMatch = html.match(/"coverUrls":\s*\[\s*\{"url":\s*"([^"]+)"/);
-
-    if (mvMatch) {
-      return {
-        platform: 'kuaishou',
-        platformName: '快手',
-        title: captionMatch ? captionMatch[1] : '快手作品',
-        author: userMatch ? userMatch[1] : '快手创作者',
-        coverUrl: coverMatch ? coverMatch[1] : '',
-        videoUrl: mvMatch[1],
-        originalUrl: targetUrl,
-        headers: {
-          'User-Agent': MOBILE_UA,
-          'Referer': 'https://v.kuaishou.com/',
-        },
-      };
-    }
-    throw new Error('未能在快手页面提取到有效视频流，可能作品已下架');
+    throw new Error('未能在快手作品中找到视频或图文资源');
   }
+
+  const title = photo.caption || '快手作品';
+  const desc = photo.caption || '';
+  const author = authorObj?.name || '快手创作者';
+  const authorAvatar = authorObj?.headerUrl || '';
+  const coverUrl = photo.coverUrl || '';
+  const videoUrl = photo.photoUrl || photo.photoH265Url || undefined;
+  const durationSec = photo.duration ? Math.round(photo.duration / 1000) : undefined;
 
   return {
     platform: 'kuaishou',
     platformName: '快手',
-    title: photo.caption || '快手作品',
-    author: photo.userName || '快手创作者',
-    authorAvatar: photo.headUrl || '',
-    coverUrl: photo.coverUrls?.[0]?.url || photo.coverUrl || '',
-    videoUrl: photo.mainMvUrls?.[0]?.url || photo.videoUrl || '',
-    audioUrl: photo.soundTrack?.audioUrls?.[0]?.url || undefined,
-    durationSec: photo.duration ? Math.round(photo.duration / 1000) : undefined,
+    mediaType: 'video',
+    title,
+    desc,
+    author,
+    authorAvatar,
+    coverUrl,
+    videoUrl,
+    durationSec,
     originalUrl: targetUrl,
     headers: {
-      'User-Agent': MOBILE_UA,
-      'Referer': 'https://v.kuaishou.com/',
+      'User-Agent': PC_UA,
+      'Referer': 'https://www.kuaishou.com/',
     },
   };
 }
 
-// ---- 4. 小红书解析器 ----
+// ---- 4. 小红书解析器（全参数保留跳转、图文/视频双模态与超清原图提取） ----
 async function parseXiaohongshu(targetUrl: string): Promise<ParsedMediaInfo> {
-  let realUrl = targetUrl;
-  if (realUrl.includes('xhslink.com')) {
-    const headRes = await fetch(realUrl, {
-      redirect: 'manual',
-      headers: { 'User-Agent': MOBILE_UA },
-    });
-    const loc = headRes.headers.get('location');
-    if (loc) realUrl = loc;
+  let fullUrl = targetUrl;
+
+  // 追踪多级重定向并完整保留包括 xsec_token 在内的所有 query 参数
+  for (let i = 0; i < 5; i++) {
+    try {
+      const res = await fetch(fullUrl, {
+        method: 'GET',
+        redirect: 'manual',
+        headers: {
+          'User-Agent': PC_UA,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+      });
+      const loc = res.headers.get('location');
+      if (loc) {
+        fullUrl = loc.startsWith('http') ? loc : new URL(loc, fullUrl).href;
+      } else {
+        break;
+      }
+    } catch {
+      break;
+    }
   }
 
-  const pageRes = await fetch(realUrl, {
+  const pageRes = await fetch(fullUrl, {
     headers: {
-      'User-Agent': MOBILE_UA,
+      'User-Agent': PC_UA,
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Referer': 'https://www.xiaohongshu.com/',
     },
   });
   const html = await pageRes.text();
 
-  let note: any = null;
   const stateIdx = html.indexOf('window.__INITIAL_STATE__');
-  if (stateIdx !== -1) {
-    const start = html.indexOf('{', stateIdx);
-    const end = html.indexOf('</script>', start);
-    if (start !== -1 && end !== -1) {
-      try {
-        const jsonStr = html.slice(start, end).trim().replace(/;$/, '');
-        const state = JSON.parse(jsonStr);
-        const map = state.note?.noteDetailMap;
-        if (map) {
-          const firstKey = Object.keys(map)[0];
-          note = map[firstKey]?.note;
-        }
-      } catch {}
+  if (stateIdx === -1) {
+    throw new Error('未在小红书页面找到有效数据，请检查链接或网络');
+  }
+
+  const start = html.indexOf('{', stateIdx);
+  let depth = 0;
+  let end = -1;
+  for (let i = start; i < html.length; i++) {
+    if (html[i] === '{') depth++;
+    else if (html[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        end = i + 1;
+        break;
+      }
     }
   }
 
-  if (!note) {
-    throw new Error('未能从小红书页面提取到作品内容，可能需要登录或作品不可见');
+  if (end === -1) {
+    throw new Error('解析小红书页面数据结构失败');
   }
 
-  const videoUrl = note.video?.media?.stream?.h264?.[0]?.masterUrl || undefined;
-  const images = note.imageList?.map((img: any) => img.urlDefault).filter(Boolean) || [];
+  const rawStr = html.slice(start, end).trim();
+  const data = JSON.parse(rawStr.replace(/:\s*undefined/g, ':null'));
+  const noteMap = data.note?.noteDetailMap || {};
+  const noteId = Object.keys(noteMap)[0];
+  if (!noteId || !noteMap[noteId]?.note) {
+    throw new Error('未能在小红书状态中获取到笔记数据，可能作品已删除或受隐私保护');
+  }
+
+  const note = noteMap[noteId].note;
+  const isVideo = note.type === 'video' || Boolean(note.video);
+  const title = note.title || (note.desc ? note.desc.slice(0, 30) : '小红书笔记');
+  const desc = note.desc || '';
+  const author = note.user?.nickname || '小红书薯友';
+  const authorAvatar = note.user?.avatar || '';
+
+  let videoUrl: string | undefined = undefined;
+  if (isVideo && note.video?.media?.stream) {
+    const stream = note.video.media.stream;
+    const h264List = stream.h264 || [];
+    videoUrl = h264List[0]?.masterUrl || stream.h265?.[0]?.masterUrl || undefined;
+  }
+
+  const images: string[] = (note.imageList || [])
+    .map((img: any) => {
+      // 提取最高清原图场景（WB_DFT 或 WB_PRV 或 urlDefault）
+      const dft = img.infoList?.find((it: any) => it.imageScene === 'WB_DFT')?.url;
+      const prv = img.infoList?.find((it: any) => it.imageScene === 'WB_PRV')?.url;
+      return dft || img.urlDefault || prv || img.url;
+    })
+    .filter(Boolean);
+
+  const coverUrl = images[0] || note.cover?.url || '';
 
   return {
     platform: 'xiaohongshu',
     platformName: '小红书',
-    title: note.title || note.desc || '小红书笔记',
-    author: note.user?.nickname || '小红书薯友',
-    authorAvatar: note.user?.avatar || '',
-    coverUrl: images[0] || '',
+    mediaType: isVideo && videoUrl ? 'video' : 'images',
+    title,
+    desc,
+    author,
+    authorAvatar,
+    coverUrl,
     videoUrl,
     images: images.length > 0 ? images : undefined,
     originalUrl: targetUrl,
     headers: {
-      'User-Agent': MOBILE_UA,
+      'User-Agent': PC_UA,
       'Referer': 'https://www.xiaohongshu.com/',
     },
   };

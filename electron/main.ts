@@ -510,6 +510,12 @@ app.whenReady().then(() => {
       } else if (u.includes('bilibili.com') || u.includes('hdslb.com') || u.includes('bilivideo.com')) {
         details.requestHeaders['Referer'] = 'https://www.bilibili.com/';
         details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+      } else if (u.includes('xhscdn.com') || u.includes('xiaohongshu.com')) {
+        details.requestHeaders['Referer'] = 'https://www.xiaohongshu.com/';
+        details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+      } else if (u.includes('kwaicdn.com') || u.includes('kuaishou.com') || u.includes('yximgs.com') || u.includes('kwimgs.com') || u.includes('kuaishouzt.com') || u.includes('oskwai.com')) {
+        details.requestHeaders['Referer'] = 'https://www.kuaishou.com/';
+        details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
       }
       callback({ requestHeaders: details.requestHeaders });
     });
@@ -1446,6 +1452,50 @@ ipcMain.handle(
     }
   }
 );
+
+ipcMain.handle('download-extracted-image', async (e, args: { imageUrl: string; defaultName?: string }) => {
+  const { imageUrl, defaultName } = args;
+  const safeName = (defaultName || `image_${Date.now()}`).replace(/[\\/:*?"<>|]/g, '_').slice(0, 50);
+  const defaultPath = path.join(settings.outputDir || app.getPath('downloads'), `${safeName}.jpg`);
+
+  const win = winOf(e) || mainWindow;
+  const saveRes = await dialog.showSaveDialog(win!, {
+    title: '保存高清无水印图片',
+    defaultPath,
+    filters: [{ name: '图片文件', extensions: ['jpg', 'png', 'webp'] }],
+  });
+  if (saveRes.canceled || !saveRes.filePath) return null;
+
+  await downloadMediaFile(imageUrl, saveRes.filePath);
+  return { path: saveRes.filePath, size: fs.statSync(saveRes.filePath).size };
+});
+
+ipcMain.handle('download-all-extracted-images', async (e, args: { images: string[]; title: string }) => {
+  const { images, title } = args;
+  if (!images || images.length === 0) throw new Error('没有可下载的图片');
+
+  const win = winOf(e) || mainWindow;
+  const openRes = await dialog.showOpenDialog(win!, {
+    title: '选择保存全部图片的文件夹',
+    defaultPath: settings.outputDir || app.getPath('downloads'),
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (openRes.canceled || !openRes.filePaths?.[0]) return null;
+
+  const baseDir = openRes.filePaths[0];
+  const safeFolder = (title || `images_${Date.now()}`).replace(/[\\/:*?"<>|]/g, '_').slice(0, 40);
+  const targetFolder = path.join(baseDir, safeFolder);
+  fs.mkdirSync(targetFolder, { recursive: true });
+
+  for (let i = 0; i < images.length; i++) {
+    const imgUrl = images[i];
+    const pad = String(i + 1).padStart(2, '0');
+    const outPath = path.join(targetFolder, `${pad}.jpg`);
+    await downloadMediaFile(imgUrl, outPath);
+  }
+
+  return { folderPath: targetFolder, count: images.length };
+});
 
 ipcMain.handle('extract-media-for-transcribe', async (e, args: { mediaInfo: ParsedMediaInfo }) => {
   const { mediaInfo } = args;
