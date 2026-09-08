@@ -1,11 +1,32 @@
 import React, { useState, useEffect, useRef } from 'react';
-import type { SkillPreset } from '../lib/skillTypes';
-import { getAllSkills, saveCustomSkill, deleteSkill, restoreDefaultSkills, parseSkillContent, exportSkillToMarkdown } from '../lib/skillParser';
+import type { SkillPreset, SkillFileAsset } from '../lib/skillTypes';
+import {
+  getAllSkills,
+  saveCustomSkill,
+  deleteSkill,
+  restoreDefaultSkills,
+  parseSkillContent,
+  parseSkillFromZip,
+  exportSkillToZip,
+  exportSkillToMarkdown,
+} from '../lib/skillParser';
 import { chatCompletion, type ChatMessage } from '../lib/modelHubService';
 import type { ModelHubSettings, ModelProviderType } from '../lib/modelHubTypes';
 import { PRESET_PROVIDERS } from '../lib/modelHubTypes';
 import { extractStyleFromSamples } from '../lib/styleExtractor';
 import { extractCleanScript } from '../lib/scriptSanitizer';
+import {
+  ScriptSession,
+  AttachedFile,
+  ChatMessageItem,
+  getStoredSessions,
+  saveSession,
+  deleteSessionById,
+  renameSessionById,
+  createNewSession,
+  buildCompressedContext,
+  buildWelcomeMessage,
+} from '../lib/scriptSessionManager';
 import {
   Sparkles,
   Paperclip,
@@ -26,9 +47,17 @@ import {
   Video,
   MessageSquare,
   Layers,
+  Plus,
+  Pencil,
+  Search,
+  ChevronDown,
+  ArrowLeft,
+  RefreshCw,
+  FolderArchive,
+  ExternalLink,
+  BrainCircuit,
 } from 'lucide-react';
 import { ChatMessageRenderer } from './ChatMessageRenderer';
-
 
 interface Props {
   modelSettings: ModelHubSettings;
@@ -38,21 +67,6 @@ interface Props {
   onPushToAvatar: (text: string) => void;
 }
 
-export interface AttachedFile {
-  id: string;
-  name: string;
-  size: number;
-  content: string;
-}
-
-export interface ChatMessageItem {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  attachments?: AttachedFile[];
-  timestamp: number;
-}
-
 export function ScriptStudio({
   modelSettings,
   onUpdateModelHubSettings,
@@ -60,24 +74,53 @@ export function ScriptStudio({
   onPushToSynth,
   onPushToAvatar,
 }: Props) {
+  // 创作者风格列表与当前选中风格
   const [skills, setSkills] = useState<SkillPreset[]>([]);
   const [selectedSkillId, setSelectedSkillId] = useState<string>('teacher_zhang_business');
-  
-  // 对话消息列表
-  const [messages, setMessages] = useState<ChatMessageItem[]>([]);
+
+  // 会话管理状态
+  const [sessions, setSessions] = useState<ScriptSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string>('');
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [sessionRenameValue, setSessionRenameValue] = useState<string>('');
+
+  // 左栏视图模态：'sessions' (会话历史) | 'skill' (创作风格详情编辑)
+  const [leftTab, setLeftTab] = useState<'sessions' | 'skill'>('sessions');
+
+  // 对话输入与临时状态
   const [inputValue, setInputValue] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState<AttachedFile[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamingDelta, setStreamingDelta] = useState('');
 
+  // 风格详情编辑状态（在左栏编辑或自定义创作者风格名字）
+  const [editSkillName, setEditSkillName] = useState('');
+  const [editSkillPersona, setEditSkillPersona] = useState('');
+  const [editSkillDesc, setEditSkillDesc] = useState('');
+  const [editCatchphrases, setEditCatchphrases] = useState<string[]>([]);
+  const [newCatchphraseInput, setNewCatchphraseInput] = useState('');
+  const [editSentenceLength, setEditSentenceLength] = useState('');
+  const [editStructure, setEditStructure] = useState('');
+  const [editNegativeConstraints, setEditNegativeConstraints] = useState<string[]>([]);
+  const [newNegativeInput, setNewNegativeInput] = useState('');
+
+  // 对话框下方风格下拉菜单状态
+  const [styleDropdownOpen, setStyleDropdownOpen] = useState(false);
+  const [styleSearchQuery, setStyleSearchQuery] = useState('');
+
+  // 输入框 @ 自动联想状态
+  const [atMentionOpen, setAtMentionOpen] = useState(false);
+  const [atQuery, setAtQuery] = useState('');
+  const [atHighlightIndex, setAtHighlightIndex] = useState(0);
+
   // 可自由调节的左右栏宽度 (px) 与拖拽状态
   const [leftWidth, setLeftWidth] = useState<number>(() => {
     const saved = localStorage.getItem('jaygo_script_left_width');
-    return saved ? Math.max(180, Math.min(420, parseInt(saved, 10))) : 240;
+    return saved ? Math.max(200, Math.min(460, parseInt(saved, 10))) : 270;
   });
   const [rightWidth, setRightWidth] = useState<number>(() => {
     const saved = localStorage.getItem('jaygo_script_right_width');
-    return saved ? Math.max(240, Math.min(560, parseInt(saved, 10))) : 330;
+    return saved ? Math.max(240, Math.min(560, parseInt(saved, 10))) : 320;
   });
 
   const dragStartRef = useRef<{
@@ -86,12 +129,87 @@ export function ScriptStudio({
     startWidth: number;
   }>({ type: null, startX: 0, startWidth: 0 });
 
+  // 风格逆向提炼 Modal 状态
+  const [extractModalOpen, setExtractModalOpen] = useState(false);
+  const [extractTeacherName, setExtractTeacherName] = useState('');
+  const [extractSample1, setExtractSample1] = useState('');
+  const [uploadedSampleFiles, setUploadedSampleFiles] = useState<Array<{ name: string; size: number; text: string }>>([]);
+  const [extracting, setExtracting] = useState(false);
+
+  // 反馈提示
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const fileInputSkillRef = useRef<HTMLInputElement | null>(null);
+  const fileInputAttachmentRef = useRef<HTMLInputElement | null>(null);
+  const sampleDocInputRef = useRef<HTMLInputElement | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+
+  const refreshSkills = () => {
+    const list = getAllSkills();
+    setSkills(list);
+  };
+
+  // 初始化加载 Skills
+  useEffect(() => {
+    refreshSkills();
+  }, []);
+
+  const selectedSkill = skills.find(s => s.id === selectedSkillId) || skills[0];
+
+  // 初始化加载会话历史
+  useEffect(() => {
+    const stored = getStoredSessions();
+    if (stored.length > 0) {
+      setSessions(stored);
+      setCurrentSessionId(stored[0].id);
+      if (stored[0].skillId) {
+        setSelectedSkillId(stored[0].skillId);
+      }
+    } else if (selectedSkill) {
+      const initialSession = createNewSession(selectedSkill, '默认商业文案会话');
+      setSessions([initialSession]);
+      setCurrentSessionId(initialSession.id);
+    }
+  }, [skills.length > 0]);
+
+  // 当前活跃会话
+  const currentSession = sessions.find(s => s.id === currentSessionId) || sessions[0];
+  const messages = currentSession?.messages || [];
+  const pinnedScript = currentSession?.pinnedScript || '';
+
+  // 同步当前风格到左侧编辑表单
+  useEffect(() => {
+    if (selectedSkill) {
+      setEditSkillName(selectedSkill.name);
+      setEditSkillPersona(selectedSkill.persona);
+      setEditSkillDesc(selectedSkill.description);
+      setEditCatchphrases([...(selectedSkill.catchphrases || [])]);
+      setEditSentenceLength(selectedSkill.pacingRules?.sentenceLength || '');
+      setEditStructure(selectedSkill.pacingRules?.structure || '');
+      setEditNegativeConstraints([...(selectedSkill.negativeConstraints || [])]);
+    }
+  }, [selectedSkill?.id]);
+
+  // 点击外部关闭下拉菜单
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setStyleDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // 左右栏拖拽调整宽度
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!dragStartRef.current.type) return;
       if (dragStartRef.current.type === 'left') {
         const deltaX = e.clientX - dragStartRef.current.startX;
-        const nextW = Math.max(180, Math.min(420, dragStartRef.current.startWidth + deltaX));
+        const nextW = Math.max(200, Math.min(460, dragStartRef.current.startWidth + deltaX));
         setLeftWidth(nextW);
         localStorage.setItem('jaygo_script_left_width', String(nextW));
       } else if (dragStartRef.current.type === 'right') {
@@ -118,65 +236,6 @@ export function ScriptStudio({
     };
   }, []);
 
-  // 右侧当前精选台词预览
-  const [pinnedScript, setPinnedScript] = useState('');
-
-  // 风格逆向提炼 Modal 状态
-  const [extractModalOpen, setExtractModalOpen] = useState(false);
-  const [extractTeacherName, setExtractTeacherName] = useState('');
-  const [extractSample1, setExtractSample1] = useState('');
-  const [extractSample2, setExtractSample2] = useState('');
-  const [uploadedSampleFiles, setUploadedSampleFiles] = useState<Array<{ name: string; size: number; text: string }>>([]);
-  const [extracting, setExtracting] = useState(false);
-
-  // 反馈提示
-  const [toastMsg, setToastMsg] = useState<string | null>(null);
-
-  const fileInputSkillRef = useRef<HTMLInputElement | null>(null);
-  const fileInputAttachmentRef = useRef<HTMLInputElement | null>(null);
-  const sampleDocInputRef = useRef<HTMLInputElement | null>(null);
-  const chatBottomRef = useRef<HTMLDivElement | null>(null);
-
-  const refreshSkills = () => {
-    const list = getAllSkills();
-    setSkills(list);
-  };
-
-  useEffect(() => {
-    refreshSkills();
-  }, []);
-
-  const selectedSkill = skills.find(s => s.id === selectedSkillId) || skills[0];
-
-  const buildWelcomeMessage = (skill: SkillPreset): ChatMessageItem => ({
-    id: `welcome_${Date.now()}`,
-    role: 'assistant',
-    content: `你好！我是你的 AI 自媒体文案创作顾问。\n\n当前已装载【**${skill.name}**】风格画像（人设：${skill.persona}）。\n\n你可以：\n1. **直接对话交流**：提出任何选题，我将为你量身打磨口播脚本；\n2. 📎 **上传素材文件**（支持 \`.txt\` / \`.md\` / \`.docx\` / \`.pdf\` / \`.json\` 等），让我深度洗稿重构；\n3. 生成满意的文案后，点击台词下方的【设为精修台词】，即可**一键流转推往「语音合成」或「蝉镜数字人」**！`,
-    timestamp: Date.now(),
-  });
-
-  // 初始化或切换风格时的欢迎语与人设实时同步
-  useEffect(() => {
-    if (!selectedSkill) return;
-
-    // 若当前会话中用户尚未发送过实际消息（仅有开场欢迎语），直接切换至新人设欢迎语，消除用户错判
-    const hasUserMessages = messages.some(m => m.role === 'user');
-    if (!hasUserMessages) {
-      setMessages([buildWelcomeMessage(selectedSkill)]);
-    } else {
-      // 若已有真实对话，则在会话流中追加一条轻量人设切换提示，避免破坏之前生成的稿件
-      setMessages(prev => [
-        ...prev,
-        {
-          id: `switch_${Date.now()}`,
-          role: 'assistant',
-          content: `✨ 已无缝切换至【**${selectedSkill.name}**】创作人设（${selectedSkill.persona}）。\n后续生成与对话将遵循该导师的思维模式与语言习惯。`,
-          timestamp: Date.now(),
-        },
-      ]);
-    }
-  }, [selectedSkillId]);
-
   // 滚动至最新消息
   const scrollToBottom = () => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -184,21 +243,160 @@ export function ScriptStudio({
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, streamingDelta]);
+  }, [messages.length, streamingDelta]);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(null), 3000);
+    setTimeout(() => setToastMsg(null), 3200);
   };
 
-  // 读取上传的参考素材文件（支持 txt, md, json, csv 以及 docx, pdf 等）
+  // 更新当前活跃会话状态并持久化
+  const updateCurrentSession = (updates: Partial<ScriptSession>) => {
+    if (!currentSession) return;
+    const updated: ScriptSession = {
+      ...currentSession,
+      ...updates,
+      updatedAt: Date.now(),
+    };
+    const newSessions = saveSession(updated);
+    setSessions(newSessions);
+  };
+
+  // 新建会话
+  const handleCreateNewSession = () => {
+    if (!selectedSkill) return;
+    const newS = createNewSession(selectedSkill);
+    setSessions(prev => [newS, ...prev]);
+    setCurrentSessionId(newS.id);
+    setLeftTab('sessions');
+    showToast('已开启全新文案创作会话！');
+  };
+
+  // 切换会话
+  const handleSwitchSession = (sessionId: string) => {
+    setCurrentSessionId(sessionId);
+    const target = sessions.find(s => s.id === sessionId);
+    if (target?.skillId && target.skillId !== selectedSkillId) {
+      setSelectedSkillId(target.skillId);
+    }
+  };
+
+  // 删除会话
+  const handleDeleteSession = (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (sessions.length <= 1) {
+      showToast('至少保留一个创作会话');
+      return;
+    }
+    const updated = deleteSessionById(sessionId);
+    setSessions(updated);
+    if (currentSessionId === sessionId) {
+      setCurrentSessionId(updated[0]?.id || '');
+      if (updated[0]?.skillId) setSelectedSkillId(updated[0].skillId);
+    }
+    showToast('会话已删除');
+  };
+
+  // 重命名会话完成
+  const handleFinishRenameSession = (sessionId: string) => {
+    if (sessionRenameValue.trim()) {
+      renameSessionById(sessionId, sessionRenameValue.trim());
+      setSessions(getStoredSessions());
+    }
+    setEditingSessionId(null);
+  };
+
+  // 切换创作风格（下拉框或 @ 联想）
+  const handleSelectSkill = (skill: SkillPreset) => {
+    setSelectedSkillId(skill.id);
+    setStyleDropdownOpen(false);
+    setAtMentionOpen(false);
+
+    if (currentSession) {
+      const hasUserMsg = currentSession.messages.some(m => m.role === 'user');
+      if (!hasUserMsg) {
+        // 尚未开始正式对话，直接更新开场欢迎语
+        updateCurrentSession({
+          skillId: skill.id,
+          messages: [buildWelcomeMessage(skill)],
+        });
+      } else {
+        // 已有对话，插入一条人设切换通知
+        const switchNotice: ChatMessageItem = {
+          id: `switch_${Date.now()}`,
+          role: 'assistant',
+          content: `✨ 已切换至【**${skill.name}**】创作画像（${skill.persona}）。后续对话将由该导师持续打磨。`,
+          timestamp: Date.now(),
+        };
+        updateCurrentSession({
+          skillId: skill.id,
+          messages: [...currentSession.messages, switchNotice],
+        });
+      }
+    }
+    showToast(`已装载【${skill.name}】创作者风格`);
+  };
+
+  // 保存当前 Skill 的修改（支持自定义创作者风格名字、口头禅、人设等）
+  const handleSaveSkillEdit = () => {
+    if (!selectedSkill) return;
+    const finalName = editSkillName.trim() || selectedSkill.name;
+    const updatedSkill: SkillPreset = {
+      ...selectedSkill,
+      name: finalName,
+      persona: editSkillPersona.trim() || selectedSkill.persona,
+      description: editSkillDesc.trim() || selectedSkill.description,
+      catchphrases: editCatchphrases.filter(Boolean),
+      pacingRules: {
+        sentenceLength: editSentenceLength.trim() || selectedSkill.pacingRules.sentenceLength,
+        structure: editStructure.trim() || selectedSkill.pacingRules.structure,
+      },
+      negativeConstraints: editNegativeConstraints.filter(Boolean),
+      updatedAt: Date.now(),
+      isSystem: false, // 一旦被用户修改，自动转换为用户自定义风格
+    };
+
+    saveCustomSkill(updatedSkill);
+    refreshSkills();
+    setSelectedSkillId(updatedSkill.id);
+    showToast(`已成功保存创作者风格：【${finalName}】！`);
+  };
+
+  // 另存为新自定义风格
+  const handleSaveAsNewSkill = () => {
+    if (!selectedSkill) return;
+    const newId = `skill_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
+    const newName = `${editSkillName.trim() || selectedSkill.name} (副本)`;
+    const newSkill: SkillPreset = {
+      ...selectedSkill,
+      id: newId,
+      name: newName,
+      author: '用户自定义',
+      persona: editSkillPersona.trim() || selectedSkill.persona,
+      description: editSkillDesc.trim() || selectedSkill.description,
+      catchphrases: [...editCatchphrases],
+      pacingRules: {
+        sentenceLength: editSentenceLength.trim() || selectedSkill.pacingRules.sentenceLength,
+        structure: editStructure.trim() || selectedSkill.pacingRules.structure,
+      },
+      negativeConstraints: [...editNegativeConstraints],
+      updatedAt: Date.now(),
+      isSystem: false,
+    };
+    saveCustomSkill(newSkill);
+    refreshSkills();
+    setSelectedSkillId(newId);
+    showToast(`已另存为新风格：【${newName}】`);
+  };
+
+  // 上传附件素材文件
   const handleUploadFiles = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
 
     for (const file of Array.from(fileList)) {
       const ext = file.name.split('.').pop()?.toLowerCase() || '';
-      
-      // 若是 docx 或 pdf，优先尝试通过主进程进行高保真纯文本提取
+
+      // 若是 docx 或 pdf，优先通过主进程高保真提取
       if (['docx', 'pdf'].includes(ext) && (window as any).JaygoAPI?.parseDocumentFile) {
         try {
           const filePath = (window as any).JaygoAPI.getPathForFile(file);
@@ -219,13 +417,13 @@ export function ScriptStudio({
             }
           }
         } catch (err: any) {
-          console.warn('Native document parsing failed, fallback to text reader', err);
+          console.warn('Native doc parsing fallback', err);
         }
       }
 
       // 普通文本文件读取
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = e => {
         const text = String(e.target?.result || '');
         setPendingAttachments(prev => [
           ...prev,
@@ -236,29 +434,118 @@ export function ScriptStudio({
             content: text,
           },
         ]);
-        showToast(`已成功附加素材文件：${file.name}`);
-      };
-      reader.onerror = () => {
-        showToast(`读取文件 ${file.name} 失败`);
+        showToast(`已成功附加素材：${file.name}`);
       };
       reader.readAsText(file);
     }
   };
 
-  // 移除附件
   const removeAttachment = (fileId: string) => {
     setPendingAttachments(prev => prev.filter(f => f.id !== fileId));
   };
 
-  // 发送消息与流式生成
-  const handleSendMessage = async (textToSend?: string) => {
-    const rawContent = (textToSend ?? inputValue).trim();
-    if (!rawContent && pendingAttachments.length === 0) {
-      showToast('请输入对话内容或上传参考素材');
+  // 导入外部 Skill 文件 (.skill.md 或 .zip 压缩包)
+  const handleImportSkillFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      if (file.name.toLowerCase().endsWith('.zip')) {
+        showToast('正在解压并深度分析 Skill 规范包…');
+        const buf = await file.arrayBuffer();
+        const imported = await parseSkillFromZip(buf, file.name);
+        saveCustomSkill(imported);
+        refreshSkills();
+        setSelectedSkillId(imported.id);
+        const fileCount = imported.skillFiles?.length || 0;
+        showToast(`成功解压并装载风格技能：【${imported.name}】${fileCount > 0 ? `（包含 ${fileCount} 个附属文档）` : ''}`);
+      } else {
+        const text = await file.text();
+        const imported = parseSkillContent(text, file.name);
+        saveCustomSkill(imported);
+        refreshSkills();
+        setSelectedSkillId(imported.id);
+        showToast(`成功导入风格技能：【${imported.name}】`);
+      }
+    } catch (err: any) {
+      showToast(`导入失败: ${err.message}`);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  // 导出当前 Skill 为 Zip 压缩包或 Markdown
+  const handleExportSkillZip = async () => {
+    if (!selectedSkill) return;
+    try {
+      const blob = await exportSkillToZip(selectedSkill);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${selectedSkill.name.replace(/\s+/g, '_')}_skill.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('已导出为规范 Skill 压缩包 (.zip)');
+    } catch (err: any) {
+      showToast(`导出失败: ${err.message}`);
+    }
+  };
+
+  const handleExportSkillMd = () => {
+    if (!selectedSkill) return;
+    const md = exportSkillToMarkdown(selectedSkill);
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${selectedSkill.name.replace(/\s+/g, '_')}.skill.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('已导出为 .skill.md 文件');
+  };
+
+  // 样本逆向提炼新风格
+  const handleExtractStyle = async () => {
+    if (!extractTeacherName.trim()) {
+      showToast('请填写创作者/老师名称');
+      return;
+    }
+    const samplesFromFile = uploadedSampleFiles.map(f => f.text.trim()).filter(Boolean);
+    const samplesFromInput = [extractSample1].map(s => s.trim()).filter(Boolean);
+    const samples = [...samplesFromFile, ...samplesFromInput];
+
+    if (samples.length === 0) {
+      showToast('请至少上传 1 篇历史文章或粘贴爆款样本文案');
       return;
     }
 
-    if (isGenerating) return;
+    setExtracting(true);
+    try {
+      const extracted = await extractStyleFromSamples(samples, extractTeacherName.trim(), modelSettings);
+      saveCustomSkill(extracted);
+      refreshSkills();
+      setSelectedSkillId(extracted.id);
+      setExtractModalOpen(false);
+      setExtractTeacherName('');
+      setExtractSample1('');
+      setUploadedSampleFiles([]);
+      showToast(`已成功学习 ${samples.length} 篇样本并生成新风格：【${extracted.name}】`);
+    } catch (e: any) {
+      showToast(`提炼风格失败: ${e.message}`);
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  // 发送消息与流式生成（结合滑动窗口与长期记忆自动压缩机制）
+  const handleSendMessage = async (textToSend?: string) => {
+    const rawContent = (textToSend ?? inputValue).trim();
+    if (!rawContent && pendingAttachments.length === 0) {
+      showToast('请输入文案要求或上传参考素材');
+      return;
+    }
+
+    if (isGenerating || !currentSession || !selectedSkill) return;
 
     const userMessageId = `user_${Date.now()}`;
     const userMsg: ChatMessageItem = {
@@ -269,50 +556,30 @@ export function ScriptStudio({
       timestamp: Date.now(),
     };
 
-    const newMessages = [...messages, userMsg];
-    setMessages(newMessages);
+    const sessionWithUser = {
+      ...currentSession,
+      messages: [...currentSession.messages, userMsg],
+      updatedAt: Date.now(),
+    };
+
+    // 自动重命名默认会话标题
+    if (currentSession.messages.length <= 1 && currentSession.title.startsWith('新会话')) {
+      sessionWithUser.title = rawContent.slice(0, 16) || currentSession.title;
+    }
+
+    updateCurrentSession(sessionWithUser);
     setInputValue('');
     setPendingAttachments([]);
     setIsGenerating(true);
     setStreamingDelta('');
 
     try {
-      // 组装系统提示词（融入创作者画像）
-      const systemPrompt = `你是一名顶级自媒体口播脚本重构与爆款创作大师。
-【当前遵循创作者人设】：${selectedSkill?.persona || '专业自媒体博主'}
-【标志性口头禅】：${selectedSkill?.catchphrases?.join('、') || '无'}
-【句长与节奏铁律】：${selectedSkill?.pacingRules?.sentenceLength || '短句为主，每句不超过15字'}
-【行文框架模式】：${selectedSkill?.pacingRules?.structure || '黄金钩子-痛点拆解-情绪反转-金句行动号召'}
-【绝对红线禁忌】：
-${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁使用枯燥书面语'}
-【少样本参考范本】：
-输入：${selectedSkill?.fewShotExamples?.[0]?.inputTopic || ''}
-输出：${selectedSkill?.fewShotExamples?.[0]?.outputScript || ''}
-
-【重要排版与输出铁律】：
-1. 如用户需要具体口播文案，第一行必须直接输出台词正文的第一句话，绝对禁止在开头输出客套寒暄（如“好的，为您生成如下口播文案：”等）；
-2. 绝对禁止在文案末尾附带客套总结、问候或说明（如“希望这篇文案对您有帮助”、“随时可以微调”等）；
-3. 全文输出纯粹、口语化、节奏紧凑、利于直接配音和数字人出镜的高吸睛完整台词。`;
-
-      // 提取最近 6 轮对话上下文
-      const historyContext: ChatMessage[] = newMessages.slice(-6).map(m => {
-        let contentWithFiles = m.content;
-        if (m.attachments && m.attachments.length > 0) {
-          const filesSummary = m.attachments
-            .map(f => `\n【参考附件: ${f.name}】\n${f.content}\n---`)
-            .join('\n');
-          contentWithFiles = `${filesSummary}\n${m.content}`;
-        }
-        return {
-          role: m.role,
-          content: contentWithFiles,
-        };
-      });
-
-      const apiMessages: ChatMessage[] = [
-        { role: 'system', content: systemPrompt },
-        ...historyContext,
-      ];
+      // 触发自动上下文滑动窗口与长期记忆压缩
+      const { apiMessages, updatedSummary, isCompressed } = buildCompressedContext(
+        sessionWithUser,
+        selectedSkill,
+        4 // 保留最近 4 轮完整高保真上下文
+      );
 
       let fullStreamed = '';
       const finalReply = await chatCompletion(
@@ -336,119 +603,39 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
         timestamp: Date.now(),
       };
 
-      setMessages(prev => [...prev, assistantMsg]);
-      setStreamingDelta('');
+      const finalSession: ScriptSession = {
+        ...sessionWithUser,
+        messages: [...sessionWithUser.messages, assistantMsg],
+        memorySummary: updatedSummary,
+        updatedAt: Date.now(),
+      };
 
-      // 若生成的内容具有一定长度，经过智能净洗后自动设为右侧精选预览台词
-      const rawGenerated = finalReply || fullStreamed;
-      const cleanScript = extractCleanScript(rawGenerated);
-      if (cleanScript.length > 20) {
-        setPinnedScript(cleanScript);
+      // 自动提取可能由 AI 直接给出的高质量口播作为精选文案推荐（若右侧暂空）
+      if (!finalSession.pinnedScript) {
+        const cleanScript = extractCleanScript(cleanReply);
+        if (cleanScript && cleanScript.length > 20) {
+          finalSession.pinnedScript = cleanScript;
+        }
+      }
+
+      updateCurrentSession(finalSession);
+      if (isCompressed) {
+        // 轻量提示用户长期记忆已压缩保护
+        console.log('[ScriptStudio] Context compressed into memory summary:', updatedSummary);
       }
     } catch (err: any) {
-      showToast(`生成出错: ${err.message}`);
-      setMessages(prev => [
-        ...prev,
-        {
-          id: `err_${Date.now()}`,
-          role: 'assistant',
-          content: `⚠️ 生成中断: ${err.message}。请检查【模型设置】中是否已正确配置 API Key。`,
-          timestamp: Date.now(),
-        },
-      ]);
+      showToast(`生成失败: ${err.message || '网络或接口异常'}`);
     } finally {
       setIsGenerating(false);
       setStreamingDelta('');
     }
   };
 
-  // 新建/重置会话
-  const handleResetChat = () => {
-    if (selectedSkill) {
-      setMessages([buildWelcomeMessage(selectedSkill)]);
-    } else {
-      setMessages([]);
-    }
-    setPendingAttachments([]);
-    showToast('已开启全新创作对话');
-  };
-
-  // 导入外部 Skill 文件 (.skill.md)
-  const handleImportSkillFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const content = String(event.target?.result || '');
-        const imported = parseSkillContent(content, file.name);
-        saveCustomSkill(imported);
-        refreshSkills();
-        setSelectedSkillId(imported.id);
-        showToast(`成功导入预设技能：【${imported.name}】`);
-      } catch (err: any) {
-        showToast(`导入失败: ${err.message}`);
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  };
-
-  // 导出当前 Skill
-  const handleExportCurrentSkill = () => {
-    if (!selectedSkill) return;
-    const md = exportSkillToMarkdown(selectedSkill);
-    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${selectedSkill.name.replace(/\s+/g, '_')}.skill.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast('已导出为 .skill.md 技能文件');
-  };
-
-  // 样本逆向提炼新风格（支持批量上传文档与手动输入结合）
-  const handleExtractStyle = async () => {
-    if (!extractTeacherName.trim()) {
-      showToast('请填写创作者/老师名称');
-      return;
-    }
-    const samplesFromFile = uploadedSampleFiles.map(f => f.text.trim()).filter(Boolean);
-    const samplesFromInput = [extractSample1, extractSample2].map(s => s.trim()).filter(Boolean);
-    const samples = [...samplesFromFile, ...samplesFromInput];
-
-    if (samples.length === 0) {
-      showToast('请至少上传 1 篇历史文章或粘贴爆款样本文案');
-      return;
-    }
-
-    setExtracting(true);
-    try {
-      const extracted = await extractStyleFromSamples(samples, extractTeacherName.trim(), modelSettings);
-      saveCustomSkill(extracted);
-      refreshSkills();
-      setSelectedSkillId(extracted.id);
-      setExtractModalOpen(false);
-      setExtractTeacherName('');
-      setExtractSample1('');
-      setExtractSample2('');
-      setUploadedSampleFiles([]);
-      showToast(`已成功学习 ${samples.length} 篇样本并保存新风格：【${extracted.name}】`);
-    } catch (e: any) {
-      showToast(`提炼风格失败: ${e.message}`);
-    } finally {
-      setExtracting(false);
-    }
-  };
-
-  // 当前生效模型供应商名称
+  // 快捷切换当前模型
   const currentProviderKey = modelSettings?.defaultProvider || 'doubao';
   const currentProviderConfig = modelSettings?.providers?.[currentProviderKey];
   const currentModelName = currentProviderConfig?.selectedModel || 'doubao-seed-2.1-pro';
 
-  // 快捷切换当前对话所用模型与服务商
   const handleQuickSwitchModel = (providerType: ModelProviderType, modelId: string) => {
     if (!modelSettings) return;
     const targetProvider = modelSettings.providers?.[providerType] || {
@@ -474,16 +661,79 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
     };
 
     onUpdateModelHubSettings?.(nextSettings);
-
     const preset = PRESET_PROVIDERS[providerType];
     const modelObj = preset?.models.find(m => m.id === modelId);
     const mName = modelObj?.name || modelId;
 
     if (!hasKey) {
-      showToast(`已切换至【${preset?.name?.split(' ')[0] || providerType} · ${mName}】，该服务商尚未配置 API Key，正在打开配置窗口…`);
+      showToast(`已切换至【${preset?.name?.split(' ')[0] || providerType} · ${mName}】，尚未配置 API Key，正在开启配置…`);
       onOpenModelHub();
     } else {
-      showToast(`已快捷切换模型至：【${preset?.name?.split(' ')[0] || providerType} · ${mName}】`);
+      showToast(`已切换模型：【${preset?.name?.split(' ')[0] || providerType} · ${mName}】`);
+    }
+  };
+
+  // 输入框文字变动与 @ 自动联想识别
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setInputValue(val);
+
+    const selStart = e.target.selectionStart;
+    const textBeforeCursor = val.slice(0, selStart);
+    const atMatch = textBeforeCursor.match(/@([^\s@]*)$/);
+
+    if (atMatch) {
+      setAtQuery(atMatch[1]);
+      setAtMentionOpen(true);
+      setAtHighlightIndex(0);
+    } else {
+      setAtMentionOpen(false);
+    }
+  };
+
+  // 过滤 @ 风格候选
+  const filteredAtSkills = skills.filter(s =>
+    s.name.toLowerCase().includes(atQuery.toLowerCase()) ||
+    s.persona.toLowerCase().includes(atQuery.toLowerCase())
+  );
+
+  // 键盘快捷响应（@ 联想与发送）
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (atMentionOpen && filteredAtSkills.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setAtHighlightIndex(prev => (prev + 1) % filteredAtSkills.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setAtHighlightIndex(prev => (prev - 1 + filteredAtSkills.length) % filteredAtSkills.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const picked = filteredAtSkills[atHighlightIndex];
+        if (picked) {
+          // 替换 @... 为选中的导师名并切换风格
+          const selStart = inputRef.current?.selectionStart || inputValue.length;
+          const textBeforeCursor = inputValue.slice(0, selStart);
+          const textAfterCursor = inputValue.slice(selStart);
+          const replacedBefore = textBeforeCursor.replace(/@([^\s@]*)$/, `@${picked.name} `);
+          setInputValue(replacedBefore + textAfterCursor);
+          handleSelectSkill(picked);
+          setAtMentionOpen(false);
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        setAtMentionOpen(false);
+        return;
+      }
+    }
+
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      handleSendMessage();
     }
   };
 
@@ -494,7 +744,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
         type="file"
         ref={fileInputSkillRef}
         className="hidden"
-        accept=".md,.jaygoskill,.json"
+        accept=".zip,.md,.skill.md,.jaygoskill,.json"
         onChange={handleImportSkillFile}
       />
       <input
@@ -514,29 +764,31 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
             <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2 truncate">
               <span>AI 自媒体文案工坊</span>
               <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900 shrink-0">
-                多轮互动 · 素材理解
+                多会话 · 长期记忆 · 风格解压
               </span>
             </h2>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={() => fileInputSkillRef.current?.click()}
-            className="btn-modern-ghost"
-            title="导入 .skill.md 技能文件"
+            className="btn-modern-ghost text-xs"
+            title="导入 .zip 规范压缩包或 .skill.md 技能文件"
           >
-            <Upload className="w-3.5 h-3.5 text-zinc-500" /> <span>导入技能</span>
+            <Upload className="w-3.5 h-3.5 text-zinc-500" /> <span>导入风格包 (.zip/.md)</span>
           </button>
           <button
             onClick={() => setExtractModalOpen(true)}
-            className="btn-modern-purple"
+            className="btn-modern-purple text-xs"
+            title="上传旧文章深度学习提炼新风格"
           >
-            <Sparkles className="w-3.5 h-3.5" /> <span>上传文档提炼风格</span>
+            <Sparkles className="w-3.5 h-3.5" /> <span>文档逆向提炼风格</span>
           </button>
           <button
             onClick={onOpenModelHub}
-            className="btn-modern-ghost"
+            className="btn-modern-ghost text-xs"
+            title="打开大模型设置中心"
           >
             <SlidersHorizontal className="w-3.5 h-3.5 text-zinc-500" /> <span>模型设置</span>
           </button>
@@ -545,116 +797,358 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
 
       {/* 主体三栏布局 */}
       <div className="flex-1 flex min-h-0">
-        {/* 左栏：风格预设库与会话控制（宽度可调节） */}
+        {/* 左栏：默认会话历史列表 ⇄ Skill 详情编辑中枢（宽度可自由拖拽） */}
         <div
           style={{ width: `${leftWidth}px` }}
-          className="border-r border-zinc-200/80 dark:border-zinc-800/80 p-3.5 flex flex-col bg-white/40 dark:bg-zinc-900/10 overflow-y-auto space-y-3 shrink-0"
+          className="border-r border-zinc-200/80 dark:border-zinc-800/80 flex flex-col bg-white/50 dark:bg-zinc-900/20 overflow-hidden shrink-0"
         >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
-              创作者风格 ({skills.length})
-            </span>
-            <div className="flex items-center gap-2">
+          {/* 左栏顶栏选项卡：会话历史 ⇄ 创作风格详情 */}
+          <div className="p-3 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between bg-zinc-50/70 dark:bg-zinc-900/40">
+            <div className="flex items-center gap-1 bg-zinc-200/70 dark:bg-zinc-800/80 p-0.5 rounded-xl text-xs font-medium">
               <button
-                onClick={() => {
-                  restoreDefaultSkills();
-                  refreshSkills();
-                  showToast('已重置并恢复官方预设风格');
-                }}
-                className="text-[10px] text-zinc-400 hover:text-blue-500 hover:underline cursor-pointer"
-                title="恢复被删除或隐藏的官方预设风格"
+                type="button"
+                onClick={() => setLeftTab('sessions')}
+                className={`px-3 py-1 rounded-lg transition ${
+                  leftTab === 'sessions'
+                    ? 'bg-white dark:bg-[#1c1d24] text-zinc-900 dark:text-white shadow-xs font-semibold'
+                    : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                }`}
               >
-                重置
+                会话历史 ({sessions.length})
               </button>
               <button
-                onClick={handleExportCurrentSkill}
-                className="text-[11px] text-blue-500 hover:underline cursor-pointer"
-                title="导出当前风格画像"
+                type="button"
+                onClick={() => setLeftTab('skill')}
+                className={`px-3 py-1 rounded-lg transition flex items-center gap-1.5 ${
+                  leftTab === 'skill'
+                    ? 'bg-white dark:bg-[#1c1d24] text-blue-600 dark:text-blue-400 shadow-xs font-semibold'
+                    : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                }`}
+                title="查看与编辑当前创作者风格画像"
               >
-                导出 ↗
+                <span>创作风格</span>
+                {selectedSkill && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                )}
               </button>
             </div>
+
+            {leftTab === 'sessions' ? (
+              <button
+                type="button"
+                onClick={handleCreateNewSession}
+                className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 hover:bg-blue-100 border border-blue-200 dark:border-blue-900 transition flex items-center gap-1 text-xs font-semibold cursor-pointer"
+                title="开启全新创作会话"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span className="text-[11px] hidden sm:inline">新建</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setLeftTab('sessions')}
+                className="text-[11px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 flex items-center gap-1"
+                title="返回会话历史列表"
+              >
+                <ArrowLeft className="w-3 h-3" />
+                <span>返回</span>
+              </button>
+            )}
           </div>
 
-          <button
-            onClick={() => setExtractModalOpen(true)}
-            className="w-full p-2.5 rounded-xl border border-dashed border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20 hover:border-purple-500 text-purple-700 dark:text-purple-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-2xs cursor-pointer"
-            title="上传你的历史文章或爆款文案，AI 自动学习你的行文风格"
-          >
-            <Wand2 className="w-3.5 h-3.5" /> <span>上传旧文章提炼风格</span>
-          </button>
+          {/* 左栏内容区 1：会话历史列表 */}
+          {leftTab === 'sessions' && (
+            <div className="flex-1 p-3 overflow-y-auto space-y-2">
+              {sessions.map(s => {
+                const isCur = s.id === currentSessionId;
+                const skillObj = skills.find(sk => sk.id === s.skillId);
 
-          <div className="space-y-2 flex-1 overflow-y-auto">
-            {skills.map(s => {
-              const isSel = s.id === selectedSkillId;
-              return (
-                <div
-                  key={s.id}
-                  onClick={() => setSelectedSkillId(s.id)}
-                  className={`p-3 rounded-xl border text-xs cursor-pointer transition relative group ${
-                    isSel
-                      ? 'border-blue-500 bg-blue-50/40 dark:bg-blue-950/30 shadow-xs'
-                      : 'border-zinc-200/80 dark:border-zinc-800/80 bg-white dark:bg-[#14151c] hover:border-zinc-300 dark:hover:border-zinc-700'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-semibold text-zinc-900 dark:text-zinc-100 truncate pr-1">
-                      {s.name}
-                    </span>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {s.isSystem ? (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500 shrink-0">
-                          官方
-                        </span>
+                return (
+                  <div
+                    key={s.id}
+                    onClick={() => handleSwitchSession(s.id)}
+                    className={`p-3 rounded-xl border text-xs cursor-pointer transition relative group ${
+                      isCur
+                        ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/30 shadow-xs'
+                        : 'border-zinc-200/70 dark:border-zinc-800/70 bg-white dark:bg-[#14151c] hover:border-zinc-300 dark:hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      {editingSessionId === s.id ? (
+                        <input
+                          type="text"
+                          autoFocus
+                          value={sessionRenameValue}
+                          onChange={e => setSessionRenameValue(e.target.value)}
+                          onBlur={() => handleFinishRenameSession(s.id)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleFinishRenameSession(s.id);
+                            if (e.key === 'Escape') setEditingSessionId(null);
+                          }}
+                          onClick={e => e.stopPropagation()}
+                          className="px-1.5 py-0.5 rounded bg-white dark:bg-zinc-800 border border-blue-500 text-xs font-semibold text-zinc-900 dark:text-zinc-100 outline-none w-full"
+                        />
                       ) : (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-950 text-purple-600 dark:text-purple-400 shrink-0">
-                          自定义
+                        <span
+                          className="font-semibold text-zinc-800 dark:text-zinc-200 truncate pr-1"
+                          onDoubleClick={() => {
+                            setEditingSessionId(s.id);
+                            setSessionRenameValue(s.title);
+                          }}
+                          title="双击可重命名此会话"
+                        >
+                          {s.title}
                         </span>
                       )}
+
+                      <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition">
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation();
+                            setEditingSessionId(s.id);
+                            setSessionRenameValue(s.title);
+                          }}
+                          className="p-1 rounded text-zinc-400 hover:text-blue-500"
+                          title="重命名会话"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={e => handleDeleteSession(s.id, e)}
+                          className="p-1 rounded text-zinc-400 hover:text-rose-500"
+                          title="删除会话"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                      <span className="truncate max-w-[120px] font-medium text-blue-600/80 dark:text-blue-400/80">
+                        {skillObj ? `👤 ${skillObj.name.split('·')[0] || skillObj.name}` : '通用创作'}
+                      </span>
+                      <span>{s.messages.filter(m => m.role === 'user').length} 轮对话</span>
+                    </div>
+
+                    {/* 记忆压缩徽标 */}
+                    {s.memorySummary && (
+                      <div className="mt-1.5 pt-1 border-t border-zinc-100 dark:border-zinc-800/60 flex items-center gap-1 text-[10px] text-purple-600 dark:text-purple-400">
+                        <BrainCircuit className="w-3 h-3 shrink-0" />
+                        <span className="truncate">长期记忆已自动压缩</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* 左栏内容区 2：Skill 详情编辑框（支持自定义名称与人设） */}
+          {leftTab === 'skill' && selectedSkill && (
+            <div className="flex-1 p-3.5 overflow-y-auto space-y-3.5 text-xs">
+              <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                <span className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
+                  <span>🎨</span> <span>风格详情配置</span>
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-medium">
+                  {selectedSkill.isSystem ? '官方预设' : '自定义风格'}
+                </span>
+              </div>
+
+              {/* 创作者风格名称（自定义） */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                  创作者风格名称
+                </label>
+                <input
+                  type="text"
+                  value={editSkillName}
+                  onChange={e => setEditSkillName(e.target.value)}
+                  placeholder="例如: 张老师 · 犀利反常识商业口播"
+                  className="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:border-blue-500 font-medium"
+                />
+              </div>
+
+              {/* 导师人设定位 */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                  导师人设定位 (Persona)
+                </label>
+                <textarea
+                  rows={2}
+                  value={editSkillPersona}
+                  onChange={e => setEditSkillPersona(e.target.value)}
+                  placeholder="设定导师的专业背景、语气、思考深度..."
+                  className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:border-blue-500 resize-none leading-relaxed"
+                />
+              </div>
+
+              {/* 标志性口头禅 */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                  标志性口头禅 / 高频金句
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {editCatchphrases.map((c, idx) => (
+                    <span
+                      key={idx}
+                      className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-900/60 text-[11px] flex items-center gap-1"
+                    >
+                      <span>{c}</span>
                       <button
                         type="button"
-                        onClick={e => {
-                          e.stopPropagation();
-                          if (confirm(`确定删除创作者风格【${s.name}】吗？`)) {
-                            deleteSkill(s.id);
-                            const updated = getAllSkills();
-                            setSkills(updated);
-                            if (selectedSkillId === s.id) {
-                              setSelectedSkillId(updated[0]?.id || '');
-                            }
-                            showToast(`已删除风格：【${s.name}】`);
-                          }
-                        }}
-                        className="p-1 rounded-md text-zinc-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition opacity-0 group-hover:opacity-100 cursor-pointer"
-                        title={`删除风格【${s.name}】`}
+                        onClick={() => setEditCatchphrases(prev => prev.filter((_, i) => i !== idx))}
+                        className="hover:text-rose-500 cursor-pointer"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        ×
                       </button>
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400 line-clamp-2 leading-relaxed">
-                    {s.description}
-                  </p>
+                    </span>
+                  ))}
                 </div>
-              );
-            })}
-          </div>
-
-          {/* 风格画像铁律速览 */}
-          {selectedSkill && (
-            <div className="pt-3 border-t border-zinc-200/80 dark:border-zinc-800/80 space-y-2 text-xs">
-              <div className="font-semibold text-zinc-700 dark:text-zinc-300 flex items-center justify-between">
-                <span>当前画像铁律</span>
-                <span className="text-[10px] text-zinc-400">已生效</span>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <input
+                    type="text"
+                    value={newCatchphraseInput}
+                    onChange={e => setNewCatchphraseInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && newCatchphraseInput.trim()) {
+                        e.preventDefault();
+                        setEditCatchphrases(prev => [...prev, newCatchphraseInput.trim()]);
+                        setNewCatchphraseInput('');
+                      }
+                    }}
+                    placeholder="输入新口头禅按回车添加..."
+                    className="flex-1 px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (newCatchphraseInput.trim()) {
+                        setEditCatchphrases(prev => [...prev, newCatchphraseInput.trim()]);
+                        setNewCatchphraseInput('');
+                      }
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-zinc-200/80 dark:bg-zinc-800 hover:bg-zinc-300 text-xs font-medium"
+                  >
+                    添加
+                  </button>
+                </div>
               </div>
-              <div className="text-[11.5px] text-zinc-600 dark:text-zinc-400 space-y-1">
-                <div>
-                  <strong className="text-zinc-500">人设：</strong>
-                  <span className="line-clamp-2">{selectedSkill.persona}</span>
+
+              {/* 句长与断句节奏约束 */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                  句长与断句节奏铁律
+                </label>
+                <input
+                  type="text"
+                  value={editSentenceLength}
+                  onChange={e => setEditSentenceLength(e.target.value)}
+                  placeholder="例如: 极短句，单句严格控制在16个字以内"
+                  className="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* 绝对红线禁忌 */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                  绝对红线禁忌 (Negative)
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {editNegativeConstraints.map((n, idx) => (
+                    <span
+                      key={idx}
+                      className="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 text-[11px] flex items-center gap-1"
+                    >
+                      <span>{n}</span>
+                      <button
+                        type="button"
+                        onClick={() => setEditNegativeConstraints(prev => prev.filter((_, i) => i !== idx))}
+                        className="hover:text-rose-600 cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
                 </div>
-                <div>
-                  <strong className="text-zinc-500">口头禅：</strong>
-                  <span>{selectedSkill.catchphrases?.slice(0, 3).join('、')}</span>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={newNegativeInput}
+                    onChange={e => setNewNegativeInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && newNegativeInput.trim()) {
+                        e.preventDefault();
+                        setEditNegativeConstraints(prev => [...prev, newNegativeInput.trim()]);
+                        setNewNegativeInput('');
+                      }
+                    }}
+                    placeholder="例如: 严禁出现八股套话..."
+                    className="flex-1 px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (newNegativeInput.trim()) {
+                        setEditNegativeConstraints(prev => [...prev, newNegativeInput.trim()]);
+                        setNewNegativeInput('');
+                      }
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-zinc-200/80 dark:bg-zinc-800 hover:bg-zinc-300 text-xs font-medium"
+                  >
+                    添加
+                  </button>
+                </div>
+              </div>
+
+              {/* 附属文件展示（如果通过 zip 导入） */}
+              {selectedSkill.skillFiles && selectedSkill.skillFiles.length > 0 && (
+                <div className="p-2.5 rounded-xl bg-zinc-100/70 dark:bg-zinc-800/60 border border-zinc-200/60 dark:border-zinc-700/60 space-y-1.5">
+                  <div className="text-[11px] font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+                    <FolderArchive className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Zip 附属规范与知识库 ({selectedSkill.skillFiles.length} 篇)</span>
+                  </div>
+                  <div className="max-h-24 overflow-y-auto space-y-1">
+                    {selectedSkill.skillFiles.map((f, i) => (
+                      <div key={i} className="flex items-center justify-between text-[10.5px] text-zinc-500">
+                        <span className="truncate">{f.path}</span>
+                        <span className="font-mono">({Math.round((f.size || f.content.length) / 1024)} KB)</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 保存与导出按钮矩阵 */}
+              <div className="pt-2 border-t border-zinc-200/70 dark:border-zinc-800/70 space-y-2">
+                <button
+                  type="button"
+                  onClick={handleSaveSkillEdit}
+                  className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow-xs flex items-center justify-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>保存修改并应用</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveAsNewSkill}
+                    className="flex-1 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-[11px] font-medium text-zinc-700 dark:text-zinc-300 transition"
+                  >
+                    另存为新风格
+                  </button>
+                  <button
+                    type="button"
+                    onClick={selectedSkill.skillFiles?.length ? handleExportSkillZip : handleExportSkillMd}
+                    className="flex-1 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-[11px] font-medium text-zinc-700 dark:text-zinc-300 transition flex items-center justify-center gap-1"
+                    title="导出当前风格"
+                  >
+                    <Upload className="w-3 h-3 rotate-180" />
+                    <span>导出 {selectedSkill.skillFiles?.length ? 'Zip' : 'MD'}</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -670,20 +1164,25 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
             document.body.style.userSelect = 'none';
           }}
           className="w-1.5 hover:w-2 hover:bg-blue-500/50 active:bg-blue-600 transition-all cursor-col-resize shrink-0 bg-transparent relative group flex items-center justify-center select-none"
-          title="按住左右拖拽，调节创作者人设栏宽度"
+          title="按住左右拖拽，调节左栏宽度"
         >
           <div className="w-[1.5px] h-8 bg-zinc-300/80 dark:bg-zinc-700/80 group-hover:bg-blue-500 rounded-full transition-colors" />
         </div>
 
-        {/* 中栏：全功能 AI 交互对话框 */}
+        {/* 中栏：AI 对话与创作互动控制台 */}
         <div className="flex-1 flex flex-col min-w-[320px] bg-white dark:bg-[#111218] overflow-hidden">
-          {/* 对话区顶栏信息与模型快捷切换 */}
+          {/* 中栏顶栏：会话标题与模型快速切换 */}
           <div className="h-12 px-3 sm:px-4 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between text-xs bg-zinc-50/50 dark:bg-zinc-900/30 shrink-0 gap-2">
             <div className="flex items-center gap-2 min-w-0 truncate">
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
               <span className="font-semibold text-zinc-800 dark:text-zinc-200 truncate text-xs">
-                与【{selectedSkill?.name}】对话
+                {currentSession?.title || '创作会话'}
               </span>
+              {selectedSkill && (
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200/60 dark:border-blue-800/60 shrink-0">
+                  {selectedSkill.name.split('·')[0] || selectedSkill.name}
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
@@ -694,7 +1193,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                 </span>
                 <select
                   value={`${currentProviderKey}::${currentModelName}`}
-                  onChange={(e) => {
+                  onChange={e => {
                     const [pKey, mId] = e.target.value.split('::') as [ModelProviderType, string];
                     handleQuickSwitchModel(pKey, mId);
                   }}
@@ -734,78 +1233,81 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
               </div>
 
               <button
-                onClick={handleResetChat}
-                className="text-[11px] text-zinc-500 hover:text-blue-500 flex items-center gap-1.5 transition shrink-0 cursor-pointer px-2.5 py-1 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 group"
-                title="清空当前消息，开始新对话"
+                onClick={handleCreateNewSession}
+                className="text-[11px] text-zinc-500 hover:text-blue-500 flex items-center gap-1.5 transition shrink-0 cursor-pointer px-2.5 py-1 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                title="开启全新会话"
               >
-                <RotateCcw className="w-3 h-3 text-zinc-400 group-hover:text-blue-500 transition" />
-                <span className="hidden sm:inline">新对话</span>
+                <Plus className="w-3 h-3 text-zinc-400" />
+                <span className="hidden sm:inline">新会话</span>
               </button>
             </div>
           </div>
 
           {/* 消息滚动流 */}
-          <div className="flex-1 p-4 sm:p-5 overflow-y-auto space-y-5 select-text">
+          <div className="flex-1 p-4 sm:p-5 overflow-y-auto space-y-4 select-text">
             {messages.map(msg => (
               <div
                 key={msg.id}
                 className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
               >
+                {/* 角色与时间微标 */}
+                <div className="flex items-center gap-1.5 mb-1 text-[10.5px] text-zinc-400 px-1">
+                  <span>{msg.role === 'user' ? '你' : (selectedSkill?.name || 'AI 导师')}</span>
+                  <span>·</span>
+                  <span>{new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+
+                {/* 消息气泡主体 */}
                 <div
-                  className={`transition shadow-xs ${
+                  className={`max-w-[92%] rounded-2xl px-4 py-3 text-[12.5px] leading-relaxed transition-all ${
                     msg.role === 'user'
-                      ? 'max-w-[85%] rounded-2xl rounded-tr-xs px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white'
-                      : 'max-w-[92%] rounded-2xl rounded-tl-xs px-4 py-3.5 bg-white dark:bg-[#15161f] text-zinc-900 dark:text-zinc-100 border border-zinc-200/80 dark:border-zinc-800/80'
+                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-tr-xs shadow-sm font-sans'
+                      : 'bg-white dark:bg-[#15161f] text-zinc-800 dark:text-zinc-200 rounded-tl-xs border border-zinc-200/80 dark:border-zinc-800/80 shadow-xs'
                   }`}
                 >
-                  {/* 用户上传的参考文件徽标 */}
+                  {/* 用户上传的参考附件展示 */}
                   {msg.attachments && msg.attachments.length > 0 && (
-                    <div className="mb-2.5 space-y-1">
+                    <div className="mb-2.5 pb-2 border-b border-white/20 dark:border-zinc-800 flex flex-wrap gap-1.5">
                       {msg.attachments.map(att => (
                         <div
                           key={att.id}
-                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/20 text-[11px] text-white/95"
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/20 dark:bg-zinc-800 text-[10.5px] text-white dark:text-zinc-300"
                         >
-                          <FileText className="w-3.5 h-3.5 text-white/80" />
-                          <span className="font-mono font-medium truncate max-w-[200px]">{att.name}</span>
-                          <span className="opacity-70 text-[10px]">({Math.round(att.size / 1024)} KB)</span>
+                          <FileText className="w-3 h-3" />
+                          <span className="max-w-[140px] truncate">{att.name}</span>
                         </div>
                       ))}
                     </div>
                   )}
 
-                  {/* 现代通用 AI 排版渲染器 */}
-                  <ChatMessageRenderer
-                    content={msg.content.trimStart()}
-                    role={msg.role}
-                  />
+                  <ChatMessageRenderer content={msg.content} role={msg.role} />
                 </div>
 
-                {/* AI 回复下方的快捷动作栏 */}
-                {msg.role === 'assistant' && msg.content && (
-                  <div className="flex items-center flex-wrap gap-2 mt-2 ml-1">
+                {/* 助手消息操作栏：设为精选文案 */}
+                {msg.role === 'assistant' && !msg.id.startsWith('welcome_') && (
+                  <div className="flex items-center gap-2 mt-1.5 px-1">
                     <button
                       onClick={() => {
                         const clean = extractCleanScript(msg.content);
-                        setPinnedScript(clean);
-                        showToast('已净洗并置为右侧精选台词！');
+                        updateCurrentSession({ pinnedScript: clean });
+                        showToast('已同步为当前右侧精选文案！');
                       }}
-                      className="action-pill hover:border-blue-400/80 dark:hover:border-blue-500/80 hover:text-blue-600 dark:hover:text-blue-400"
-                      title="剔除客套废话并置入右侧精选台词区进行精修与流转"
+                      className="action-pill text-[11px] hover:border-purple-400 dark:hover:border-purple-500"
+                      title="将本段生成成果设为右侧待流转的精选文案"
                     >
-                      <BookmarkPlus className="w-3.5 h-3.5 text-blue-500" />
-                      <span>设为精修台词</span>
+                      <BookmarkPlus className="w-3 h-3 text-purple-500" />
+                      <span>设为精选文案</span>
                     </button>
                     <button
                       onClick={() => {
                         const clean = extractCleanScript(msg.content);
                         navigator.clipboard.writeText(clean);
-                        showToast('已复制纯净台词到剪贴板！');
+                        showToast('已复制纯净文案到剪贴板！');
                       }}
-                      className="action-pill hover:border-zinc-400 dark:hover:border-zinc-500"
+                      className="action-pill text-[11px] hover:border-zinc-400 dark:hover:border-zinc-500"
                     >
-                      <Copy className="w-3.5 h-3.5 text-zinc-400" />
-                      <span>复制台词</span>
+                      <Copy className="w-3 h-3 text-zinc-400" />
+                      <span>复制文案</span>
                     </button>
                   </div>
                 )}
@@ -815,7 +1317,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
             {/* 流式生成中的当前气泡 */}
             {isGenerating && streamingDelta && (
               <div className="flex flex-col items-start animate-in fade-in">
-                <div className="max-w-[92%] rounded-2xl rounded-tl-xs px-4 py-3.5 bg-white dark:bg-[#15161f] text-zinc-900 dark:text-zinc-100 border border-blue-500/50 shadow-sm">
+                <div className="max-w-[92%] rounded-2xl rounded-tl-xs px-4 py-3 bg-white dark:bg-[#15161f] text-zinc-800 dark:text-zinc-200 border border-blue-500/50 shadow-sm text-[12.5px]">
                   <ChatMessageRenderer
                     content={streamingDelta.trimStart()}
                     role="assistant"
@@ -825,16 +1327,16 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
               </div>
             )}
 
-            {/* 正在思考中的等待指示 */}
+            {/* 正在构思指示器 */}
             {isGenerating && !streamingDelta && (
-              <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-white dark:bg-[#191a24] border border-zinc-200/80 dark:border-zinc-800 shadow-xs w-fit">
+              <div className="flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-white dark:bg-[#191a24] border border-zinc-200/80 dark:border-zinc-800 shadow-xs w-fit">
                 <div className="flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:-0.3s]" />
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce [animation-delay:-0.15s]" />
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce" />
                 </div>
-                <span className="text-xs font-medium text-zinc-600 dark:text-zinc-300 select-none">
-                  正在构思文案中...
+                <span className="text-[11.5px] font-medium text-zinc-500 dark:text-zinc-400 select-none">
+                  正在构思打磨文案中...
                 </span>
               </div>
             )}
@@ -842,9 +1344,48 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
             <div ref={chatBottomRef} />
           </div>
 
-          {/* 底部输入控制台与文件上传 */}
-          <div className="p-4 border-t border-zinc-100 dark:border-zinc-800/80 bg-white dark:bg-[#121318] shrink-0 space-y-2.5">
-            {/* 待发送的附件预览 */}
+          {/* 底部输入控制台与风格选择器 */}
+          <div className="p-3.5 border-t border-zinc-100 dark:border-zinc-800/80 bg-white dark:bg-[#121318] shrink-0 space-y-2 relative">
+            {/* 输入框 @ 自动联想候选浮窗 */}
+            {atMentionOpen && filteredAtSkills.length > 0 && (
+              <div className="absolute bottom-full left-4 mb-2 z-50 w-72 bg-white dark:bg-[#181922] rounded-xl border border-zinc-200 dark:border-zinc-700 shadow-xl overflow-hidden animate-in fade-in select-none">
+                <div className="px-3 py-1.5 bg-zinc-50 dark:bg-zinc-850 border-b border-zinc-100 dark:border-zinc-800 text-[10.5px] font-medium text-zinc-500 flex items-center justify-between">
+                  <span>选择创作者风格画像 (@ 快速切换)</span>
+                  <span className="font-mono">↑↓ 选择 · Enter 确认</span>
+                </div>
+                <div className="max-h-48 overflow-y-auto py-1">
+                  {filteredAtSkills.map((sk, idx) => (
+                    <div
+                      key={sk.id}
+                      onClick={() => {
+                        const selStart = inputRef.current?.selectionStart || inputValue.length;
+                        const textBeforeCursor = inputValue.slice(0, selStart);
+                        const textAfterCursor = inputValue.slice(selStart);
+                        const replacedBefore = textBeforeCursor.replace(/@([^\s@]*)$/, `@${sk.name} `);
+                        setInputValue(replacedBefore + textAfterCursor);
+                        handleSelectSkill(sk);
+                        setAtMentionOpen(false);
+                      }}
+                      className={`px-3 py-2 text-xs flex items-center justify-between cursor-pointer transition ${
+                        idx === atHighlightIndex
+                          ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
+                          : 'hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
+                      }`}
+                    >
+                      <div className="min-w-0 pr-2">
+                        <div className="font-semibold truncate">{sk.name}</div>
+                        <div className="text-[10px] text-zinc-400 truncate">{sk.persona}</div>
+                      </div>
+                      {sk.id === selectedSkillId && (
+                        <Check className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 待发送附件预览 */}
             {pendingAttachments.length > 0 && (
               <div className="flex flex-wrap gap-2 animate-in fade-in">
                 {pendingAttachments.map(file => (
@@ -853,61 +1394,169 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-900 text-xs text-blue-700 dark:text-blue-300"
                   >
                     <FileText className="w-3.5 h-3.5 text-blue-500" />
-                    <span className="font-medium truncate max-w-[180px]">{file.name}</span>
+                    <span className="font-medium truncate max-w-[180px] text-[11px]">{file.name}</span>
                     <span className="text-[10px] opacity-60">({Math.round(file.size / 1024)} KB)</span>
                     <button
                       onClick={() => removeAttachment(file.id)}
                       className="ml-1 hover:text-rose-500 text-blue-400 cursor-pointer"
-                      title="移除此附件"
+                      title="移除附件"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <X className="w-3 h-3" />
                     </button>
                   </div>
                 ))}
               </div>
             )}
 
-            {/* 输入框与工具栏：外层高质感流光边框动画与精致内层 */}
+            {/* 输入框流光卡片 */}
             <div className="ai-input-streamer-card">
               <div className="ai-input-streamer-inner">
                 <textarea
+                  ref={inputRef}
                   rows={3}
                   value={inputValue}
-                  onChange={e => setInputValue(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                  }}
-                  placeholder={`输入你的想法、向【${selectedSkill?.name}】提问，或上传素材让模型理解（Ctrl+Enter 发送）...`}
-                  className="w-full p-3.5 bg-transparent text-[13.5px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none ring-0 border-0 focus:outline-none focus:ring-0 focus:border-0 resize-none leading-relaxed select-text shadow-none"
+                  onChange={handleInputChange}
+                  onKeyDown={handleInputKeyDown}
+                  placeholder={`输入文案选题、向【${selectedSkill?.name}】提问，支持输入 @ 快速联想风格画像（Ctrl+Enter 发送）...`}
+                  className="w-full p-3.5 bg-transparent text-[12.5px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none ring-0 border-0 focus:outline-none focus:ring-0 focus:border-0 resize-none leading-relaxed select-text shadow-none"
                 />
 
-                <div className="flex items-center justify-between px-3.5 pb-2.5 pt-1.5 border-t border-zinc-100/90 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-900/30">
+                {/* 输入框底部工具栏：风格下拉选择器 + 现代图标上传 + 发送按钮 */}
+                <div className="flex items-center justify-between px-3 pb-2 pt-1 border-t border-zinc-100/90 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-900/30">
                   <div className="flex items-center gap-2">
+                    {/* 现代文件上传按钮（极简矢量图标，无多余文字） */}
                     <button
                       type="button"
                       onClick={() => fileInputAttachmentRef.current?.click()}
-                      className="px-2.5 py-1.5 rounded-lg hover:bg-zinc-200/60 dark:hover:bg-zinc-800 text-zinc-500 hover:text-blue-600 transition flex items-center gap-1.5 text-xs cursor-pointer group"
-                      title="上传本地素材或台词文件 (.txt, .md, .docx, .pdf, .json, .csv)"
+                      className="relative p-1.5 rounded-lg hover:bg-zinc-200/60 dark:hover:bg-zinc-800 text-zinc-500 hover:text-blue-600 transition flex items-center justify-center cursor-pointer group"
+                      title="上传参考素材或文档 (.zip, .txt, .md, .docx, .pdf, .json, .csv)"
                     >
-                      <Paperclip className="w-3.5 h-3.5 group-hover:rotate-45 transition-transform text-zinc-400 group-hover:text-blue-500" />
-                      <span className="text-[11.5px] hidden sm:inline">上传参考文件</span>
+                      <Paperclip className="w-4 h-4 group-hover:rotate-45 transition-transform text-zinc-400 group-hover:text-blue-500" />
+                      {pendingAttachments.length > 0 && (
+                        <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-blue-600 text-white text-[9px] font-bold flex items-center justify-center shadow-xs">
+                          {pendingAttachments.length}
+                        </span>
+                      )}
                     </button>
+
+                    {/* 创作者风格专属选择下拉胶囊（满足诉求 2：在对话框下方设置下拉框选择） */}
+                    <div className="relative" ref={dropdownRef}>
+                      <button
+                        type="button"
+                        onClick={() => setStyleDropdownOpen(!styleDropdownOpen)}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800/80 hover:bg-zinc-200/80 dark:hover:bg-zinc-700/80 text-[11.5px] font-medium text-zinc-700 dark:text-zinc-200 border border-zinc-200/80 dark:border-zinc-700/80 transition shadow-2xs"
+                        title="点击展开切换创作者风格，或输入 @ 快速联想"
+                      >
+                        <span className="text-blue-500">🎨</span>
+                        <span className="truncate max-w-[140px] sm:max-w-[200px]">
+                          {selectedSkill ? selectedSkill.name : '选择创作风格'}
+                        </span>
+                        <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
+                      </button>
+
+                      {/* 风格选择下拉浮层 */}
+                      {styleDropdownOpen && (
+                        <div className="absolute bottom-full left-0 mb-1.5 z-50 w-72 bg-white dark:bg-[#181922] rounded-xl border border-zinc-200 dark:border-zinc-700 shadow-2xl p-1.5 overflow-hidden animate-in fade-in select-none">
+                          <div className="px-2 py-1.5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300">
+                              选择创作者风格画像
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setStyleDropdownOpen(false);
+                                setLeftTab('skill');
+                              }}
+                              className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5"
+                            >
+                              <span>配置详情</span>
+                              <ChevronRight className="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          {/* 快速搜索框 */}
+                          <div className="p-1">
+                            <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-xs">
+                              <Search className="w-3 h-3 text-zinc-400 shrink-0" />
+                              <input
+                                type="text"
+                                value={styleSearchQuery}
+                                onChange={e => setStyleSearchQuery(e.target.value)}
+                                placeholder="搜索风格名称或特点..."
+                                className="bg-transparent border-0 outline-none text-[11px] text-zinc-800 dark:text-zinc-200 w-full"
+                              />
+                            </div>
+                          </div>
+
+                          {/* 风格列表 */}
+                          <div className="max-h-52 overflow-y-auto space-y-0.5 py-1">
+                            {skills
+                              .filter(sk =>
+                                sk.name.toLowerCase().includes(styleSearchQuery.toLowerCase()) ||
+                                sk.persona.toLowerCase().includes(styleSearchQuery.toLowerCase())
+                              )
+                              .map(sk => {
+                                const active = sk.id === selectedSkillId;
+                                return (
+                                  <div
+                                    key={sk.id}
+                                    onClick={() => handleSelectSkill(sk)}
+                                    className={`px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between cursor-pointer transition ${
+                                      active
+                                        ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-semibold'
+                                        : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/80 text-zinc-700 dark:text-zinc-300'
+                                    }`}
+                                  >
+                                    <div className="min-w-0 pr-2">
+                                      <div className="truncate text-[11.5px]">{sk.name}</div>
+                                      <div className="text-[10px] text-zinc-400 truncate">{sk.persona}</div>
+                                    </div>
+                                    {active && <Check className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
+                                  </div>
+                                );
+                              })}
+                          </div>
+
+                          <div className="pt-1.5 mt-1 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between text-[11px] text-zinc-500">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setStyleDropdownOpen(false);
+                                fileInputSkillRef.current?.click();
+                              }}
+                              className="hover:text-blue-600 flex items-center gap-1 p-1"
+                            >
+                              <Upload className="w-3 h-3" />
+                              <span>导入 Zip / MD</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setStyleDropdownOpen(false);
+                                setExtractModalOpen(true);
+                              }}
+                              className="hover:text-purple-600 flex items-center gap-1 p-1"
+                            >
+                              <Sparkles className="w-3 h-3 text-purple-500" />
+                              <span>提炼新风格</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <span className="text-[11px] text-zinc-400 hidden sm:inline font-mono">Ctrl + Enter 发送</span>
+                    <span className="text-[10.5px] text-zinc-400 hidden sm:inline font-mono">Ctrl + Enter 发送</span>
                     <button
                       onClick={() => handleSendMessage()}
                       disabled={isGenerating || (!inputValue.trim() && pendingAttachments.length === 0)}
-                      className="btn-modern-primary px-4 py-1.5 min-w-[80px] text-xs flex items-center justify-center gap-1.5"
+                      className="btn-modern-primary px-3.5 py-1.5 min-w-[76px] text-xs flex items-center justify-center gap-1.5"
                     >
                       {isGenerating ? (
                         <>
                           <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          <span>思考中</span>
+                          <span>构思中</span>
                         </>
                       ) : (
                         <>
@@ -923,7 +1572,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
           </div>
         </div>
 
-        {/* 右侧可拖拽宽度调节手柄 */}
+        {/* 右侧可拖拽手柄 */}
         <div
           onMouseDown={e => {
             e.preventDefault();
@@ -932,12 +1581,12 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
             document.body.style.userSelect = 'none';
           }}
           className="w-1.5 hover:w-2 hover:bg-blue-500/50 active:bg-blue-600 transition-all cursor-col-resize shrink-0 bg-transparent relative group flex items-center justify-center select-none"
-          title="按住左右拖拽，调节精选台词与流转中心宽度"
+          title="按住左右拖拽，调节精选文案面板宽度"
         >
           <div className="w-[1.5px] h-8 bg-zinc-300/80 dark:bg-zinc-700/80 group-hover:bg-blue-500 rounded-full transition-colors" />
         </div>
 
-        {/* 右栏：当前精选台词看板与多流转中心（宽度可调节） */}
+        {/* 右栏：精选文案与多流转中心（规范术语为：精选文案） */}
         <div
           style={{ width: `${rightWidth}px` }}
           className="border-l border-zinc-200/80 dark:border-zinc-800/80 p-4 flex flex-col bg-white dark:bg-[#111217] shrink-0 overflow-hidden"
@@ -945,7 +1594,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
           <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/80">
             <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
               <Layers className="w-4 h-4 text-blue-500" />
-              <span>精选台词与流转中心</span>
+              <span>精选文案与流转中心</span>
             </span>
             <div className="flex items-center gap-2">
               {pinnedScript && (
@@ -953,7 +1602,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                   <button
                     onClick={() => {
                       const clean = extractCleanScript(pinnedScript);
-                      setPinnedScript(clean);
+                      updateCurrentSession({ pinnedScript: clean });
                       showToast('已智能剔除客套语、空行与标记！');
                     }}
                     className="text-[11px] text-purple-600 dark:text-purple-400 hover:underline cursor-pointer flex items-center gap-1 font-medium"
@@ -965,7 +1614,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                   <button
                     onClick={() => {
                       navigator.clipboard.writeText(pinnedScript);
-                      showToast('已复制完整台词！');
+                      showToast('已复制完整精选文案！');
                     }}
                     className="text-[11px] text-blue-500 hover:underline cursor-pointer"
                   >
@@ -973,11 +1622,11 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                   </button>
                   <button
                     onClick={() => {
-                      setPinnedScript('');
-                      showToast('已清空台词看板');
+                      updateCurrentSession({ pinnedScript: '' });
+                      showToast('已清空文案看板');
                     }}
                     className="text-[11px] text-zinc-400 hover:text-rose-500 hover:underline cursor-pointer"
-                    title="清空台词看板"
+                    title="清空文案看板"
                   >
                     清空
                   </button>
@@ -986,13 +1635,13 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
             </div>
           </div>
 
-          {/* 台词编辑与预览 */}
+          {/* 精选文案编辑与预览 */}
           <div className="flex-1 my-3 overflow-y-auto flex flex-col">
             {pinnedScript ? (
               <div className="flex-1 flex flex-col space-y-2">
                 <textarea
                   value={pinnedScript}
-                  onChange={e => setPinnedScript(e.target.value)}
+                  onChange={e => updateCurrentSession({ pinnedScript: e.target.value })}
                   placeholder="可在此微调当前精选文案..."
                   className="flex-1 w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200/80 dark:border-zinc-800 text-xs leading-relaxed text-zinc-800 dark:text-zinc-200 resize-none outline-none focus:outline-none ring-0 focus:ring-0 focus:border-blue-500 select-text font-sans"
                 />
@@ -1004,7 +1653,9 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-center p-6 text-zinc-400 space-y-2">
                 <MessageSquare className="w-10 h-10 opacity-30 text-zinc-400 stroke-[1.5]" />
-                <p className="text-xs leading-relaxed">在对话中生成满意的文案后，点击【设为精修台词】或直接对话生成，即可在此打磨并一键推往生产流水线</p>
+                <p className="text-xs leading-relaxed">
+                  在对话中生成满意的成果后，点击气泡下方的【设为精选文案】，即可在此沉淀打磨并一键推往生产流水线
+                </p>
               </div>
             )}
           </div>
@@ -1032,7 +1683,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                         <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 font-mono shrink-0">Seed-TTS</span>
                       </div>
                       <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 truncate">
-                        自动同步台词与风格推荐音色
+                        自动同步文案与风格推荐音色
                       </div>
                     </div>
                   </div>
@@ -1091,7 +1742,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
 
             <div className="flex-1 overflow-y-auto space-y-4 pr-1">
               <p className="text-xs text-zinc-500 leading-relaxed">
-                无需复杂的提示词工程，直接批量上传该创作者以往的 <strong>历史文章、口播文案、讲义或总结资料</strong>（支持多选 <code className="text-purple-600 dark:text-purple-400 font-mono">.txt, .md, .pdf, .docx</code>），AI 将深度分析其标志性人设、口头禅、单句长度与行文框架，永久保存为您的一键创作预设！
+                无需复杂的提示词工程，直接批量上传该创作者以往的 <strong>历史文章、口播文案、讲义或总结资料</strong>（支持多选 <code className="text-purple-600 dark:text-purple-400 font-mono">.txt, .md, .pdf, .docx</code>），AI 将深度分析其标志性人设、口头禅、单句长度与行文框架，保存为您的一键创作预设！
               </p>
 
               <div className="space-y-1.5">
@@ -1108,7 +1759,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                 />
               </div>
 
-              {/* 核心多格式文件上传区（支持点击选择或拖拽） */}
+              {/* 核心多格式文件上传区 */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs font-medium text-zinc-700 dark:text-zinc-300">
                   <span>📁 批量上传历史文章 / 文档 (.txt, .md, .pdf, .docx)</span>
@@ -1270,7 +1921,7 @@ ${selectedSkill?.negativeConstraints?.map(c => `- ${c}`).join('\n') || '- 严禁
                 )}
               </div>
 
-              {/* 手动直接粘贴区域（可选辅助） */}
+              {/* 手动直接粘贴区域 */}
               <div className="space-y-1.5 pt-1">
                 <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400 flex items-center justify-between">
                   <span>或者直接在此粘贴范文片段（选填）</span>

@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import {
   Sparkles,
   Copy,
@@ -60,7 +60,7 @@ function renderInlineElements(text: string): React.ReactNode[] {
       parts.push(
         <code
           key={`c-${match.index}`}
-          className="px-1.5 py-0.5 mx-0.5 rounded bg-zinc-200/70 dark:bg-zinc-800 text-purple-600 dark:text-purple-400 font-mono text-[12px] border border-zinc-300/60 dark:border-zinc-700/60"
+          className="px-1.5 py-0.5 mx-0.5 rounded bg-zinc-200/70 dark:bg-zinc-800 text-purple-600 dark:text-purple-400 font-mono text-[11.5px] border border-zinc-300/60 dark:border-zinc-700/60"
         >
           {token.slice(1, -1)}
         </code>
@@ -163,7 +163,7 @@ export function ChatMessageRenderer({ content, role, isStreaming }: Props) {
   // 如果是用户发送的信息，采用精简气泡排版
   if (role === 'user') {
     return (
-      <div className="whitespace-pre-wrap select-text font-sans text-[13.5px] leading-relaxed">
+      <div className="whitespace-pre-wrap select-text font-sans text-[12.5px] leading-relaxed">
         {content}
       </div>
     );
@@ -189,7 +189,7 @@ export function ChatMessageRenderer({ content, role, isStreaming }: Props) {
         nodes.push(
           <blockquote
             key={key}
-            className="border-l-[3px] border-blue-500/80 bg-blue-50/40 dark:bg-blue-950/20 px-3.5 py-2 my-2.5 rounded-r-xl text-zinc-700 dark:text-zinc-300 italic text-[13px] leading-relaxed"
+            className="border-l-[3px] border-blue-500/80 bg-blue-50/40 dark:bg-blue-950/20 px-3 py-1.5 my-2 rounded-r-xl text-zinc-700 dark:text-zinc-300 italic text-[12px] leading-relaxed"
           >
             {quoteBuffer.map((ql, qIdx) => (
               <p key={qIdx} className="my-0.5">{renderInlineElements(ql)}</p>
@@ -243,7 +243,7 @@ export function ChatMessageRenderer({ content, role, isStreaming }: Props) {
       // 标题判定
       if (line.startsWith('# ')) {
         nodes.push(
-          <h1 key={`h1-${i}`} className="text-base font-bold text-zinc-900 dark:text-white mt-4 mb-2 pb-1 border-b border-zinc-200/80 dark:border-zinc-800">
+          <h1 key={`h1-${i}`} className="text-[14.5px] font-bold text-zinc-900 dark:text-white mt-3.5 mb-1.5 pb-1 border-b border-zinc-200/80 dark:border-zinc-800">
             {renderInlineElements(line.slice(2))}
           </h1>
         );
@@ -251,8 +251,8 @@ export function ChatMessageRenderer({ content, role, isStreaming }: Props) {
       }
       if (line.startsWith('## ')) {
         nodes.push(
-          <h2 key={`h2-${i}`} className="text-[14.5px] font-bold text-zinc-900 dark:text-white mt-3.5 mb-1.5 flex items-center gap-1.5">
-            <span className="w-1 h-3.5 bg-blue-500 rounded-full inline-block" />
+          <h2 key={`h2-${i}`} className="text-[13.5px] font-bold text-zinc-900 dark:text-white mt-3 mb-1 flex items-center gap-1.5">
+            <span className="w-1 h-3 bg-blue-500 rounded-full inline-block" />
             <span>{renderInlineElements(line.slice(3))}</span>
           </h2>
         );
@@ -260,7 +260,7 @@ export function ChatMessageRenderer({ content, role, isStreaming }: Props) {
       }
       if (line.startsWith('### ')) {
         nodes.push(
-          <h3 key={`h3-${i}`} className="text-[13.5px] font-semibold text-zinc-800 dark:text-zinc-200 mt-2.5 mb-1">
+          <h3 key={`h3-${i}`} className="text-[12.5px] font-semibold text-zinc-800 dark:text-zinc-200 mt-2 mb-0.5">
             {renderInlineElements(line.slice(4))}
           </h3>
         );
@@ -272,8 +272,8 @@ export function ChatMessageRenderer({ content, role, isStreaming }: Props) {
         const match = line.match(/^(\s*)[-*]\s+(.+)/);
         if (match) {
           nodes.push(
-            <div key={`ul-${i}`} className="flex items-start gap-2 my-1 pl-1 text-[13.5px] leading-relaxed">
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0" />
+            <div key={`ul-${i}`} className="flex items-start gap-2 my-0.5 pl-1 text-[12.5px] leading-relaxed">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0" />
               <div className="flex-1 text-zinc-800 dark:text-zinc-200">
                 {renderInlineElements(match[2])}
               </div>
@@ -288,8 +288,8 @@ export function ChatMessageRenderer({ content, role, isStreaming }: Props) {
         const match = line.trim().match(/^(\d+)\.\s+(.+)/);
         if (match) {
           nodes.push(
-            <div key={`ol-${i}`} className="flex items-start gap-2 my-1 pl-1 text-[13.5px] leading-relaxed">
-              <span className="text-[11px] font-bold font-mono px-1.5 py-0.5 rounded bg-zinc-200/60 dark:bg-zinc-800 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0">
+            <div key={`ol-${i}`} className="flex items-start gap-1.5 my-0.5 pl-1 text-[12.5px] leading-relaxed">
+              <span className="text-[10.5px] font-bold font-mono px-1 py-0.2 rounded bg-zinc-200/60 dark:bg-zinc-800 text-blue-600 dark:text-blue-400 shrink-0">
                 {match[1]}
               </span>
               <div className="flex-1 text-zinc-800 dark:text-zinc-200">
@@ -303,13 +303,13 @@ export function ChatMessageRenderer({ content, role, isStreaming }: Props) {
 
       // 空行
       if (!line.trim()) {
-        nodes.push(<div key={`blank-${i}`} className="h-2" />);
+        nodes.push(<div key={`blank-${i}`} className="h-1.5" />);
         continue;
       }
 
       // 普通段落文本
       nodes.push(
-        <p key={`p-${i}`} className="my-1.5 text-[13.5px] leading-[1.75] text-zinc-800 dark:text-zinc-200">
+        <p key={`p-${i}`} className="my-1 text-[12.5px] leading-[1.7] text-zinc-800 dark:text-zinc-200">
           {renderInlineElements(line)}
         </p>
       );
@@ -331,7 +331,7 @@ export function ChatMessageRenderer({ content, role, isStreaming }: Props) {
   };
 
   return (
-    <div className="select-text font-sans space-y-0.5 text-[13.5px] leading-relaxed">
+    <div className="select-text font-sans space-y-0.5 text-[12.5px] leading-relaxed">
       {/* 深度推演思考卡片 */}
       {think && <ThinkAccordion think={think} isStreaming={isStreaming} />}
 

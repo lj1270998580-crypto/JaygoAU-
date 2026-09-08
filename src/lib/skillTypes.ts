@@ -8,6 +8,13 @@ export interface PacingRules {
   structure: string;      // e.g. "黄金3秒反常识钩子 → 痛点真相 → 降维打法 → 金句收尾"
 }
 
+export interface SkillFileAsset {
+  path: string;       // e.g. "references/style_guide.md" or "examples/demo.txt"
+  name: string;       // e.g. "style_guide.md"
+  size?: number;
+  content: string;    // text content of the asset
+}
+
 export interface SkillPreset {
   id: string;
   name: string;
@@ -19,6 +26,7 @@ export interface SkillPreset {
   pacingRules: PacingRules;
   negativeConstraints: string[];
   fewShotExamples: FewShotExample[];
+  skillFiles?: SkillFileAsset[];
   voiceBinding?: {
     voiceId: string;
     voiceName?: string;

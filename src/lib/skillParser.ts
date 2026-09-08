@@ -1,4 +1,5 @@
-import type { SkillPreset } from './skillTypes';
+import JSZip from 'jszip';
+import type { SkillPreset, SkillFileAsset } from './skillTypes';
 import { SYSTEM_SKILL_PRESETS } from './skillTypes';
 import { api } from './ipc';
 
@@ -244,6 +245,7 @@ function validateAndSanitizeSkill(s: any, fallbackName: string): SkillPreset {
     },
     negativeConstraints,
     fewShotExamples,
+    skillFiles: Array.isArray(s.skillFiles) ? s.skillFiles : undefined,
     modelParams: {
       temperature: clampedTemp,
       maxTokens: 1500,
@@ -251,6 +253,110 @@ function validateAndSanitizeSkill(s: any, fallbackName: string): SkillPreset {
     isSystem: false,
     updatedAt: Date.now(),
   };
+}
+
+/**
+ * 从 .zip 压缩包中自动解压并识别通用 Skill 体系
+ * 支持包含 SKILL.md / skill.md 以及 references/, examples/, scripts/ 等多文件
+ */
+export async function parseSkillFromZip(zipBuffer: ArrayBuffer | Uint8Array, zipFileName = ''): Promise<SkillPreset> {
+  const zip = await JSZip.loadAsync(zipBuffer);
+
+  const fileEntries: Array<{ path: string; file: JSZip.JSZipObject }> = [];
+  zip.forEach((relativePath, file) => {
+    if (!file.dir && !relativePath.startsWith('__MACOSX') && !relativePath.includes('/.DS_Store')) {
+      fileEntries.push({ path: relativePath, file });
+    }
+  });
+
+  if (fileEntries.length === 0) {
+    throw new Error('压缩包为空，未包含任何有效文件');
+  }
+
+  // 优先级排序：
+  // 1) SKILL.md (不区分大小写，根目录优先)
+  // 2) 任何以 .skill.md 结尾的文件
+  // 3) 任何包含 --- Frontmatter 或 JSON 的 md/json 文件
+  fileEntries.sort((a, b) => {
+    const aName = a.path.split('/').pop()?.toLowerCase() || '';
+    const bName = b.path.split('/').pop()?.toLowerCase() || '';
+    if (aName === 'skill.md') return -1;
+    if (bName === 'skill.md') return 1;
+    if (aName.endsWith('.skill.md')) return -1;
+    if (bName.endsWith('.skill.md')) return 1;
+    return 0;
+  });
+
+  let skillMainFile: { path: string; text: string } | null = null;
+  for (const item of fileEntries) {
+    const fn = item.path.split('/').pop()?.toLowerCase() || '';
+    if (fn === 'skill.md' || fn.endsWith('.skill.md') || fn.endsWith('.jaygoskill') || fn.endsWith('.json') || fn.endsWith('.md')) {
+      const text = await item.file.async('text');
+      if (fn === 'skill.md' || fn.endsWith('.skill.md') || text.includes('---') || (fn.endsWith('.json') && text.includes('"persona"'))) {
+        skillMainFile = { path: item.path, text };
+        break;
+      }
+    }
+  }
+
+  if (!skillMainFile) {
+    // 降级：找第一个 .md
+    for (const item of fileEntries) {
+      if (item.path.toLowerCase().endsWith('.md')) {
+        const text = await item.file.async('text');
+        skillMainFile = { path: item.path, text };
+        break;
+      }
+    }
+  }
+
+  if (!skillMainFile) {
+    throw new Error('压缩包中未检测到符合 Skill 规范的 SKILL.md 或风格定义文件');
+  }
+
+  const baseSkillName = zipFileName.replace(/\.[^.]+$/, '').replace(/[-_]skill$/i, '');
+  const parsedSkill = parseSkillContent(skillMainFile.text, baseSkillName);
+
+  // 收集压缩包内除主定义外的其它知识库/参考文件（例如 references/, examples/, scripts/ 等）
+  const skillFiles: SkillFileAsset[] = [];
+  for (const item of fileEntries) {
+    if (item.path === skillMainFile.path) continue;
+    try {
+      const isText = /\.(md|txt|json|yaml|yml|csv|prompt|py|js|ts|sh|sql|html)$/i.test(item.path);
+      if (isText) {
+        const content = await item.file.async('text');
+        skillFiles.push({
+          path: item.path,
+          name: item.path.split('/').pop() || item.path,
+          size: content.length,
+          content,
+        });
+      }
+    } catch (_) {}
+  }
+
+  if (skillFiles.length > 0) {
+    parsedSkill.skillFiles = skillFiles;
+  }
+
+  return parsedSkill;
+}
+
+/**
+ * 导出 SkillPreset 为完整 zip 压缩包（包含 SKILL.md 与所有附属文件）
+ */
+export async function exportSkillToZip(skill: SkillPreset): Promise<Blob> {
+  const zip = new JSZip();
+  const mainMd = exportSkillToMarkdown(skill);
+  zip.file('SKILL.md', mainMd);
+
+  if (skill.skillFiles && skill.skillFiles.length > 0) {
+    for (const f of skill.skillFiles) {
+      zip.file(f.path, f.content);
+    }
+  }
+
+  return await zip.generateAsync({ type: 'blob' });
 }
 
 /**
