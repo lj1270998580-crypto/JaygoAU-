@@ -56,6 +56,8 @@ import {
   FolderArchive,
   ExternalLink,
   BrainCircuit,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { ChatMessageRenderer } from './ChatMessageRenderer';
 
@@ -113,10 +115,20 @@ export function ScriptStudio({
   const [atQuery, setAtQuery] = useState('');
   const [atHighlightIndex, setAtHighlightIndex] = useState(0);
 
+  // 输入框模型下拉菜单状态（满足诉求 3：模型选择框放到对话输入框里，用小按钮切换）
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  const modelDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  // 右侧精选文案面板显隐（满足诉求 4：精选文案只有用户精选后才在右侧显示）
+  const [showRightPanel, setShowRightPanel] = useState<boolean>(false);
+
+  // 左侧栏折叠状态（满足诉求 5：对话区域默认可以再大些）
+  const [isLeftCollapsed, setIsLeftCollapsed] = useState<boolean>(false);
+
   // 可自由调节的左右栏宽度 (px) 与拖拽状态
   const [leftWidth, setLeftWidth] = useState<number>(() => {
     const saved = localStorage.getItem('jaygo_script_left_width');
-    return saved ? Math.max(200, Math.min(460, parseInt(saved, 10))) : 270;
+    return saved ? Math.max(200, Math.min(460, parseInt(saved, 10))) : 240;
   });
   const [rightWidth, setRightWidth] = useState<number>(() => {
     const saved = localStorage.getItem('jaygo_script_right_width');
@@ -179,6 +191,15 @@ export function ScriptStudio({
   const messages = currentSession?.messages || [];
   const pinnedScript = currentSession?.pinnedScript || '';
 
+  // 同步右侧精选文案面板状态：仅当当前会话有精选文案时才默认显示（满足诉求 4）
+  useEffect(() => {
+    if (currentSession?.pinnedScript && currentSession.pinnedScript.trim()) {
+      setShowRightPanel(true);
+    } else {
+      setShowRightPanel(false);
+    }
+  }, [currentSessionId]);
+
   // 同步当前风格到左侧编辑表单
   useEffect(() => {
     if (selectedSkill) {
@@ -197,6 +218,9 @@ export function ScriptStudio({
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setStyleDropdownOpen(false);
+      }
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setModelDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -610,14 +634,6 @@ export function ScriptStudio({
         updatedAt: Date.now(),
       };
 
-      // 自动提取可能由 AI 直接给出的高质量口播作为精选文案推荐（若右侧暂空）
-      if (!finalSession.pinnedScript) {
-        const cleanScript = extractCleanScript(cleanReply);
-        if (cleanScript && cleanScript.length > 20) {
-          finalSession.pinnedScript = cleanScript;
-        }
-      }
-
       updateCurrentSession(finalSession);
       if (isCompressed) {
         // 轻量提示用户长期记忆已压缩保护
@@ -797,13 +813,14 @@ export function ScriptStudio({
 
       {/* 主体三栏布局 */}
       <div className="flex-1 flex min-h-0">
-        {/* 左栏：默认会话历史列表 ⇄ Skill 详情编辑中枢（宽度可自由拖拽） */}
-        <div
-          style={{ width: `${leftWidth}px` }}
-          className="border-r border-zinc-200/80 dark:border-zinc-800/80 flex flex-col bg-white/50 dark:bg-zinc-900/20 overflow-hidden shrink-0"
-        >
-          {/* 左栏顶栏选项卡：会话历史 ⇄ 创作风格详情 */}
-          <div className="p-3 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between bg-zinc-50/70 dark:bg-zinc-900/40">
+        {/* 左栏：默认会话历史列表 ⇄ Skill 详情编辑中枢（支持折叠以扩大对话区，满足诉求 5） */}
+        {!isLeftCollapsed && (
+          <div
+            style={{ width: `${leftWidth}px` }}
+            className="border-r border-zinc-200/80 dark:border-zinc-800/80 flex flex-col bg-white/50 dark:bg-zinc-900/20 overflow-hidden shrink-0"
+          >
+            {/* 左栏顶栏选项卡：会话历史 ⇄ 创作风格详情 */}
+            <div className="p-3 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between bg-zinc-50/70 dark:bg-zinc-900/40">
             <div className="flex items-center gap-1 bg-zinc-200/70 dark:bg-zinc-800/80 p-0.5 rounded-xl text-xs font-medium">
               <button
                 type="button"
@@ -1154,97 +1171,89 @@ export function ScriptStudio({
             </div>
           )}
         </div>
+        )}
 
         {/* 左侧可拖拽宽度调节手柄 */}
-        <div
-          onMouseDown={e => {
-            e.preventDefault();
-            dragStartRef.current = { type: 'left', startX: e.clientX, startWidth: leftWidth };
-            document.body.style.cursor = 'col-resize';
-            document.body.style.userSelect = 'none';
-          }}
-          className="w-1.5 hover:w-2 hover:bg-blue-500/50 active:bg-blue-600 transition-all cursor-col-resize shrink-0 bg-transparent relative group flex items-center justify-center select-none"
-          title="按住左右拖拽，调节左栏宽度"
-        >
-          <div className="w-[1.5px] h-8 bg-zinc-300/80 dark:bg-zinc-700/80 group-hover:bg-blue-500 rounded-full transition-colors" />
-        </div>
+        {!isLeftCollapsed && (
+          <div
+            onMouseDown={e => {
+              e.preventDefault();
+              dragStartRef.current = { type: 'left', startX: e.clientX, startWidth: leftWidth };
+              document.body.style.cursor = 'col-resize';
+              document.body.style.userSelect = 'none';
+            }}
+            className="w-1.5 hover:w-2 hover:bg-blue-500/50 active:bg-blue-600 transition-all cursor-col-resize shrink-0 bg-transparent relative group flex items-center justify-center select-none"
+            title="按住左右拖拽，调节左栏宽度"
+          >
+            <div className="w-[1.5px] h-8 bg-zinc-300/80 dark:bg-zinc-700/80 group-hover:bg-blue-500 rounded-full transition-colors" />
+          </div>
+        )}
 
         {/* 中栏：AI 对话与创作互动控制台 */}
         <div className="flex-1 flex flex-col min-w-[320px] bg-white dark:bg-[#111218] overflow-hidden">
-          {/* 中栏顶栏：会话标题与模型快速切换 */}
-          <div className="h-12 px-3 sm:px-4 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between text-xs bg-zinc-50/50 dark:bg-zinc-900/30 shrink-0 gap-2">
-            <div className="flex items-center gap-2 min-w-0 truncate">
+          {/* 中栏顶栏：简洁会话状态与精炼控制（模型选择已移至输入框，彻底解除挤压） */}
+          <div className="h-11 px-3 sm:px-4 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between text-xs bg-zinc-50/50 dark:bg-zinc-900/30 shrink-0 gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <button
+                type="button"
+                onClick={() => setIsLeftCollapsed(!isLeftCollapsed)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800 transition cursor-pointer shrink-0"
+                title={isLeftCollapsed ? '展开左侧会话历史' : '收起左侧栏以放大对话区域'}
+              >
+                {isLeftCollapsed ? (
+                  <PanelLeftOpen className="w-4 h-4 text-blue-500" />
+                ) : (
+                  <PanelLeftClose className="w-4 h-4" />
+                )}
+              </button>
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
               <span className="font-semibold text-zinc-800 dark:text-zinc-200 truncate text-xs">
                 {currentSession?.title || '创作会话'}
               </span>
               {selectedSkill && (
-                <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200/60 dark:border-blue-800/60 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLeftCollapsed(false);
+                    setLeftTab('skill');
+                  }}
+                  className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200/60 dark:border-blue-800/60 shrink-0 hover:bg-blue-100 transition cursor-pointer"
+                  title="点击在左侧查看与修改此风格详情"
+                >
                   {selectedSkill.name.split('·')[0] || selectedSkill.name}
-                </span>
+                </button>
               )}
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {/* 模型快捷选择器 */}
-              <div className="flex items-center gap-1.5 bg-white dark:bg-zinc-800/90 border border-zinc-200/90 dark:border-zinc-700/80 rounded-lg px-2 py-1 text-[11px] shadow-2xs">
-                <span className="text-xs shrink-0 select-none">
-                  {PRESET_PROVIDERS[currentProviderKey]?.icon || '🤖'}
-                </span>
-                <select
-                  value={`${currentProviderKey}::${currentModelName}`}
-                  onChange={e => {
-                    const [pKey, mId] = e.target.value.split('::') as [ModelProviderType, string];
-                    handleQuickSwitchModel(pKey, mId);
-                  }}
-                  className="bg-transparent border-0 text-zinc-700 dark:text-zinc-200 text-[11px] font-medium focus:outline-none cursor-pointer pr-1 max-w-[125px] sm:max-w-[155px] md:max-w-[180px] truncate [color-scheme:light] dark:[color-scheme:dark]"
-                  title="快速切换当前对话所使用的大模型"
-                >
-                  {Object.entries(PRESET_PROVIDERS).map(([pType, preset]) => {
-                    const provConfig = modelSettings?.providers?.[pType as ModelProviderType];
-                    const hasKey = Boolean(provConfig?.apiKey?.trim());
-                    return (
-                      <optgroup
-                        key={pType}
-                        label={`${preset.icon} ${preset.name} ${hasKey ? '(已配Key)' : '(未配Key)'}`}
-                        className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 font-semibold"
-                      >
-                        {preset.models.map(m => (
-                          <option
-                            key={`${pType}::${m.id}`}
-                            value={`${pType}::${m.id}`}
-                            className="bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 py-1"
-                          >
-                            {m.name} {!hasKey ? ' (⚠️需填Key)' : ''}
-                          </option>
-                        ))}
-                      </optgroup>
-                    );
-                  })}
-                </select>
+              {/* 若当前会话已有精选文案但面板已收起，提供快速打开胶囊 */}
+              {pinnedScript && !showRightPanel && (
                 <button
                   type="button"
-                  onClick={onOpenModelHub}
-                  className="text-zinc-400 hover:text-blue-500 transition p-0.5 cursor-pointer shrink-0"
-                  title="打开大模型设置中心"
+                  onClick={() => setShowRightPanel(true)}
+                  className="text-[11px] font-medium px-2.5 py-1 rounded-lg bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                  title="展开已定稿的右侧精选文案面板"
                 >
-                  <SlidersHorizontal className="w-3 h-3 text-zinc-400 hover:text-blue-500 transition" />
+                  <Layers className="w-3.5 h-3.5 text-purple-500" />
+                  <span>精选文案 ({pinnedScript.length}字)</span>
                 </button>
-              </div>
+              )}
 
               <button
+                type="button"
                 onClick={handleCreateNewSession}
-                className="text-[11px] text-zinc-500 hover:text-blue-500 flex items-center gap-1.5 transition shrink-0 cursor-pointer px-2.5 py-1 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                title="开启全新会话"
+                className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1 transition shrink-0 cursor-pointer px-2.5 py-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-transparent hover:border-zinc-200 dark:hover:border-zinc-700"
+                title="开启全新创作会话"
               >
-                <Plus className="w-3 h-3 text-zinc-400" />
+                <Plus className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">新会话</span>
               </button>
             </div>
           </div>
 
           {/* 消息滚动流 */}
-          <div className="flex-1 p-4 sm:p-5 overflow-y-auto space-y-4 select-text">
+          <div className="flex-1 p-4 sm:p-6 overflow-y-auto select-text">
+            <div className="max-w-4xl mx-auto w-full space-y-4">
             {messages.map(msg => (
               <div
                 key={msg.id}
@@ -1342,10 +1351,12 @@ export function ScriptStudio({
             )}
 
             <div ref={chatBottomRef} />
+            </div>
           </div>
 
-          {/* 底部输入控制台与风格选择器 */}
-          <div className="p-3.5 border-t border-zinc-100 dark:border-zinc-800/80 bg-white dark:bg-[#121318] shrink-0 space-y-2 relative">
+          {/* 底部输入控制台与风格/模型选择器 */}
+          <div className="p-3 sm:p-4 border-t border-zinc-100 dark:border-zinc-800/80 bg-white dark:bg-[#121318] shrink-0 relative">
+            <div className="max-w-4xl mx-auto w-full space-y-2 relative">
             {/* 输入框 @ 自动联想候选浮窗 */}
             {atMentionOpen && filteredAtSkills.length > 0 && (
               <div className="absolute bottom-full left-4 mb-2 z-50 w-72 bg-white dark:bg-[#181922] rounded-xl border border-zinc-200 dark:border-zinc-700 shadow-xl overflow-hidden animate-in fade-in select-none">
@@ -1418,17 +1429,17 @@ export function ScriptStudio({
                   onChange={handleInputChange}
                   onKeyDown={handleInputKeyDown}
                   placeholder={`输入文案选题、向【${selectedSkill?.name}】提问，支持输入 @ 快速联想风格画像（Ctrl+Enter 发送）...`}
-                  className="w-full p-3.5 bg-transparent text-[12.5px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none ring-0 border-0 focus:outline-none focus:ring-0 focus:border-0 resize-none leading-relaxed select-text shadow-none"
+                  className="w-full p-3.5 bg-transparent font-script-reading text-[13px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none ring-0 border-0 focus:outline-none focus:ring-0 focus:border-0 resize-none leading-relaxed select-text shadow-none"
                 />
 
-                {/* 输入框底部工具栏：风格下拉选择器 + 现代图标上传 + 发送按钮 */}
-                <div className="flex items-center justify-between px-3 pb-2 pt-1 border-t border-zinc-100/90 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-900/30">
-                  <div className="flex items-center gap-2">
+                {/* 输入框底部工具栏：现代图标上传 + 风格下拉胶囊 + 模型切换小按钮 + 发送按钮 */}
+                <div className="flex items-center justify-between px-3 pb-2 pt-1 border-t border-zinc-100/90 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-900/30 gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1 overflow-x-auto no-scrollbar py-0.5">
                     {/* 现代文件上传按钮（极简矢量图标，无多余文字） */}
                     <button
                       type="button"
                       onClick={() => fileInputAttachmentRef.current?.click()}
-                      className="relative p-1.5 rounded-lg hover:bg-zinc-200/60 dark:hover:bg-zinc-800 text-zinc-500 hover:text-blue-600 transition flex items-center justify-center cursor-pointer group"
+                      className="relative p-1.5 rounded-lg hover:bg-zinc-200/60 dark:hover:bg-zinc-800 text-zinc-500 hover:text-blue-600 transition flex items-center justify-center cursor-pointer group shrink-0"
                       title="上传参考素材或文档 (.zip, .txt, .md, .docx, .pdf, .json, .csv)"
                     >
                       <Paperclip className="w-4 h-4 group-hover:rotate-45 transition-transform text-zinc-400 group-hover:text-blue-500" />
@@ -1439,17 +1450,17 @@ export function ScriptStudio({
                       )}
                     </button>
 
-                    {/* 创作者风格专属选择下拉胶囊（满足诉求 2：在对话框下方设置下拉框选择） */}
-                    <div className="relative" ref={dropdownRef}>
+                    {/* 创作者风格专属选择下拉胶囊 */}
+                    <div className="relative shrink-0" ref={dropdownRef}>
                       <button
                         type="button"
                         onClick={() => setStyleDropdownOpen(!styleDropdownOpen)}
-                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800/80 hover:bg-zinc-200/80 dark:hover:bg-zinc-700/80 text-[11.5px] font-medium text-zinc-700 dark:text-zinc-200 border border-zinc-200/80 dark:border-zinc-700/80 transition shadow-2xs"
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800/80 hover:bg-zinc-200/80 dark:hover:bg-zinc-700/80 text-[11.5px] font-medium text-zinc-700 dark:text-zinc-200 border border-zinc-200/80 dark:border-zinc-700/80 transition shadow-2xs cursor-pointer"
                         title="点击展开切换创作者风格，或输入 @ 快速联想"
                       >
                         <span className="text-blue-500">🎨</span>
-                        <span className="truncate max-w-[140px] sm:max-w-[200px]">
-                          {selectedSkill ? selectedSkill.name : '选择创作风格'}
+                        <span className="truncate max-w-[95px] sm:max-w-[140px]">
+                          {selectedSkill ? selectedSkill.name : '选择风格'}
                         </span>
                         <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
                       </button>
@@ -1544,14 +1555,99 @@ export function ScriptStudio({
                         </div>
                       )}
                     </div>
+
+                    {/* 模型快捷切换小按钮（满足诉求 3：模型选择框放到对话输入框里，用小按钮切换） */}
+                    <div className="relative shrink-0" ref={modelDropdownRef}>
+                      <button
+                        type="button"
+                        onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800/80 hover:bg-zinc-200/80 dark:hover:bg-zinc-700/80 text-[11.5px] font-medium text-zinc-700 dark:text-zinc-200 border border-zinc-200/80 dark:border-zinc-700/80 transition shadow-2xs cursor-pointer"
+                        title="点击快速切换 AI 创作模型"
+                      >
+                        <Bot className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        <span className="truncate max-w-[80px] sm:max-w-[120px]">
+                          {(() => {
+                            const found = Object.values(PRESET_PROVIDERS)
+                              .flatMap(p => p.models)
+                              .find(m => m.id === currentModelName);
+                            return found ? found.name : currentModelName;
+                          })()}
+                        </span>
+                        <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
+                      </button>
+
+                      {/* 模型选择下拉浮层 */}
+                      {modelDropdownOpen && (
+                        <div className="absolute bottom-full left-0 mb-1.5 z-50 w-64 bg-white dark:bg-[#181922] rounded-xl border border-zinc-200 dark:border-zinc-700 shadow-2xl p-1.5 overflow-hidden animate-in fade-in select-none">
+                          <div className="px-2 py-1.5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
+                              <Bot className="w-3.5 h-3.5 text-blue-500" />
+                              <span>选择 AI 创作模型</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setModelDropdownOpen(false);
+                                onOpenModelHub();
+                              }}
+                              className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+                            >
+                              <span>设置 Key</span>
+                              <SlidersHorizontal className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+
+                          <div className="max-h-56 overflow-y-auto space-y-1.5 py-1">
+                            {Object.entries(PRESET_PROVIDERS).map(([pType, preset]) => {
+                              const provConfig = modelSettings?.providers?.[pType as ModelProviderType];
+                              const hasKey = Boolean(provConfig?.apiKey?.trim());
+                              return (
+                                <div key={pType} className="space-y-0.5">
+                                  <div className="px-2 py-0.5 text-[10px] font-semibold text-zinc-400 flex items-center justify-between">
+                                    <span>{preset.icon} {preset.name}</span>
+                                    <span className={`text-[9px] ${hasKey ? 'text-emerald-500' : 'text-amber-500'}`}>
+                                      {hasKey ? '● 已就绪' : '○ 需配Key'}
+                                    </span>
+                                  </div>
+                                  {preset.models.map(m => {
+                                    const isSelected = currentProviderKey === pType && currentModelName === m.id;
+                                    return (
+                                      <div
+                                        key={m.id}
+                                        onClick={() => {
+                                          handleQuickSwitchModel(pType as ModelProviderType, m.id);
+                                          setModelDropdownOpen(false);
+                                        }}
+                                        className={`px-2 py-1 rounded-lg text-xs flex items-center justify-between cursor-pointer transition ${
+                                          isSelected
+                                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-semibold'
+                                            : 'hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
+                                        }`}
+                                      >
+                                        <div className="truncate pr-2">
+                                          <div className="text-[11.5px] truncate">{m.name}</div>
+                                        </div>
+                                        {isSelected && <Check className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10.5px] text-zinc-400 hidden sm:inline font-mono">Ctrl + Enter 发送</span>
+                  <div className="flex items-center gap-2.5 shrink-0">
+                    <span className="text-[10.5px] text-zinc-400 hidden md:inline font-mono whitespace-nowrap select-none">
+                      Ctrl + Enter
+                    </span>
                     <button
                       onClick={() => handleSendMessage()}
                       disabled={isGenerating || (!inputValue.trim() && pendingAttachments.length === 0)}
-                      className="btn-modern-primary px-3.5 py-1.5 min-w-[76px] text-xs flex items-center justify-center gap-1.5"
+                      className="btn-modern-primary px-3.5 py-1.5 min-w-[76px] text-xs flex items-center justify-center gap-1.5 shrink-0"
                     >
                       {isGenerating ? (
                         <>
@@ -1569,36 +1665,38 @@ export function ScriptStudio({
                 </div>
               </div>
             </div>
+            </div>
           </div>
         </div>
 
-        {/* 右侧可拖拽手柄 */}
-        <div
-          onMouseDown={e => {
-            e.preventDefault();
-            dragStartRef.current = { type: 'right', startX: e.clientX, startWidth: rightWidth };
-            document.body.style.cursor = 'col-resize';
-            document.body.style.userSelect = 'none';
-          }}
-          className="w-1.5 hover:w-2 hover:bg-blue-500/50 active:bg-blue-600 transition-all cursor-col-resize shrink-0 bg-transparent relative group flex items-center justify-center select-none"
-          title="按住左右拖拽，调节精选文案面板宽度"
-        >
-          <div className="w-[1.5px] h-8 bg-zinc-300/80 dark:bg-zinc-700/80 group-hover:bg-blue-500 rounded-full transition-colors" />
-        </div>
+        {/* 右侧精选文案与多流转中心（仅在用户主动精选后才在右侧显示，满足诉求 4） */}
+        {showRightPanel && Boolean(pinnedScript && pinnedScript.trim()) && (
+          <>
+            {/* 右侧可拖拽手柄 */}
+            <div
+              onMouseDown={e => {
+                e.preventDefault();
+                dragStartRef.current = { type: 'right', startX: e.clientX, startWidth: rightWidth };
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+              }}
+              className="w-1.5 hover:w-2 hover:bg-blue-500/50 active:bg-blue-600 transition-all cursor-col-resize shrink-0 bg-transparent relative group flex items-center justify-center select-none"
+              title="按住左右拖拽，调节精选文案面板宽度"
+            >
+              <div className="w-[1.5px] h-8 bg-zinc-300/80 dark:bg-zinc-700/80 group-hover:bg-blue-500 rounded-full transition-colors" />
+            </div>
 
-        {/* 右栏：精选文案与多流转中心（规范术语为：精选文案） */}
-        <div
-          style={{ width: `${rightWidth}px` }}
-          className="border-l border-zinc-200/80 dark:border-zinc-800/80 p-4 flex flex-col bg-white dark:bg-[#111217] shrink-0 overflow-hidden"
-        >
-          <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/80">
-            <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-              <Layers className="w-4 h-4 text-blue-500" />
-              <span>精选文案与流转中心</span>
-            </span>
-            <div className="flex items-center gap-2">
-              {pinnedScript && (
-                <>
+            {/* 右栏：精选文案与多流转中心 */}
+            <div
+              style={{ width: `${rightWidth}px` }}
+              className="border-l border-zinc-200/80 dark:border-zinc-800/80 p-4 flex flex-col bg-white dark:bg-[#111217] shrink-0 overflow-hidden"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/80">
+                <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-blue-500" />
+                  <span>精选文案与流转中心</span>
+                </span>
+                <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
                       const clean = extractCleanScript(pinnedScript);
@@ -1623,58 +1721,52 @@ export function ScriptStudio({
                   <button
                     onClick={() => {
                       updateCurrentSession({ pinnedScript: '' });
-                      showToast('已清空文案看板');
+                      setShowRightPanel(false);
+                      showToast('已清空精选文案');
                     }}
                     className="text-[11px] text-zinc-400 hover:text-rose-500 hover:underline cursor-pointer"
                     title="清空文案看板"
                   >
                     清空
                   </button>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* 精选文案编辑与预览 */}
-          <div className="flex-1 my-3 overflow-y-auto flex flex-col">
-            {pinnedScript ? (
-              <div className="flex-1 flex flex-col space-y-2">
-                <textarea
-                  value={pinnedScript}
-                  onChange={e => updateCurrentSession({ pinnedScript: e.target.value })}
-                  placeholder="可在此微调当前精选文案..."
-                  className="flex-1 w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200/80 dark:border-zinc-800 text-xs leading-relaxed text-zinc-800 dark:text-zinc-200 resize-none outline-none focus:outline-none ring-0 focus:ring-0 focus:border-blue-500 select-text font-sans"
-                />
-                <div className="flex items-center justify-between text-[11px] text-zinc-400 px-1">
-                  <span>总字数: <strong className="text-zinc-700 dark:text-zinc-200">{pinnedScript.length}</strong> 字</span>
-                  <span>预估时长: ~<strong className="text-zinc-700 dark:text-zinc-200">{Math.round(pinnedScript.length / 4.5)}</strong> 秒</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowRightPanel(false)}
+                    className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+                    title="收起精选文案面板"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center text-center p-6 text-zinc-400 space-y-2">
-                <MessageSquare className="w-10 h-10 opacity-30 text-zinc-400 stroke-[1.5]" />
-                <p className="text-xs leading-relaxed">
-                  在对话中生成满意的成果后，点击气泡下方的【设为精选文案】，即可在此沉淀打磨并一键推往生产流水线
-                </p>
-              </div>
-            )}
-          </div>
 
-          {/* 快捷生产流转卡片 */}
-          {pinnedScript && (
-            <div className="space-y-2.5 pt-3 border-t border-zinc-100 dark:border-zinc-800/80">
-              <div
-                onClick={() => {
-                  const clean = extractCleanScript(pinnedScript);
-                  onPushToSynth(clean, selectedSkill?.voiceBinding?.voiceId);
-                  showToast('已推送到语音合成工坊！');
-                }}
-                className="group relative overflow-hidden rounded-2xl p-3 border border-purple-200/80 dark:border-purple-900/50 bg-gradient-to-r from-purple-50/70 via-white to-purple-50/20 dark:from-purple-950/20 dark:via-[#14151c] dark:to-purple-950/10 hover:border-purple-400 dark:hover:border-purple-600 shadow-2xs hover:shadow-md hover:shadow-purple-500/10 transition-all cursor-pointer active:scale-[0.98]"
-                title="推送到语音合成 (Seed-TTS 2.0)"
-              >
-                <div className="flex items-center justify-between">
+              {/* 精选文案编辑与预览 */}
+              <div className="flex-1 my-3 overflow-y-auto flex flex-col">
+                <div className="flex-1 flex flex-col space-y-2">
+                  <textarea
+                    value={pinnedScript}
+                    onChange={e => updateCurrentSession({ pinnedScript: e.target.value })}
+                    rows={12}
+                    className="w-full flex-1 p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs font-script-reading leading-relaxed text-zinc-900 dark:text-zinc-100 outline-none focus:border-blue-500 transition resize-none select-text"
+                    placeholder="选中的精选口播文案将在此沉淀..."
+                  />
+
+                  {/* 字数与预估时长 */}
+                  <div className="flex items-center justify-between text-[11px] text-zinc-400 px-1 font-mono select-none">
+                    <span>总字数: <strong className="text-zinc-700 dark:text-zinc-300">{pinnedScript.length}</strong> 字</span>
+                    <span>预估时长: ~<strong className="text-zinc-700 dark:text-zinc-300">{Math.ceil(pinnedScript.length / 4.5)}</strong> 秒</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 流转操作区 */}
+              <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800/80 space-y-2 select-none">
+                <div
+                  onClick={() => onPushToSynth(pinnedScript, selectedSkill?.voiceBinding?.voiceId)}
+                  className="p-2.5 rounded-xl border border-purple-200/80 dark:border-purple-900/60 bg-gradient-to-r from-purple-50/70 to-indigo-50/70 dark:from-purple-950/20 dark:to-indigo-950/20 hover:border-purple-400 transition cursor-pointer flex items-center justify-between group"
+                >
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-8 h-8 rounded-xl bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 flex items-center justify-center text-base shrink-0 shadow-inner">
+                    <div className="w-8 h-8 rounded-lg bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
                       <Mic className="w-4 h-4" />
                     </div>
                     <div className="min-w-0">
@@ -1689,20 +1781,13 @@ export function ScriptStudio({
                   </div>
                   <ChevronRight className="w-4 h-4 text-purple-500 group-hover:translate-x-0.5 transition-transform shrink-0 ml-1" />
                 </div>
-              </div>
 
-              <div
-                onClick={() => {
-                  const clean = extractCleanScript(pinnedScript);
-                  onPushToAvatar(clean);
-                  showToast('已推送到蝉镜数字人工坊！');
-                }}
-                className="group relative overflow-hidden rounded-2xl p-3 border border-cyan-200/80 dark:border-cyan-900/50 bg-gradient-to-r from-cyan-50/70 via-white to-cyan-50/20 dark:from-cyan-950/20 dark:via-[#14151c] dark:to-cyan-950/10 hover:border-cyan-400 dark:hover:border-cyan-600 shadow-2xs hover:shadow-md hover:shadow-cyan-500/10 transition-all cursor-pointer active:scale-[0.98]"
-                title="推送到蝉镜数字人出镜"
-              >
-                <div className="flex items-center justify-between">
+                <div
+                  onClick={() => onPushToAvatar(pinnedScript)}
+                  className="p-2.5 rounded-xl border border-cyan-200/80 dark:border-cyan-900/60 bg-gradient-to-r from-cyan-50/70 to-blue-50/70 dark:from-cyan-950/20 dark:to-blue-950/20 hover:border-cyan-400 transition cursor-pointer flex items-center justify-between group"
+                >
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-8 h-8 rounded-xl bg-cyan-100 dark:bg-cyan-900/40 text-cyan-600 dark:text-cyan-400 flex items-center justify-center text-base shrink-0 shadow-inner">
+                    <div className="w-8 h-8 rounded-lg bg-cyan-500/10 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 flex items-center justify-center shrink-0">
                       <Video className="w-4 h-4" />
                     </div>
                     <div className="min-w-0">
@@ -1719,8 +1804,8 @@ export function ScriptStudio({
                 </div>
               </div>
             </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
 
       {/* 投喂样本提炼风格 Modal */}

@@ -309,7 +309,7 @@ export function ChatMessageRenderer({ content, role, isStreaming }: Props) {
 
       // 普通段落文本
       nodes.push(
-        <p key={`p-${i}`} className="my-1 text-[12.5px] leading-[1.7] text-zinc-800 dark:text-zinc-200">
+        <p key={`p-${i}`} className="my-1.5 text-[13px] leading-[1.75] text-zinc-800 dark:text-zinc-200">
           {renderInlineElements(line)}
         </p>
       );
@@ -331,7 +331,7 @@ export function ChatMessageRenderer({ content, role, isStreaming }: Props) {
   };
 
   return (
-    <div className="select-text font-sans space-y-0.5 text-[12.5px] leading-relaxed">
+    <div className="select-text font-script-reading space-y-0.5 text-[13px] leading-[1.75]">
       {/* 深度推演思考卡片 */}
       {think && <ThinkAccordion think={think} isStreaming={isStreaming} />}
 

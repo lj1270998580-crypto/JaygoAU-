@@ -240,7 +240,7 @@ function SystemStatusCapsule() {
           <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-zinc-500 dark:text-zinc-400 font-mono text-[11px]">
-                当前版本：v{appVersion || '0.6.0'}
+                当前版本：v{appVersion || '0.6.1'}
               </span>
               <div className="flex items-center gap-2">
                 <button
