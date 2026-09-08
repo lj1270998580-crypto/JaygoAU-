@@ -1393,8 +1393,30 @@ ipcMain.handle('extract-media', async (_e, input: string) => {
 
 ipcMain.handle(
   'download-extracted-media',
-  async (e, args: { mediaInfo: ParsedMediaInfo; type: 'video' | 'audio' }) => {
-    const { mediaInfo, type } = args;
+  async (
+    e,
+    args: {
+      mediaInfo: ParsedMediaInfo;
+      type: 'video' | 'audio';
+      selectedResolutionId?: string;
+      selectedVideoUrl?: string;
+      selectedAudioUrl?: string;
+    }
+  ) => {
+    const { mediaInfo, type, selectedResolutionId, selectedVideoUrl, selectedAudioUrl } = args;
+
+    // 匹配用户选定的清晰度规格直链
+    let chosenVideoUrl = selectedVideoUrl || mediaInfo.videoUrl;
+    let chosenAudioUrl = selectedAudioUrl || mediaInfo.audioUrl;
+
+    if (selectedResolutionId && mediaInfo.resolutions && mediaInfo.resolutions.length > 0) {
+      const matchOpt = mediaInfo.resolutions.find((r) => r.id === selectedResolutionId);
+      if (matchOpt) {
+        if (matchOpt.videoUrl) chosenVideoUrl = matchOpt.videoUrl;
+        if (matchOpt.audioUrl) chosenAudioUrl = matchOpt.audioUrl;
+      }
+    }
+
     const safeTitle = (mediaInfo.title || 'media').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
     const defaultExt = type === 'video' ? 'mp4' : 'mp3';
     const defaultPath = path.join(settings.outputDir || app.getPath('downloads'), `${safeTitle}.${defaultExt}`);
@@ -1413,15 +1435,15 @@ ipcMain.handle(
     const targetPath = saveRes.filePath;
 
     if (type === 'video') {
-      if (!mediaInfo.videoUrl) throw new Error('该作品未解析出视频流');
+      if (!chosenVideoUrl) throw new Error('该作品未解析出有效视频流');
 
       // 若包含独立音频流（如抖音 DASH 模式），分别下载后自动用 FFmpeg 快速无损合并
-      if (mediaInfo.audioUrl && (mediaInfo.videoUrl.includes('media-video') || mediaInfo.platform === 'douyin')) {
+      if (chosenAudioUrl && (chosenVideoUrl.includes('media-video') || mediaInfo.platform === 'douyin')) {
         const tempVideo = path.join(app.getPath('temp'), `jaygo-v-${Date.now()}.mp4`);
         const tempAudio = path.join(app.getPath('temp'), `jaygo-a-${Date.now()}.mp4`);
         try {
-          await downloadMediaFile(mediaInfo.videoUrl, tempVideo, mediaInfo.headers);
-          await downloadMediaFile(mediaInfo.audioUrl, tempAudio, mediaInfo.headers);
+          await downloadMediaFile(chosenVideoUrl, tempVideo, mediaInfo.headers);
+          await downloadMediaFile(chosenAudioUrl, tempAudio, mediaInfo.headers);
           await mergeVideoAndAudioWithFfmpeg(FFMPEG_PATH, tempVideo, tempAudio, targetPath);
           return { path: targetPath, size: fs.statSync(targetPath).size };
         } finally {
@@ -1429,7 +1451,7 @@ ipcMain.handle(
           fs.unlink(tempAudio, () => {});
         }
       } else {
-        await downloadMediaFile(mediaInfo.videoUrl, targetPath, mediaInfo.headers);
+        await downloadMediaFile(chosenVideoUrl, targetPath, mediaInfo.headers);
         return { path: targetPath, size: fs.statSync(targetPath).size };
       }
     } else {

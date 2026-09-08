@@ -201,8 +201,13 @@ const api = {
   },
   // ---- 多平台媒体/短视频无水印提取 ----
   extractMedia: (input: string) => ipcRenderer.invoke('extract-media', input),
-  downloadExtractedMedia: (args: { mediaInfo: any; type: 'video' | 'audio' }) =>
-    ipcRenderer.invoke('download-extracted-media', args),
+  downloadExtractedMedia: (args: {
+    mediaInfo: any;
+    type: 'video' | 'audio';
+    selectedResolutionId?: string;
+    selectedVideoUrl?: string;
+    selectedAudioUrl?: string;
+  }) => ipcRenderer.invoke('download-extracted-media', args),
   downloadExtractedImage: (args: { imageUrl: string; defaultName?: string }) =>
     ipcRenderer.invoke('download-extracted-image', args),
   downloadAllExtractedImages: (args: { images: string[]; title: string }) =>

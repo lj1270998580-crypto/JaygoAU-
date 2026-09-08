@@ -6,6 +6,20 @@ import http from 'http';
 import { URL } from 'url';
 import { BrowserWindow } from 'electron';
 
+export interface MediaResolutionOption {
+  id: string;             // e.g. '1080p', '720p', '480p', '360p', 'h265', 'h264'
+  label: string;          // e.g. '1080P 超清', '720P 高清', '360P 流畅'
+  videoUrl?: string;      // 该清晰度对应的视频流直链
+  audioUrl?: string;      // 对应的独立音频流（若有）
+  quality?: number;       // 如 B站 qn: 80, 64, 32, 16
+  bitrate?: number;       // 码率 (bps)
+  width?: number;         // 分辨率宽
+  height?: number;        // 分辨率高
+  format?: string;        // mp4, h264, h265
+  sizeEstimated?: number; // 预估文件大小 (bytes)
+  isDefault?: boolean;    // 是否为默认推荐项（最高画质）
+}
+
 export interface ParsedMediaInfo {
   platform: 'douyin' | 'bilibili' | 'kuaishou' | 'xiaohongshu' | 'generic';
   platformName: string;
@@ -21,6 +35,9 @@ export interface ParsedMediaInfo {
   originalUrl: string;
   headers?: Record<string, string>;
   images?: string[];
+  rawImages?: string[]; // 100% 超清无损原图列表 (去除 CDN 缩放/WebP压缩后的原图)
+  resolutions?: MediaResolutionOption[]; // 可选清晰度列表（按画质从高到低排序）
+  selectedResolutionId?: string;        // 默认选中的清晰度 ID
 }
 
 const MOBILE_UA =
@@ -168,6 +185,7 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
 
     let capturedVideo = '';
     let capturedAudio = '';
+    const capturedVideos: string[] = [];
 
     // 网络请求全流量嗅探
     win.webContents.session.webRequest.onBeforeRequest((details, callback) => {
@@ -181,7 +199,7 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
         return callback({});
       }
 
-      // 捕获真实 CDN 视频流
+      // 捕获真实 CDN 视频流并收集多清晰度候选
       if (
         (u.includes('media-video') ||
          (u.includes('douyinvod.com') && !u.includes('media-audio')) ||
@@ -192,6 +210,9 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
       ) {
         if (!capturedVideo) {
           capturedVideo = u;
+        }
+        if (!capturedVideos.includes(u)) {
+          capturedVideos.push(u);
         }
       }
 
@@ -244,12 +265,12 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
 
             // 提取所有高清原图（排除头像、图标等非作品图）
             const imgs = Array.from(document.querySelectorAll('img')).map(i => i.src);
-            const noteImages = imgs
+            const rawImages = imgs
               .filter(s => s.includes('douyinpic.com') && !s.includes('avatar') && !s.includes('icon') && !s.includes('user-avatar'))
-              .map(s => s.replace(/~.*$/, '')); // 移除缩放参数获取无损大图
+              .map(s => s.replace(/~.*$/, '')); // 移除缩放与压缩参数获取无损原图
 
-            const uniqueImages = Array.from(new Set(noteImages));
-            const cover = uniqueImages[0] || (imgs.find(s => s.includes('douyinpic.com') && !s.includes('avatar')) || '');
+            const uniqueRaw = Array.from(new Set(rawImages));
+            const cover = uniqueRaw[0] || (imgs.find(s => s.includes('douyinpic.com') && !s.includes('avatar')) || '');
             const avatar = imgs.find(s => s.includes('avatar')) || '';
             const isNotePage = window.location.href.includes('/note/');
 
@@ -259,7 +280,8 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
               author: author || '抖音创作者',
               authorAvatar: avatar,
               coverUrl: cover,
-              images: uniqueImages.length > 0 ? uniqueImages : undefined,
+              images: uniqueRaw.length > 0 ? uniqueRaw : undefined,
+              rawImages: uniqueRaw.length > 0 ? uniqueRaw : undefined,
               isNotePage,
             };
           })()
@@ -278,18 +300,57 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
           settled = true;
           clearInterval(interval);
           cleanup();
+
+          // 组织抖音清晰度列表（按清晰度等级排序：1080P > 720P > 540P）
+          const sortedVideos = [...capturedVideos].sort((a, b) => {
+            const score = (u: string) => (u.includes('1080') ? 3 : u.includes('720') ? 2 : u.includes('540') ? 1 : 0);
+            return score(b) - score(a);
+          });
+
+          const resolutions: MediaResolutionOption[] = [];
+          if (sortedVideos.length > 0) {
+            sortedVideos.forEach((vUrl, idx) => {
+              let label = '超清视频流';
+              let qId = `dy_${idx}`;
+              if (vUrl.includes('1080')) {
+                label = '1080P 超清';
+                qId = '1080p';
+              } else if (vUrl.includes('720')) {
+                label = '720P 高清';
+                qId = '720p';
+              } else if (vUrl.includes('540')) {
+                label = '540P 标清';
+                qId = '540p';
+              } else {
+                label = idx === 0 ? '超清无水印流' : `备用规格 ${idx + 1}`;
+              }
+              resolutions.push({
+                id: qId,
+                label,
+                videoUrl: vUrl,
+                audioUrl: capturedAudio || undefined,
+                isDefault: idx === 0,
+              });
+            });
+          }
+
+          const primaryVideo = resolutions[0]?.videoUrl || capturedVideo || undefined;
+
           resolve({
             platform: 'douyin',
             platformName: '抖音',
-            mediaType: capturedVideo ? 'video' : 'images',
+            mediaType: primaryVideo ? 'video' : 'images',
             title: info.title,
             desc: info.desc,
             author: info.author,
             authorAvatar: info.authorAvatar,
             coverUrl: info.coverUrl,
-            videoUrl: capturedVideo || undefined,
+            videoUrl: primaryVideo,
             audioUrl: capturedAudio || undefined,
             images: info.images && info.images.length > 0 ? info.images : undefined,
+            rawImages: info.rawImages && info.rawImages.length > 0 ? info.rawImages : undefined,
+            resolutions: resolutions.length > 0 ? resolutions : undefined,
+            selectedResolutionId: resolutions[0]?.id,
             originalUrl: targetUrl,
             headers: {
               'User-Agent': PC_UA,
@@ -302,7 +363,7 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
   });
 }
 
-// ---- 2. 哔哩哔哩解析器 ----
+// ---- 2. 哔哩哔哩解析器（解除 720P 限制，支持 1080P/720P/360P 并发多清晰度解析与直链提取） ----
 async function parseBilibili(targetUrl: string): Promise<ParsedMediaInfo> {
   let realUrl = targetUrl;
   if (realUrl.includes('b23.tv')) {
@@ -320,7 +381,7 @@ async function parseBilibili(targetUrl: string): Promise<ParsedMediaInfo> {
   }
   const bvid = bvMatch[1];
 
-  // 1. 获取视频基本信息
+  // 1. 获取视频基本信息与分 P cid
   const viewRes = await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`, {
     headers: { 'User-Agent': PC_UA, 'Referer': 'https://www.bilibili.com' },
   }).then((r) => r.json());
@@ -332,25 +393,96 @@ async function parseBilibili(targetUrl: string): Promise<ParsedMediaInfo> {
   const d = viewRes.data;
   const cid = d.cid;
 
-  // 2. 请求播放直链 (HTML5 模式返回单 MP4 容器格式，免去音视频分流合并)
-  const playRes = await fetch(
-    `https://api.bilibili.com/x/player/playurl?bvid=${bvid}&cid=${cid}&qn=64&platform=html5`,
+  // 2. 默认优先请求最高画质 1080P (qn=80) 直链并捕获可用清晰度列表
+  const playRes80 = await fetch(
+    `https://api.bilibili.com/x/player/playurl?bvid=${bvid}&cid=${cid}&qn=80&platform=html5`,
     {
       headers: { 'User-Agent': PC_UA, 'Referer': 'https://www.bilibili.com' },
     }
   ).then((r) => r.json());
 
-  const videoUrl = playRes.data?.durl?.[0]?.url || '';
+  const acceptQuality: number[] = playRes80.data?.accept_quality || [80, 64, 16];
+  const acceptDesc: string[] = playRes80.data?.accept_description || ['高清 1080P', '高清 720P', '流畅 360P'];
+
+  const descFor = (qn: number) => {
+    const idx = acceptQuality.indexOf(qn);
+    return idx >= 0 ? acceptDesc[idx] : `${qn}P`;
+  };
+
+  const resolutions: MediaResolutionOption[] = [];
+  const curQn = playRes80.data?.quality || 80;
+  const curVideoUrl = playRes80.data?.durl?.[0]?.url || '';
+  const curSize = playRes80.data?.durl?.[0]?.size || undefined;
+
+  if (curVideoUrl) {
+    resolutions.push({
+      id: `${curQn}p`,
+      label: descFor(curQn),
+      quality: curQn,
+      videoUrl: curVideoUrl,
+      sizeEstimated: curSize,
+      isDefault: true,
+    });
+  }
+
+  // 3. 并发拉取其他受支持的清晰度直链（如 720P / 480P / 360P）
+  const otherQns = acceptQuality.filter((q) => q !== curQn && [80, 64, 32, 16].includes(q));
+  if (otherQns.length > 0) {
+    try {
+      const extraResults = await Promise.all(
+        otherQns.map(async (qn) => {
+          try {
+            const r = await fetch(
+              `https://api.bilibili.com/x/player/playurl?bvid=${bvid}&cid=${cid}&qn=${qn}&platform=html5`,
+              {
+                headers: { 'User-Agent': PC_UA, 'Referer': 'https://www.bilibili.com' },
+              }
+            ).then((res) => res.json());
+            const u = r.data?.durl?.[0]?.url;
+            const sz = r.data?.durl?.[0]?.size;
+            if (u) {
+              return {
+                id: `${qn}p`,
+                label: descFor(qn),
+                quality: qn,
+                videoUrl: u,
+                sizeEstimated: sz,
+                isDefault: false,
+              };
+            }
+          } catch {}
+          return null;
+        })
+      );
+
+      for (const item of extraResults) {
+        if (item && !resolutions.some((x) => x.id === item.id)) {
+          resolutions.push(item);
+        }
+      }
+    } catch {}
+  }
+
+  // 按画质从大到小排序
+  resolutions.sort((a, b) => (b.quality || 0) - (a.quality || 0));
+  if (resolutions.length > 0) {
+    resolutions[0].isDefault = true;
+  }
+
+  const primaryVideoUrl = resolutions[0]?.videoUrl || curVideoUrl;
 
   return {
     platform: 'bilibili',
     platformName: '哔哩哔哩',
     title: d.title || 'B站作品',
+    desc: d.desc || '',
     author: d.owner?.name || '未知UP主',
     authorAvatar: d.owner?.face || '',
     coverUrl: d.pic || '',
     durationSec: d.duration || 0,
-    videoUrl: videoUrl || undefined,
+    videoUrl: primaryVideoUrl || undefined,
+    resolutions: resolutions.length > 0 ? resolutions : undefined,
+    selectedResolutionId: resolutions[0]?.id,
     originalUrl: targetUrl,
     headers: {
       'User-Agent': PC_UA,
@@ -440,8 +572,29 @@ async function parseKuaishou(targetUrl: string): Promise<ParsedMediaInfo> {
   const author = authorObj?.name || '快手创作者';
   const authorAvatar = authorObj?.headerUrl || '';
   const coverUrl = photo.coverUrl || '';
-  const videoUrl = photo.photoUrl || photo.photoH265Url || undefined;
   const durationSec = photo.duration ? Math.round(photo.duration / 1000) : undefined;
+
+  const resolutions: MediaResolutionOption[] = [];
+  if (photo.photoH265Url) {
+    resolutions.push({
+      id: 'h265',
+      label: '超清 (H.265 编码)',
+      videoUrl: photo.photoH265Url,
+      format: 'h265',
+      isDefault: true,
+    });
+  }
+  if (photo.photoUrl && photo.photoUrl !== photo.photoH265Url) {
+    resolutions.push({
+      id: 'h264',
+      label: '标准 (H.264 编码)',
+      videoUrl: photo.photoUrl,
+      format: 'h264',
+      isDefault: resolutions.length === 0,
+    });
+  }
+
+  const primaryVideoUrl = resolutions[0]?.videoUrl || photo.photoUrl || photo.photoH265Url || undefined;
 
   return {
     platform: 'kuaishou',
@@ -452,8 +605,10 @@ async function parseKuaishou(targetUrl: string): Promise<ParsedMediaInfo> {
     author,
     authorAvatar,
     coverUrl,
-    videoUrl,
+    videoUrl: primaryVideoUrl,
     durationSec,
+    resolutions: resolutions.length > 0 ? resolutions : undefined,
+    selectedResolutionId: resolutions[0]?.id,
     originalUrl: targetUrl,
     headers: {
       'User-Agent': PC_UA,
@@ -462,7 +617,7 @@ async function parseKuaishou(targetUrl: string): Promise<ParsedMediaInfo> {
   };
 }
 
-// ---- 4. 小红书解析器（全参数保留跳转、图文/视频双模态与超清原图提取） ----
+// ---- 4. 小红书解析器（全参数保留跳转、图文/视频双模态与超清无损原图提取） ----
 async function parseXiaohongshu(targetUrl: string): Promise<ParsedMediaInfo> {
   let fullUrl = targetUrl;
 
@@ -536,18 +691,73 @@ async function parseXiaohongshu(targetUrl: string): Promise<ParsedMediaInfo> {
   const authorAvatar = note.user?.avatar || '';
 
   let videoUrl: string | undefined = undefined;
+  const resolutions: MediaResolutionOption[] = [];
+
   if (isVideo && note.video?.media?.stream) {
     const stream = note.video.media.stream;
-    const h264List = stream.h264 || [];
-    videoUrl = h264List[0]?.masterUrl || stream.h265?.[0]?.masterUrl || undefined;
+    const h264List: any[] = stream.h264 || [];
+    const h265List: any[] = stream.h265 || [];
+
+    const allStreams = [
+      ...h264List.map((s) => ({ ...s, codec: 'h264' })),
+      ...h265List.map((s) => ({ ...s, codec: 'h265' })),
+    ];
+
+    allStreams.forEach((st, idx) => {
+      const u = st.masterUrl || st.mainUrl || st.url;
+      if (!u) return;
+      const qType = st.qualityType || '';
+      const w = st.width || 0;
+      const h = st.height || 0;
+      let label = qType;
+      if (!label && h) {
+        label = h >= 1080 ? '1080P 超清' : h >= 720 ? '720P 高清' : `${h}P 标清`;
+      } else if (!label) {
+        label = idx === 0 ? '超清无水印流' : `清晰度规格 ${idx + 1}`;
+      }
+      if (st.codec === 'h265') label += ' (H.265)';
+
+      resolutions.push({
+        id: `xhs_${st.codec}_${idx}`,
+        label,
+        videoUrl: u,
+        bitrate: st.bitrate || st.videoBitrate,
+        width: w,
+        height: h,
+        format: st.codec,
+        sizeEstimated: st.size || st.videoSize,
+      });
+    });
+
+    if (resolutions.length > 0) {
+      // 优先按分辨率高度降序，再按码率降序
+      resolutions.sort((a, b) => (b.height || 0) - (a.height || 0) || (b.bitrate || 0) - (a.bitrate || 0));
+      resolutions[0].isDefault = true;
+      videoUrl = resolutions[0].videoUrl;
+    } else {
+      videoUrl = h264List[0]?.masterUrl || stream.h265?.[0]?.masterUrl || undefined;
+    }
   }
 
+  // 1. 网页端自适应预览图片列表
   const images: string[] = (note.imageList || [])
     .map((img: any) => {
-      // 提取最高清原图场景（WB_DFT 或 WB_PRV 或 urlDefault）
       const dft = img.infoList?.find((it: any) => it.imageScene === 'WB_DFT')?.url;
       const prv = img.infoList?.find((it: any) => it.imageScene === 'WB_PRV')?.url;
       return dft || img.urlDefault || prv || img.url;
+    })
+    .filter(Boolean);
+
+  // 2. 超清无损原图列表（去除 CDN imageView2、webp 压缩和裁剪参数，获取母带真实像素）
+  const rawImages: string[] = (note.imageList || [])
+    .map((img: any) => {
+      const rawObj =
+        img.infoList?.find((it: any) => it.imageScene === 'CR_DFT') ||
+        img.infoList?.find((it: any) => it.imageScene === 'WB_DFT');
+      const target = rawObj?.url || img.urlDefault || img.url || '';
+      if (!target) return '';
+      // 彻底剥离 ?imageView2/2/w/.../format/webp 与 !nd_... 降质后缀
+      return target.split('?')[0].replace(/!.*$/, '');
     })
     .filter(Boolean);
 
@@ -564,6 +774,9 @@ async function parseXiaohongshu(targetUrl: string): Promise<ParsedMediaInfo> {
     coverUrl,
     videoUrl,
     images: images.length > 0 ? images : undefined,
+    rawImages: rawImages.length > 0 ? rawImages : undefined,
+    resolutions: resolutions.length > 0 ? resolutions : undefined,
+    selectedResolutionId: resolutions[0]?.id,
     originalUrl: targetUrl,
     headers: {
       'User-Agent': PC_UA,

@@ -25,6 +25,9 @@ export default function MediaExtractor() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
+  const [selectedResolutionId, setSelectedResolutionId] = useState<string | null>(null);
+  const [useRawOriginal, setUseRawOriginal] = useState<boolean>(true);
+
   // 从本地存储加载历史解析记录
   useEffect(() => {
     try {
@@ -97,8 +100,10 @@ export default function MediaExtractor() {
     setExtractError(null);
 
     try {
-      const res = await (window as any).JaygoAPI.extractMedia(raw);
+      const res: ParsedMediaInfo = await (window as any).JaygoAPI.extractMedia(raw);
       setCurrentMedia(res);
+      const defaultRes = res.resolutions?.find((r) => r.isDefault)?.id || res.resolutions?.[0]?.id || null;
+      setSelectedResolutionId(defaultRes);
       setActiveImageIndex(0);
       saveHistory(res);
       showToast(`成功解析来自「${res.platformName}」的作品！`, 'ok');
@@ -119,14 +124,19 @@ export default function MediaExtractor() {
     try {
       const pad = String(index + 1).padStart(2, '0');
       const safeTitle = (currentMedia.title || 'image').slice(0, 30);
+      const activeImages = (useRawOriginal && currentMedia.rawImages && currentMedia.rawImages.length > 0)
+        ? currentMedia.rawImages
+        : currentMedia.images;
+      const targetUrl = activeImages[index] || currentMedia.images[index];
+
       const res = await (window as any).JaygoAPI.downloadExtractedImage({
-        imageUrl: currentMedia.images[index],
+        imageUrl: targetUrl,
         defaultName: `${safeTitle}_${pad}`,
       });
 
       if (!res) return;
       setLastSavedPath(res.path);
-      showToast(`第 ${index + 1} 张高清图片已保存到本地！`, 'ok');
+      showToast(`第 ${index + 1} 张${useRawOriginal ? '超清无损原图' : '高清图片'}已保存到本地！`, 'ok');
     } catch (err: any) {
       showToast(`保存图片失败: ${err?.message || '未知错误'}`, 'err');
     } finally {
@@ -140,14 +150,18 @@ export default function MediaExtractor() {
     setDownloadingType('all-images');
 
     try {
+      const activeImages = (useRawOriginal && currentMedia.rawImages && currentMedia.rawImages.length > 0)
+        ? currentMedia.rawImages
+        : currentMedia.images;
+
       const res = await (window as any).JaygoAPI.downloadAllExtractedImages({
-        images: currentMedia.images,
+        images: activeImages,
         title: currentMedia.title || 'images',
       });
 
       if (!res) return;
       setLastSavedPath(res.folderPath);
-      showToast(`全部 ${res.count} 张高清原图已保存到文件夹！`, 'ok');
+      showToast(`全部 ${res.count} 张${useRawOriginal ? '超清无损母带原图' : '高清图片'}已保存到文件夹！`, 'ok');
     } catch (err: any) {
       showToast(`批量保存失败: ${err?.message || '未知错误'}`, 'err');
     } finally {
@@ -155,16 +169,23 @@ export default function MediaExtractor() {
     }
   };
 
-  // 下载视频或音频
+  // 下载视频或音频（支持指定清晰度）
   const handleDownload = async (type: 'video' | 'audio') => {
     if (!currentMedia) return;
     setDownloadingType(type);
     setDownloadProgress(0);
 
     try {
+      const activeResolution = currentMedia.resolutions?.find(
+        (r) => (selectedResolutionId ? r.id === selectedResolutionId : r.isDefault)
+      ) || currentMedia.resolutions?.[0];
+
       const res = await (window as any).JaygoAPI.downloadExtractedMedia({
         mediaInfo: currentMedia,
         type,
+        selectedResolutionId: activeResolution?.id,
+        selectedVideoUrl: activeResolution?.videoUrl,
+        selectedAudioUrl: activeResolution?.audioUrl,
       });
 
       if (!res) {
@@ -174,7 +195,8 @@ export default function MediaExtractor() {
 
       setLastSavedPath(res.path);
       const sizeMb = (res.size / (1024 * 1024)).toFixed(1);
-      showToast(`下载完成！文件大小: ${sizeMb} MB`, 'ok');
+      const qualityTag = activeResolution && type === 'video' ? ` [${activeResolution.label}]` : '';
+      showToast(`下载完成${qualityTag}！文件大小: ${sizeMb} MB`, 'ok');
     } catch (err: any) {
       showToast(`下载失败: ${err?.message || '未知错误'}`, 'err');
     } finally {
@@ -357,6 +379,16 @@ export default function MediaExtractor() {
           (!currentMedia.videoUrl && currentMedia.images && currentMedia.images.length > 0)
         );
 
+        const activeResolution = currentMedia.resolutions?.find(
+          (r) => (selectedResolutionId ? r.id === selectedResolutionId : r.isDefault)
+        ) || currentMedia.resolutions?.[0];
+
+        const activeVideoSrc = activeResolution?.videoUrl || currentMedia.videoUrl;
+        const rawImageList = (useRawOriginal && currentMedia.rawImages && currentMedia.rawImages.length > 0)
+          ? currentMedia.rawImages
+          : currentMedia.images;
+        const activeImageSrc = rawImageList?.[activeImageIndex] || currentMedia.images?.[activeImageIndex] || currentMedia.coverUrl;
+
         return (
           <div className="rounded-2xl border border-blue-100 dark:border-blue-950/80 bg-blue-50/20 dark:bg-blue-950/10 p-5 mb-8 shadow-xs animate-fade-in">
             <div className="flex items-center justify-between pb-3 mb-4 border-b border-zinc-200/60 dark:border-zinc-800/80">
@@ -371,6 +403,11 @@ export default function MediaExtractor() {
                 }`}>
                   {isImageNote ? '📸 高清图文作品' : '🎬 高清短视频'}
                 </span>
+                {activeResolution && !isImageNote && (
+                  <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60">
+                    {activeResolution.label}
+                  </span>
+                )}
                 <span className="text-xs text-zinc-500 dark:text-zinc-400">解析成功</span>
               </div>
 
@@ -392,13 +429,13 @@ export default function MediaExtractor() {
               {/* 左侧：封面/媒体播放器/图集画廊预览 */}
               <div className="w-full lg:w-[380px] shrink-0 flex flex-col gap-3">
                 <div className="rounded-xl overflow-hidden border border-zinc-200/80 dark:border-zinc-800 bg-black aspect-video flex items-center justify-center relative group select-none">
-                  {!isImageNote && currentMedia.videoUrl ? (
+                  {!isImageNote && activeVideoSrc ? (
                     <video
                       ref={videoRef}
-                      key={currentMedia.videoUrl}
+                      key={activeVideoSrc}
                       controls
                       poster={currentMedia.coverUrl}
-                      src={currentMedia.videoUrl}
+                      src={activeVideoSrc}
                       onPlay={() => {
                         if (audioRef.current && audioRef.current.paused) {
                           audioRef.current.play().catch(() => {});
@@ -425,7 +462,7 @@ export default function MediaExtractor() {
                   ) : isImageNote && currentMedia.images && currentMedia.images.length > 0 ? (
                     <>
                       <img
-                        src={currentMedia.images[activeImageIndex] || currentMedia.coverUrl}
+                        src={activeImageSrc}
                         alt={currentMedia.title}
                         className="w-full h-full object-contain"
                       />
@@ -588,6 +625,82 @@ export default function MediaExtractor() {
                       </div>
                     </div>
                   )}
+
+                  {/* 视频清晰度与规格选择 */}
+                  {!isImageNote && currentMedia.resolutions && currentMedia.resolutions.length > 0 && (
+                    <div className="mt-4 p-3.5 rounded-xl bg-white dark:bg-[#18181c] border border-zinc-200/80 dark:border-zinc-800 shadow-2xs">
+                      <div className="flex items-center justify-between text-[11px] font-medium text-zinc-500 mb-2.5">
+                        <span className="flex items-center gap-1.5 text-zinc-700 dark:text-zinc-300 font-semibold">
+                          <span>🎬</span>
+                          <span>下载画质 / 规格选择</span>
+                        </span>
+                        <span className="text-[11px] text-zinc-400">
+                          已选：<span className="text-blue-600 dark:text-blue-400 font-semibold">{activeResolution?.label || '最高超清'}</span>
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {currentMedia.resolutions.map((resOpt) => {
+                          const isSelected = selectedResolutionId ? resOpt.id === selectedResolutionId : resOpt.isDefault;
+                          return (
+                            <button
+                              key={resOpt.id}
+                              type="button"
+                              onClick={() => setSelectedResolutionId(resOpt.id)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 border ${
+                                isSelected
+                                  ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-blue-600 dark:text-blue-300 ring-2 ring-blue-500/20 shadow-xs'
+                                  : 'bg-zinc-50/80 dark:bg-zinc-800/60 border-zinc-200 dark:border-zinc-700/80 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700/60'
+                              }`}
+                            >
+                              <span className={isSelected ? 'text-blue-600 dark:text-blue-400 font-bold' : 'text-zinc-400'}>
+                                {isSelected ? '✓' : '•'}
+                              </span>
+                              <span className="font-semibold">{resOpt.label}</span>
+                              {resOpt.format && (
+                                <span className="text-[10px] px-1 py-0.2 rounded bg-zinc-200/80 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 uppercase">
+                                  {resOpt.format}
+                                </span>
+                              )}
+                              {resOpt.sizeEstimated && (
+                                <span className="text-[10px] text-zinc-400">
+                                  ({resOpt.sizeEstimated})
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 图文作品超清无损原画直连开关 */}
+                  {isImageNote && (
+                    <div className="mt-4 p-3 rounded-xl bg-white dark:bg-[#18181c] border border-zinc-200/80 dark:border-zinc-800 shadow-2xs flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-base">✨</span>
+                        <div>
+                          <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+                            <span>超清无损原画直连</span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-300 font-medium">
+                              推荐开启
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-zinc-400 mt-0.5">
+                            自动剥离平台 CDN 压缩与降质参数，直接获取单张 3000px+ 相机母带原画
+                          </p>
+                        </div>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={useRawOriginal}
+                          onChange={(e) => setUseRawOriginal(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-zinc-200 peer-focus:outline-none rounded-full peer dark:bg-zinc-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+                  )}
                 </div>
 
                 {/* 核心动作按钮矩阵 */}
@@ -609,7 +722,7 @@ export default function MediaExtractor() {
                         ) : (
                           <>
                             <span>🖼️</span>
-                            <span>下载当前大图 (第 {activeImageIndex + 1} 张)</span>
+                            <span>下载当前{useRawOriginal ? '无损原图' : '高清图片'} (第 {activeImageIndex + 1} 张)</span>
                           </>
                         )}
                       </button>
@@ -628,7 +741,7 @@ export default function MediaExtractor() {
                         ) : (
                           <>
                             <span>📦</span>
-                            <span>批量保存全部原图 ({currentMedia.images.length}张)</span>
+                            <span>批量保存全部{useRawOriginal ? '无损原图' : '图片'} ({currentMedia.images.length}张)</span>
                           </>
                         )}
                       </button>
@@ -651,7 +764,7 @@ export default function MediaExtractor() {
                       ) : (
                         <>
                           <span>🎬</span>
-                          <span>下载无水印视频 (MP4)</span>
+                          <span>下载无水印视频 {activeResolution ? `(${activeResolution.label})` : '(MP4)'}</span>
                         </>
                       )}
                     </button>
@@ -751,6 +864,8 @@ export default function MediaExtractor() {
                 key={item.id}
                 onClick={() => {
                   setCurrentMedia(item.media);
+                  const defaultRes = item.media.resolutions?.find((r) => r.isDefault)?.id || item.media.resolutions?.[0]?.id || null;
+                  setSelectedResolutionId(defaultRes);
                   setActiveImageIndex(0);
                   setLastSavedPath(null);
                 }}

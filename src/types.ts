@@ -176,6 +176,20 @@ export interface JaygoAPI {
   pickDocumentFiles(): Promise<Array<{ ok: boolean; name: string; path: string; size: number; text: string; error?: string }>>;
 }
 
+export interface MediaResolutionOption {
+  id: string;             // e.g. '1080p', '720p', '480p', '360p', 'h265', 'h264'
+  label: string;          // e.g. '1080P 超清', '720P 高清', '360P 流畅'
+  videoUrl?: string;      // 该清晰度对应的视频流直链
+  audioUrl?: string;      // 对应的独立音频流（若有）
+  quality?: number;       // 如 B站 qn: 80, 64, 32, 16
+  bitrate?: number;       // 码率 (bps)
+  width?: number;         // 分辨率宽
+  height?: number;        // 分辨率高
+  format?: string;        // mp4, h264, h265
+  sizeEstimated?: number; // 预估文件大小 (bytes)
+  isDefault?: boolean;    // 是否为默认推荐项（最高画质）
+}
+
 export interface ParsedMediaInfo {
   platform: 'douyin' | 'bilibili' | 'kuaishou' | 'xiaohongshu' | 'generic';
   platformName: string;
@@ -191,6 +205,9 @@ export interface ParsedMediaInfo {
   originalUrl: string;
   headers?: Record<string, string>;
   images?: string[];
+  rawImages?: string[]; // 100% 超清无损原图列表 (去除 CDN 缩放/WebP压缩后的原图)
+  resolutions?: MediaResolutionOption[]; // 可选清晰度列表（按画质从高到低排序）
+  selectedResolutionId?: string;        // 默认选中的清晰度 ID
 }
 
 export interface AvatarFigure {
