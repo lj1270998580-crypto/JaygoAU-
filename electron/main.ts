@@ -7,7 +7,7 @@ import * as os from 'node:os';
 import * as child_process from 'node:child_process';
 import ffmpegStatic from 'ffmpeg-static';
 import { spawn } from 'node:child_process';
-import { extractMedia, downloadMediaFile, extractAudioWithFfmpeg, mergeVideoAndAudioWithFfmpeg, type ParsedMediaInfo } from './mediaExtractor';
+import { extractMedia, downloadMediaFile, extractAudioWithFfmpeg, mergeVideoAndAudioWithFfmpeg, PC_UA, type ParsedMediaInfo } from './mediaExtractor';
 
 // 主进程出站请求统一走 Chromium 网络栈（net.fetch），自动尊重系统代理（v2rayN/Clash 等）。
 // Node.js 原生 fetch(undici) 默认不读取系统代理，导致中国大陆用户即便开了代理，
@@ -1488,7 +1488,13 @@ ipcMain.handle('download-extracted-image', async (e, args: { imageUrl: string; d
   });
   if (saveRes.canceled || !saveRes.filePath) return null;
 
-  await downloadMediaFile(imageUrl, saveRes.filePath);
+  const isXhs = imageUrl.includes('xiaohongshu.com') || imageUrl.includes('xhscdn.com');
+  const headers = {
+    'User-Agent': PC_UA,
+    'Referer': isXhs ? 'https://www.xiaohongshu.com/' : 'https://www.douyin.com/',
+  };
+
+  await downloadMediaFile(imageUrl, saveRes.filePath, headers);
   return { path: saveRes.filePath, size: fs.statSync(saveRes.filePath).size };
 });
 
@@ -1513,7 +1519,12 @@ ipcMain.handle('download-all-extracted-images', async (e, args: { images: string
     const imgUrl = images[i];
     const pad = String(i + 1).padStart(2, '0');
     const outPath = path.join(targetFolder, `${pad}.jpg`);
-    await downloadMediaFile(imgUrl, outPath);
+    const isXhs = imgUrl.includes('xiaohongshu.com') || imgUrl.includes('xhscdn.com');
+    const headers = {
+      'User-Agent': PC_UA,
+      'Referer': isXhs ? 'https://www.xiaohongshu.com/' : 'https://www.douyin.com/',
+    };
+    await downloadMediaFile(imgUrl, outPath, headers);
   }
 
   return { folderPath: targetFolder, count: images.length };

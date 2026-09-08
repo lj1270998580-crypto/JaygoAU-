@@ -42,7 +42,7 @@ export interface ParsedMediaInfo {
 
 const MOBILE_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
-const PC_UA =
+export const PC_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 // 智能清洗输入文本，提取首个 URL 并判别平台
@@ -306,68 +306,80 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
           item.music?.play_url?.url_list?.[0] ||
           undefined;
 
-        // 多清晰度多规格解析（按清晰度等级排序：4K/2K/1080P/720P/540P）
+        // 多清晰度多规格解析：按实际提取的分辨率去重，杜绝同分辨率重复堆砌
         const bitrates: any[] = item.video?.bit_rate || [];
-        const sortedBitrates = [...bitrates].sort((a: any, b: any) => {
-          const resA = (a.play_addr?.width || 0) * (a.play_addr?.height || 0);
-          const resB = (b.play_addr?.width || 0) * (b.play_addr?.height || 0);
-          if (resB !== resA) return resB - resA;
-          return (b.bit_rate || 0) - (a.bit_rate || 0);
-        });
 
-        const resolutions: MediaResolutionOption[] = [];
-        const seenTiers = new Set<string>();
-
-        sortedBitrates.forEach((b: any, idx: number) => {
-          const vUrl = b.play_addr?.url_list?.[0];
-          if (!vUrl) return;
-
+        // 1. 按分辨率分组，每组只保留码率最高（文件最大、画质最真）的最佳流，过滤低码重复流
+        const resMap = new Map<string, any>();
+        for (const b of bitrates) {
           const w = b.play_addr?.width || 0;
           const h = b.play_addr?.height || 0;
-          const maxDim = Math.max(w, h);
+          if (!w || !h || !b.play_addr?.url_list?.[0]) continue;
+          const key = `${Math.min(w, h)}x${Math.max(w, h)}`;
+          const existing = resMap.get(key);
+          if (!existing || (b.bit_rate || 0) > (existing.bit_rate || 0)) {
+            resMap.set(key, b);
+          }
+        }
+
+        const bestPerRes = Array.from(resMap.values());
+
+        // 2. 找到综合最高码率的“最佳原画母带”（避免把低码率自适应流或虚假放大流误当原片）
+        let maxBitrateItem = bestPerRes[0];
+        for (const item of bestPerRes) {
+          if ((item.bit_rate || 0) > (maxBitrateItem?.bit_rate || 0)) {
+            maxBitrateItem = item;
+          }
+        }
+
+        // 3. 排序：按实际分辨率高或宽降序排列
+        bestPerRes.sort((a, b) => {
+          const maxA = Math.max(a.play_addr?.width || 0, a.play_addr?.height || 0);
+          const maxB = Math.max(b.play_addr?.width || 0, b.play_addr?.height || 0);
+          return maxB - maxA;
+        });
+
+        // 4. 按实际提取的分辨率生成清晰度选项，不固定假档位
+        const resolutions: MediaResolutionOption[] = bestPerRes.map((b, idx) => {
+          const w = b.play_addr.width;
+          const h = b.play_addr.height;
           const minDim = Math.min(w, h);
+          const maxDim = Math.max(w, h);
+          const sizeBytes = b.play_addr.data_size || 0;
+          const sizeEstimated = sizeBytes > 0 ? `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB` : undefined;
+          const isMaster = b === maxBitrateItem;
 
-          let tier = '720p';
-          let label = '720P 高清';
+          let pTag = `${minDim}P`;
+          if (minDim >= 2160 || maxDim >= 3840) pTag = '4K (2160P)';
+          else if (minDim >= 1440 || maxDim >= 2560) pTag = '2K (1440P)';
+          else if (minDim >= 1080 || maxDim >= 1920) pTag = '1080P';
+          else if (minDim >= 720 || maxDim >= 1280) pTag = '720P';
+          else if (minDim >= 540 || maxDim >= 960) pTag = '540P';
 
-          if (maxDim >= 3840 || minDim >= 2160) {
-            tier = '4k';
-            label = '超高清 4K (2160P)';
-          } else if (maxDim >= 2560 || minDim >= 1440) {
-            tier = '2k';
-            label = '2K 超清 (1440P)';
-          } else if (maxDim >= 1920 || minDim >= 1080) {
-            tier = '1080p';
-            label = '1080P 超清';
-          } else if (maxDim >= 1280 || minDim >= 720) {
-            tier = '720p';
-            label = '720P 高清';
-          } else {
-            tier = '540p';
-            label = '540P 标清';
+          let label = `${pTag} (${w}×${h})`;
+          if (isMaster) {
+            label += ' · 最佳原画';
+          } else if (b.gear_name?.includes('adapt_lowest')) {
+            label += ' · 压缩流';
           }
 
-          const gearName = b.gear_name || '';
-          const key = `${tier}_${gearName}`;
-          if (seenTiers.has(key)) return;
-          seenTiers.add(key);
-
-          const sizeBytes = b.play_addr?.data_size || 0;
-          const sizeEstimated = sizeBytes > 0 ? `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB` : undefined;
-
-          resolutions.push({
-            id: `dy_${tier}_${idx}`,
+          return {
+            id: `dy_${minDim}_${idx}`,
             label,
-            videoUrl: vUrl,
+            videoUrl: b.play_addr.url_list[0],
             audioUrl,
-            width: w || undefined,
-            height: h || undefined,
-            bitrate: b.bit_rate || undefined,
+            width: w,
+            height: h,
+            bitrate: b.bit_rate,
             format: 'mp4',
             sizeEstimated,
-            isDefault: resolutions.length === 0,
-          });
+            isDefault: isMaster,
+          };
         });
+
+        if (!resolutions.some(o => o.isDefault) && resolutions.length > 0) {
+          resolutions[0].isDefault = true;
+        }
 
         // 若 bit_rate 未提取到则降级使用 play_addr
         if (resolutions.length === 0 && item.video?.play_addr?.url_list?.[0]) {
@@ -449,9 +461,10 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
           })()
         `);
 
-        const isPhotoNoteReady = info && (info.isNotePage || (info.images && info.images.length > 1)) && pollCount >= 6;
+        const isPhotoNoteReady = info && (info.isNotePage || (info.images && info.images.length > 1)) && pollCount >= 15;
 
-        if (info && (capturedVideo || capturedAudio || isPhotoNoteReady) && pollCount >= 10) {
+        // 仅在 CDP 轮询超过 6 秒（30次）仍未拦截到 detail 接口时，才执行降级保底
+        if (info && (capturedVideo || capturedAudio || isPhotoNoteReady) && pollCount >= 30) {
           settled = true;
           clearInterval(interval);
           cleanup();
@@ -860,16 +873,18 @@ async function parseXiaohongshu(targetUrl: string): Promise<ParsedMediaInfo> {
     allStreams.forEach((st, idx) => {
       const u = st.masterUrl || st.mainUrl || st.url;
       if (!u) return;
-      const qType = st.qualityType || '';
       const w = st.width || 0;
       const h = st.height || 0;
-      let label = qType;
-      if (!label && h) {
-        label = h >= 1080 ? '1080P 超清' : h >= 720 ? '720P 高清' : `${h}P 标清`;
-      } else if (!label) {
-        label = idx === 0 ? '超清无水印流' : `清晰度规格 ${idx + 1}`;
+      let label = '';
+      if (h) {
+        label = (h >= 1080 ? '1080P 超清' : h >= 720 ? '720P 高清' : `${h}P 标清`) + (w ? ` (${w}×${h})` : '');
+      } else {
+        label = st.qualityType || (idx === 0 ? '超清无水印流' : `清晰度规格 ${idx + 1}`);
       }
       if (st.codec === 'h265') label += ' (H.265)';
+
+      const sizeBytes = st.size || st.videoSize;
+      const sizeEstimated = sizeBytes > 0 ? `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB` : undefined;
 
       resolutions.push({
         id: `xhs_${st.codec}_${idx}`,
@@ -879,7 +894,7 @@ async function parseXiaohongshu(targetUrl: string): Promise<ParsedMediaInfo> {
         width: w,
         height: h,
         format: st.codec,
-        sizeEstimated: st.size || st.videoSize,
+        sizeEstimated,
       });
     });
 
@@ -902,16 +917,20 @@ async function parseXiaohongshu(targetUrl: string): Promise<ParsedMediaInfo> {
     })
     .filter(Boolean);
 
-  // 2. 超清无损原图列表（去除 CDN imageView2、webp 压缩和裁剪参数，获取母带真实像素）
+  // 2. 超清无损母带原图直连（通过 ci.xiaohongshu.com/${fileId} 获取未经有损压缩的 3000px+ 相机母带原画）
   const rawImages: string[] = (note.imageList || [])
     .map((img: any) => {
-      const rawObj =
-        img.infoList?.find((it: any) => it.imageScene === 'CR_DFT') ||
-        img.infoList?.find((it: any) => it.imageScene === 'WB_DFT');
-      const target = rawObj?.url || img.urlDefault || img.url || '';
-      if (!target) return '';
-      // 彻底剥离 ?imageView2/2/w/.../format/webp 与 !nd_... 降质后缀
-      return target.split('?')[0].replace(/!.*$/, '');
+      let fileId = img.fileId;
+      const anyUrl = img.infoList?.[0]?.url || img.urlDefault || img.url || '';
+      if (!fileId && anyUrl) {
+        const m = anyUrl.match(/\/(notes_pre_post\/[^!/?]+|spectrum\/[^!/?]+|[a-zA-Z0-9_-]{20,})(!|\?|$)/);
+        if (m) fileId = m[1];
+      }
+      if (fileId) {
+        // ci.xiaohongshu.com 提供官方相机原画直连，单张达 5~20MB JPEG，无防盗链 403 阻断
+        return `https://ci.xiaohongshu.com/${fileId}`;
+      }
+      return img.urlDefault || anyUrl;
     })
     .filter(Boolean);
 
