@@ -12,7 +12,7 @@ import {
 } from '../lib/skillParser';
 import { chatCompletion, type ChatMessage } from '../lib/modelHubService';
 import type { ModelHubSettings, ModelProviderType } from '../lib/modelHubTypes';
-import { PRESET_PROVIDERS } from '../lib/modelHubTypes';
+import { PRESET_PROVIDERS, getModelContextLimit } from '../lib/modelHubTypes';
 import { extractStyleFromSamples } from '../lib/styleExtractor';
 import { extractCleanScript } from '../lib/scriptSanitizer';
 import {
@@ -58,6 +58,7 @@ import {
   BrainCircuit,
   PanelLeftClose,
   PanelLeftOpen,
+  Globe,
 } from 'lucide-react';
 import { ChatMessageRenderer } from './ChatMessageRenderer';
 
@@ -78,7 +79,7 @@ export function ScriptStudio({
 }: Props) {
   // 创作者风格列表与当前选中风格
   const [skills, setSkills] = useState<SkillPreset[]>([]);
-  const [selectedSkillId, setSelectedSkillId] = useState<string>('teacher_zhang_business');
+  const [selectedSkillId, setSelectedSkillId] = useState<string>('chaoran_wenan');
 
   // 会话管理状态
   const [sessions, setSessions] = useState<ScriptSession[]>([]);
@@ -148,6 +149,15 @@ export function ScriptStudio({
   const [uploadedSampleFiles, setUploadedSampleFiles] = useState<Array<{ name: string; size: number; text: string }>>([]);
   const [extracting, setExtracting] = useState(false);
 
+  // 联网模式开关（满足诉求 6：默认开启联网功能）
+  const [webSearchEnabled, setWebSearchEnabled] = useState(true);
+
+  // 流转中心显隐状态（满足诉求 8：默认不展示流转中心）
+  const [showDispatchCenter, setShowDispatchCenter] = useState(false);
+
+  // 消息复制反馈微标
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+
   // 反馈提示
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
@@ -176,11 +186,13 @@ export function ScriptStudio({
     if (stored.length > 0) {
       setSessions(stored);
       setCurrentSessionId(stored[0].id);
-      if (stored[0].skillId) {
+      if (stored[0].skillId && skills.some(s => s.id === stored[0].skillId)) {
         setSelectedSkillId(stored[0].skillId);
+      } else if (skills.length > 0) {
+        setSelectedSkillId(skills[0].id);
       }
     } else if (selectedSkill) {
-      const initialSession = createNewSession(selectedSkill, '默认商业文案会话');
+      const initialSession = createNewSession(selectedSkill, '王超然 · 认知爆款文案会话');
       setSessions([initialSession]);
       setCurrentSessionId(initialSession.id);
     }
@@ -598,12 +610,20 @@ export function ScriptStudio({
     setStreamingDelta('');
 
     try {
-      // 触发自动上下文滑动窗口与长期记忆压缩
-      const { apiMessages, updatedSummary, isCompressed } = buildCompressedContext(
+      // 获取当前大模型的上下文窗口容量
+      const modelLimit = getModelContextLimit(currentModelName, currentProviderKey);
+
+      // 触发自动上下文滑动窗口与长期记忆压缩（90% 上下文自动感知并深度压缩，满足诉求 7）
+      const { apiMessages, updatedSummary, isCompressed, reachedNinetyPercent } = buildCompressedContext(
         sessionWithUser,
         selectedSkill,
-        4 // 保留最近 4 轮完整高保真上下文
+        4, // 保留最近 4 轮完整高保真上下文
+        modelLimit
       );
+
+      if (reachedNinetyPercent) {
+        showToast('当前会话上下文已达大模型容量 90%，已自动智能压缩归档历史记忆');
+      }
 
       let fullStreamed = '';
       const finalReply = await chatCompletion(
@@ -611,6 +631,7 @@ export function ScriptStudio({
         {
           temperature: selectedSkill?.modelParams?.temperature ?? 0.35,
           stream: true,
+          webSearch: webSearchEnabled, // 默认开启大模型联网功能，满足诉求 6
           onDelta: (delta: string) => {
             fullStreamed += delta;
             setStreamingDelta(fullStreamed.replace(/^\s*\n+/, ''));
@@ -619,7 +640,12 @@ export function ScriptStudio({
         modelSettings
       );
 
-      const cleanReply = (finalReply || fullStreamed).trimStart();
+      const cleanReply = (finalReply || fullStreamed).trim();
+      // 防御性校验：杜绝生成空白内容且无报错的问题（满足诉求 4）
+      if (!cleanReply) {
+        throw new Error('模型未返回有效文案内容，请检查模型配置或重新尝试发送');
+      }
+
       const assistantMsg: ChatMessageItem = {
         id: `ai_${Date.now()}`,
         role: 'assistant',
@@ -636,7 +662,6 @@ export function ScriptStudio({
 
       updateCurrentSession(finalSession);
       if (isCompressed) {
-        // 轻量提示用户长期记忆已压缩保护
         console.log('[ScriptStudio] Context compressed into memory summary:', updatedSummary);
       }
     } catch (err: any) {
@@ -792,7 +817,7 @@ export function ScriptStudio({
             className="btn-modern-ghost text-xs"
             title="导入 .zip 规范压缩包或 .skill.md 技能文件"
           >
-            <Upload className="w-3.5 h-3.5 text-zinc-500" /> <span>导入风格包 (.zip/.md)</span>
+            <Upload className="w-3.5 h-3.5 text-zinc-500" /> <span>导入skill风格 (.zip/.md)</span>
           </button>
           <button
             onClick={() => setExtractModalOpen(true)}
@@ -819,59 +844,59 @@ export function ScriptStudio({
             style={{ width: `${leftWidth}px` }}
             className="border-r border-zinc-200/80 dark:border-zinc-800/80 flex flex-col bg-white/50 dark:bg-zinc-900/20 overflow-hidden shrink-0"
           >
-            {/* 左栏顶栏选项卡：会话历史 ⇄ 创作风格详情 */}
-            <div className="p-3 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between bg-zinc-50/70 dark:bg-zinc-900/40">
-            <div className="flex items-center gap-1 bg-zinc-200/70 dark:bg-zinc-800/80 p-0.5 rounded-xl text-xs font-medium">
-              <button
-                type="button"
-                onClick={() => setLeftTab('sessions')}
-                className={`px-3 py-1 rounded-lg transition ${
-                  leftTab === 'sessions'
-                    ? 'bg-white dark:bg-[#1c1d24] text-zinc-900 dark:text-white shadow-xs font-semibold'
-                    : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-                }`}
-              >
-                会话历史 ({sessions.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setLeftTab('skill')}
-                className={`px-3 py-1 rounded-lg transition flex items-center gap-1.5 ${
-                  leftTab === 'skill'
-                    ? 'bg-white dark:bg-[#1c1d24] text-blue-600 dark:text-blue-400 shadow-xs font-semibold'
-                    : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-                }`}
-                title="查看与编辑当前创作者风格画像"
-              >
-                <span>创作风格</span>
-                {selectedSkill && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
-                )}
-              </button>
-            </div>
+            {/* 左栏顶栏选项卡：会话历史 ⇄ 创作风格详情（极简防挤压） */}
+            <div className="p-2.5 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between bg-zinc-50/70 dark:bg-zinc-900/40">
+              <div className="flex items-center gap-0.5 bg-zinc-200/70 dark:bg-zinc-800/80 p-0.5 rounded-lg text-[11px] font-medium">
+                <button
+                  type="button"
+                  onClick={() => setLeftTab('sessions')}
+                  className={`px-2 py-1 rounded-md transition ${
+                    leftTab === 'sessions'
+                      ? 'bg-white dark:bg-[#1c1d24] text-zinc-900 dark:text-white shadow-xs font-semibold'
+                      : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  会话 ({sessions.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLeftTab('skill')}
+                  className={`px-2 py-1 rounded-md transition flex items-center gap-1 ${
+                    leftTab === 'skill'
+                      ? 'bg-white dark:bg-[#1c1d24] text-blue-600 dark:text-blue-400 shadow-xs font-semibold'
+                      : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                  }`}
+                  title="查看与编辑当前创作者风格画像"
+                >
+                  <span>风格</span>
+                  {selectedSkill && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                  )}
+                </button>
+              </div>
 
-            {leftTab === 'sessions' ? (
-              <button
-                type="button"
-                onClick={handleCreateNewSession}
-                className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 hover:bg-blue-100 border border-blue-200 dark:border-blue-900 transition flex items-center gap-1 text-xs font-semibold cursor-pointer"
-                title="开启全新创作会话"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span className="text-[11px] hidden sm:inline">新建</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setLeftTab('sessions')}
-                className="text-[11px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 flex items-center gap-1"
-                title="返回会话历史列表"
-              >
-                <ArrowLeft className="w-3 h-3" />
-                <span>返回</span>
-              </button>
-            )}
-          </div>
+              {leftTab === 'sessions' ? (
+                <button
+                  type="button"
+                  onClick={handleCreateNewSession}
+                  className="p-1 px-1.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 hover:bg-blue-100 border border-blue-200 dark:border-blue-900 transition flex items-center gap-0.5 text-[11px] font-semibold cursor-pointer shrink-0"
+                  title="开启全新创作会话"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>新建</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setLeftTab('sessions')}
+                  className="text-[11px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 flex items-center gap-1 shrink-0"
+                  title="返回会话历史列表"
+                >
+                  <ArrowLeft className="w-3 h-3" />
+                  <span>返回</span>
+                </button>
+              )}
+            </div>
 
           {/* 左栏内容区 1：会话历史列表 */}
           {leftTab === 'sessions' && (
@@ -1238,16 +1263,6 @@ export function ScriptStudio({
                   <span>精选文案 ({pinnedScript.length}字)</span>
                 </button>
               )}
-
-              <button
-                type="button"
-                onClick={handleCreateNewSession}
-                className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1 transition shrink-0 cursor-pointer px-2.5 py-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-transparent hover:border-zinc-200 dark:hover:border-zinc-700"
-                title="开启全新创作会话"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">新会话</span>
-              </button>
             </div>
           </div>
 
@@ -1266,9 +1281,9 @@ export function ScriptStudio({
                   <span>{new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
 
-                {/* 消息气泡主体 */}
+                {/* 消息气泡主体（更紧凑精致的 12px 字体） */}
                 <div
-                  className={`max-w-[92%] rounded-2xl px-4 py-3 text-[12.5px] leading-relaxed transition-all ${
+                  className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-[12px] leading-relaxed transition-all relative group/msg ${
                     msg.role === 'user'
                       ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-tr-xs shadow-sm font-sans'
                       : 'bg-white dark:bg-[#15161f] text-zinc-800 dark:text-zinc-200 rounded-tl-xs border border-zinc-200/80 dark:border-zinc-800/80 shadow-xs'
@@ -1276,7 +1291,7 @@ export function ScriptStudio({
                 >
                   {/* 用户上传的参考附件展示 */}
                   {msg.attachments && msg.attachments.length > 0 && (
-                    <div className="mb-2.5 pb-2 border-b border-white/20 dark:border-zinc-800 flex flex-wrap gap-1.5">
+                    <div className="mb-2 pb-1.5 border-b border-white/20 dark:border-zinc-800 flex flex-wrap gap-1.5">
                       {msg.attachments.map(att => (
                         <div
                           key={att.id}
@@ -1290,36 +1305,44 @@ export function ScriptStudio({
                   )}
 
                   <ChatMessageRenderer content={msg.content} role={msg.role} />
-                </div>
 
-                {/* 助手消息操作栏：设为精选文案 */}
-                {msg.role === 'assistant' && !msg.id.startsWith('welcome_') && (
-                  <div className="flex items-center gap-2 mt-1.5 px-1">
-                    <button
-                      onClick={() => {
-                        const clean = extractCleanScript(msg.content);
-                        updateCurrentSession({ pinnedScript: clean });
-                        showToast('已同步为当前右侧精选文案！');
-                      }}
-                      className="action-pill text-[11px] hover:border-purple-400 dark:hover:border-purple-500"
-                      title="将本段生成成果设为右侧待流转的精选文案"
-                    >
-                      <BookmarkPlus className="w-3 h-3 text-purple-500" />
-                      <span>设为精选文案</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        const clean = extractCleanScript(msg.content);
-                        navigator.clipboard.writeText(clean);
-                        showToast('已复制纯净文案到剪贴板！');
-                      }}
-                      className="action-pill text-[11px] hover:border-zinc-400 dark:hover:border-zinc-500"
-                    >
-                      <Copy className="w-3 h-3 text-zinc-400" />
-                      <span>复制文案</span>
-                    </button>
-                  </div>
-                )}
+                  {/* 助手回复右下角微型图标按钮：设为精选 & 复制（满足诉求 5：右下角小按钮，无文字说明，提高视觉效果） */}
+                  {msg.role === 'assistant' && !msg.id.startsWith('welcome_') && Boolean(msg.content) && (
+                    <div className="flex items-center justify-end gap-1 mt-1.5 pt-1 border-t border-zinc-100/80 dark:border-zinc-800/60">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const clean = extractCleanScript(msg.content);
+                          updateCurrentSession({ pinnedScript: clean });
+                          setShowRightPanel(true);
+                          showToast('已设为右侧精选文案！');
+                        }}
+                        className="p-1 rounded-md text-zinc-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/40 transition cursor-pointer"
+                        title="设为精选文案"
+                      >
+                        <BookmarkPlus className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const clean = extractCleanScript(msg.content);
+                          navigator.clipboard.writeText(clean);
+                          setCopiedMsgId(msg.id);
+                          setTimeout(() => setCopiedMsgId(null), 1500);
+                          showToast('已复制纯净文案到剪贴板！');
+                        }}
+                        className="p-1 rounded-md text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition cursor-pointer"
+                        title="复制文案"
+                      >
+                        {copiedMsgId === msg.id ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
 
@@ -1429,12 +1452,12 @@ export function ScriptStudio({
                   onChange={handleInputChange}
                   onKeyDown={handleInputKeyDown}
                   placeholder={`输入文案选题、向【${selectedSkill?.name}】提问，支持输入 @ 快速联想风格画像（Ctrl+Enter 发送）...`}
-                  className="w-full p-3.5 bg-transparent font-script-reading text-[13px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none ring-0 border-0 focus:outline-none focus:ring-0 focus:border-0 resize-none leading-relaxed select-text shadow-none"
+                  className="w-full p-3 bg-transparent font-script-reading text-[12px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none ring-0 border-0 focus:outline-none focus:ring-0 focus:border-0 resize-none leading-relaxed select-text shadow-none"
                 />
 
-                {/* 输入框底部工具栏：现代图标上传 + 风格下拉胶囊 + 模型切换小按钮 + 发送按钮 */}
-                <div className="flex items-center justify-between px-3 pb-2 pt-1 border-t border-zinc-100/90 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-900/30 gap-2">
-                  <div className="flex items-center gap-2 min-w-0 flex-1 overflow-x-auto no-scrollbar py-0.5">
+                {/* 输入框底部工具栏：现代图标上传 + 风格下拉胶囊 + 模型切换小按钮 + 联网模式 + 发送按钮 */}
+                <div className="flex items-center justify-between px-3 pb-2 pt-1 border-t border-zinc-100/90 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-900/30 gap-2 relative">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1 py-0.5 relative">
                     {/* 现代文件上传按钮（极简矢量图标，无多余文字） */}
                     <button
                       type="button"
@@ -1450,24 +1473,31 @@ export function ScriptStudio({
                       )}
                     </button>
 
-                    {/* 创作者风格专属选择下拉胶囊 */}
+                    {/* 创作者风格专属选择下拉胶囊（极简小巧，满足诉求 10） */}
                     <div className="relative shrink-0" ref={dropdownRef}>
                       <button
                         type="button"
-                        onClick={() => setStyleDropdownOpen(!styleDropdownOpen)}
-                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800/80 hover:bg-zinc-200/80 dark:hover:bg-zinc-700/80 text-[11.5px] font-medium text-zinc-700 dark:text-zinc-200 border border-zinc-200/80 dark:border-zinc-700/80 transition shadow-2xs cursor-pointer"
+                        onClick={e => {
+                          e.stopPropagation();
+                          setStyleDropdownOpen(prev => !prev);
+                          setModelDropdownOpen(false);
+                        }}
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800/80 hover:bg-zinc-200/80 dark:hover:bg-zinc-700/80 text-[11px] font-medium text-zinc-700 dark:text-zinc-200 border border-zinc-200/80 dark:border-zinc-700/80 transition shadow-2xs cursor-pointer"
                         title="点击展开切换创作者风格，或输入 @ 快速联想"
                       >
-                        <span className="text-blue-500">🎨</span>
-                        <span className="truncate max-w-[95px] sm:max-w-[140px]">
-                          {selectedSkill ? selectedSkill.name : '选择风格'}
+                        <span className="text-[12px]">🎨</span>
+                        <span className="truncate max-w-[68px] sm:max-w-[96px]">
+                          {selectedSkill ? (selectedSkill.name.split('·')[0].trim() || selectedSkill.name) : '选择风格'}
                         </span>
                         <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
                       </button>
 
                       {/* 风格选择下拉浮层 */}
                       {styleDropdownOpen && (
-                        <div className="absolute bottom-full left-0 mb-1.5 z-50 w-72 bg-white dark:bg-[#181922] rounded-xl border border-zinc-200 dark:border-zinc-700 shadow-2xl p-1.5 overflow-hidden animate-in fade-in select-none">
+                        <div
+                          className="absolute bottom-full left-0 mb-2 z-50 w-72 bg-white dark:bg-[#181922] rounded-xl border border-zinc-200 dark:border-zinc-700 shadow-2xl p-1.5 overflow-hidden animate-in fade-in select-none"
+                          onClick={e => e.stopPropagation()}
+                        >
                           <div className="px-2 py-1.5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
                             <span className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300">
                               选择创作者风格画像
@@ -1478,7 +1508,7 @@ export function ScriptStudio({
                                 setStyleDropdownOpen(false);
                                 setLeftTab('skill');
                               }}
-                              className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5"
+                              className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5 cursor-pointer"
                             >
                               <span>配置详情</span>
                               <ChevronRight className="w-3 h-3" />
@@ -1511,7 +1541,12 @@ export function ScriptStudio({
                                 return (
                                   <div
                                     key={sk.id}
-                                    onClick={() => handleSelectSkill(sk)}
+                                    onMouseDown={e => e.preventDefault()}
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      handleSelectSkill(sk);
+                                      setStyleDropdownOpen(false);
+                                    }}
                                     className={`px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between cursor-pointer transition ${
                                       active
                                         ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-semibold'
@@ -1519,7 +1554,7 @@ export function ScriptStudio({
                                     }`}
                                   >
                                     <div className="min-w-0 pr-2">
-                                      <div className="truncate text-[11.5px]">{sk.name}</div>
+                                      <div className="truncate text-[11px] font-medium">{sk.name}</div>
                                       <div className="text-[10px] text-zinc-400 truncate">{sk.persona}</div>
                                     </div>
                                     {active && <Check className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
@@ -1535,10 +1570,10 @@ export function ScriptStudio({
                                 setStyleDropdownOpen(false);
                                 fileInputSkillRef.current?.click();
                               }}
-                              className="hover:text-blue-600 flex items-center gap-1 p-1"
+                              className="hover:text-blue-600 flex items-center gap-1 p-1 cursor-pointer"
                             >
                               <Upload className="w-3 h-3" />
-                              <span>导入 Zip / MD</span>
+                              <span>导入skill风格</span>
                             </button>
                             <button
                               type="button"
@@ -1546,7 +1581,7 @@ export function ScriptStudio({
                                 setStyleDropdownOpen(false);
                                 setExtractModalOpen(true);
                               }}
-                              className="hover:text-purple-600 flex items-center gap-1 p-1"
+                              className="hover:text-purple-600 flex items-center gap-1 p-1 cursor-pointer"
                             >
                               <Sparkles className="w-3 h-3 text-purple-500" />
                               <span>提炼新风格</span>
@@ -1556,21 +1591,26 @@ export function ScriptStudio({
                       )}
                     </div>
 
-                    {/* 模型快捷切换小按钮（满足诉求 3：模型选择框放到对话输入框里，用小按钮切换） */}
+                    {/* 模型快捷切换小按钮（极简小巧，满足诉求 3 & 10） */}
                     <div className="relative shrink-0" ref={modelDropdownRef}>
                       <button
                         type="button"
-                        onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
-                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800/80 hover:bg-zinc-200/80 dark:hover:bg-zinc-700/80 text-[11.5px] font-medium text-zinc-700 dark:text-zinc-200 border border-zinc-200/80 dark:border-zinc-700/80 transition shadow-2xs cursor-pointer"
+                        onClick={e => {
+                          e.stopPropagation();
+                          setModelDropdownOpen(prev => !prev);
+                          setStyleDropdownOpen(false);
+                        }}
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800/80 hover:bg-zinc-200/80 dark:hover:bg-zinc-700/80 text-[11px] font-medium text-zinc-700 dark:text-zinc-200 border border-zinc-200/80 dark:border-zinc-700/80 transition shadow-2xs cursor-pointer"
                         title="点击快速切换 AI 创作模型"
                       >
                         <Bot className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                        <span className="truncate max-w-[80px] sm:max-w-[120px]">
+                        <span className="truncate max-w-[70px] sm:max-w-[100px]">
                           {(() => {
                             const found = Object.values(PRESET_PROVIDERS)
                               .flatMap(p => p.models)
                               .find(m => m.id === currentModelName);
-                            return found ? found.name : currentModelName;
+                            const raw = found ? found.name : currentModelName;
+                            return raw.replace(/DeepSeek/i, 'DS').replace(/豆包/i, '豆包').slice(0, 8);
                           })()}
                         </span>
                         <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
@@ -1578,11 +1618,14 @@ export function ScriptStudio({
 
                       {/* 模型选择下拉浮层 */}
                       {modelDropdownOpen && (
-                        <div className="absolute bottom-full left-0 mb-1.5 z-50 w-64 bg-white dark:bg-[#181922] rounded-xl border border-zinc-200 dark:border-zinc-700 shadow-2xl p-1.5 overflow-hidden animate-in fade-in select-none">
+                        <div
+                          className="absolute bottom-full left-0 mb-2 z-50 w-64 bg-white dark:bg-[#181922] rounded-xl border border-zinc-200 dark:border-zinc-700 shadow-2xl p-1.5 overflow-hidden animate-in fade-in select-none"
+                          onClick={e => e.stopPropagation()}
+                        >
                           <div className="px-2 py-1.5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
                             <span className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
                               <Bot className="w-3.5 h-3.5 text-blue-500" />
-                              <span>选择 AI 创作模型</span>
+                              <span>选择创作模型</span>
                             </span>
                             <button
                               type="button"
@@ -1592,7 +1635,7 @@ export function ScriptStudio({
                               }}
                               className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5 cursor-pointer"
                             >
-                              <span>设置 Key</span>
+                              <span>配置 Key</span>
                               <SlidersHorizontal className="w-2.5 h-2.5" />
                             </button>
                           </div>
@@ -1614,7 +1657,9 @@ export function ScriptStudio({
                                     return (
                                       <div
                                         key={m.id}
-                                        onClick={() => {
+                                        onMouseDown={e => e.preventDefault()}
+                                        onClick={e => {
+                                          e.stopPropagation();
                                           handleQuickSwitchModel(pType as ModelProviderType, m.id);
                                           setModelDropdownOpen(false);
                                         }}
@@ -1625,7 +1670,7 @@ export function ScriptStudio({
                                         }`}
                                       >
                                         <div className="truncate pr-2">
-                                          <div className="text-[11.5px] truncate">{m.name}</div>
+                                          <div className="text-[11px] truncate">{m.name}</div>
                                         </div>
                                         {isSelected && <Check className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
                                       </div>
@@ -1638,16 +1683,35 @@ export function ScriptStudio({
                         </div>
                       )}
                     </div>
+
+                    {/* 联网搜索切换胶囊（默认开启，满足诉求 6） */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !webSearchEnabled;
+                        setWebSearchEnabled(next);
+                        showToast(next ? '已开启大模型联网检索' : '已关闭大模型联网');
+                      }}
+                      className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border transition cursor-pointer shrink-0 ${
+                        webSearchEnabled
+                          ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-900 shadow-2xs'
+                          : 'bg-zinc-100 dark:bg-zinc-800/80 text-zinc-500 border-zinc-200/80 dark:border-zinc-700/80'
+                      }`}
+                      title={webSearchEnabled ? '大模型联网检索已开启（点击切换）' : '点击开启联网检索'}
+                    >
+                      <Globe className={`w-3 h-3 ${webSearchEnabled ? 'text-blue-500' : 'text-zinc-400'}`} />
+                      <span className="hidden sm:inline">{webSearchEnabled ? '联网已开' : '联网已关'}</span>
+                    </button>
                   </div>
 
-                  <div className="flex items-center gap-2.5 shrink-0">
-                    <span className="text-[10.5px] text-zinc-400 hidden md:inline font-mono whitespace-nowrap select-none">
-                      Ctrl + Enter
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[10px] text-zinc-400 hidden lg:inline font-mono select-none">
+                      Ctrl+Enter
                     </span>
                     <button
                       onClick={() => handleSendMessage()}
                       disabled={isGenerating || (!inputValue.trim() && pendingAttachments.length === 0)}
-                      className="btn-modern-primary px-3.5 py-1.5 min-w-[76px] text-xs flex items-center justify-center gap-1.5 shrink-0"
+                      className="btn-modern-primary px-3 py-1.5 min-w-[70px] text-xs flex items-center justify-center gap-1.5 shrink-0"
                     >
                       {isGenerating ? (
                         <>
@@ -1691,48 +1755,51 @@ export function ScriptStudio({
               style={{ width: `${rightWidth}px` }}
               className="border-l border-zinc-200/80 dark:border-zinc-800/80 p-4 flex flex-col bg-white dark:bg-[#111217] shrink-0 overflow-hidden"
             >
-              <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/80">
-                <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                  <Layers className="w-4 h-4 text-blue-500" />
-                  <span>精选文案与流转中心</span>
+              <div className="flex items-center justify-between pb-2.5 border-b border-zinc-100 dark:border-zinc-800/80">
+                <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5 shrink-0">
+                  <Layers className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                  <span>精选文案</span>
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 shrink-0">
                   <button
+                    type="button"
                     onClick={() => {
                       const clean = extractCleanScript(pinnedScript);
                       updateCurrentSession({ pinnedScript: clean });
-                      showToast('已智能剔除客套语、空行与标记！');
+                      showToast('已智能剔除客套话与多余标记！');
                     }}
-                    className="text-[11px] text-purple-600 dark:text-purple-400 hover:underline cursor-pointer flex items-center gap-1 font-medium"
-                    title="智能剔除前置寒暄、末尾客套话与空行"
+                    className="p-1 rounded-md text-zinc-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/40 transition cursor-pointer"
+                    title="智能净洗（剔除前置寒暄、末尾客套话与空行）"
                   >
-                    <Wand2 className="w-3 h-3 text-purple-500" />
-                    <span>智能净洗</span>
+                    <Wand2 className="w-3.5 h-3.5" />
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
                       navigator.clipboard.writeText(pinnedScript);
                       showToast('已复制完整精选文案！');
                     }}
-                    className="text-[11px] text-blue-500 hover:underline cursor-pointer"
+                    className="p-1 rounded-md text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition cursor-pointer"
+                    title="复制完整文案"
                   >
-                    复制
+                    <Copy className="w-3.5 h-3.5" />
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
                       updateCurrentSession({ pinnedScript: '' });
                       setShowRightPanel(false);
                       showToast('已清空精选文案');
                     }}
-                    className="text-[11px] text-zinc-400 hover:text-rose-500 hover:underline cursor-pointer"
+                    className="p-1 rounded-md text-zinc-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
                     title="清空文案看板"
                   >
-                    清空
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowRightPanel(false)}
-                    className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+                    className="p-1 rounded-md text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
                     title="收起精选文案面板"
                   >
                     <X className="w-3.5 h-3.5" />
@@ -1747,7 +1814,7 @@ export function ScriptStudio({
                     value={pinnedScript}
                     onChange={e => updateCurrentSession({ pinnedScript: e.target.value })}
                     rows={12}
-                    className="w-full flex-1 p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs font-script-reading leading-relaxed text-zinc-900 dark:text-zinc-100 outline-none focus:border-blue-500 transition resize-none select-text"
+                    className="w-full flex-1 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 text-[12px] font-script-reading leading-relaxed text-zinc-900 dark:text-zinc-100 outline-none focus:border-blue-500 transition resize-none select-text"
                     placeholder="选中的精选口播文案将在此沉淀..."
                   />
 
@@ -1759,49 +1826,65 @@ export function ScriptStudio({
                 </div>
               </div>
 
-              {/* 流转操作区 */}
-              <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800/80 space-y-2 select-none">
-                <div
-                  onClick={() => onPushToSynth(pinnedScript, selectedSkill?.voiceBinding?.voiceId)}
-                  className="p-2.5 rounded-xl border border-purple-200/80 dark:border-purple-900/60 bg-gradient-to-r from-purple-50/70 to-indigo-50/70 dark:from-purple-950/20 dark:to-indigo-950/20 hover:border-purple-400 transition cursor-pointer flex items-center justify-between group"
+              {/* 流转操作区（默认不展开，满足诉求 8：默认不展示流转中心） */}
+              <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800/80 space-y-1.5 select-none shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowDispatchCenter(prev => !prev)}
+                  className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-[11px] font-medium text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition cursor-pointer"
+                  title="点击展开或收起制作流转中枢"
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-8 h-8 rounded-lg bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
-                      <Mic className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 truncate">
-                        <span>推往「语音合成」</span>
-                        <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 font-mono shrink-0">Seed-TTS</span>
-                      </div>
-                      <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 truncate">
-                        自动同步文案与风格推荐音色
-                      </div>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-purple-500 group-hover:translate-x-0.5 transition-transform shrink-0 ml-1" />
-                </div>
+                  <span className="flex items-center gap-1.5">
+                    <span>制作流转 (语音合成 / 蝉镜数字人)</span>
+                  </span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showDispatchCenter ? 'rotate-180 text-blue-500' : ''}`} />
+                </button>
 
-                <div
-                  onClick={() => onPushToAvatar(pinnedScript)}
-                  className="p-2.5 rounded-xl border border-cyan-200/80 dark:border-cyan-900/60 bg-gradient-to-r from-cyan-50/70 to-blue-50/70 dark:from-cyan-950/20 dark:to-blue-950/20 hover:border-cyan-400 transition cursor-pointer flex items-center justify-between group"
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-8 h-8 rounded-lg bg-cyan-500/10 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 flex items-center justify-center shrink-0">
-                      <Video className="w-4 h-4" />
+                {showDispatchCenter && (
+                  <div className="space-y-2 pt-1 animate-in fade-in">
+                    <div
+                      onClick={() => onPushToSynth(pinnedScript, selectedSkill?.voiceBinding?.voiceId)}
+                      className="p-2.5 rounded-xl border border-purple-200/80 dark:border-purple-900/60 bg-gradient-to-r from-purple-50/70 to-indigo-50/70 dark:from-purple-950/20 dark:to-indigo-950/20 hover:border-purple-400 transition cursor-pointer flex items-center justify-between group"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-7 h-7 rounded-lg bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                          <Mic className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 truncate">
+                            <span>推往「语音合成」</span>
+                            <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 font-mono shrink-0">Seed-TTS</span>
+                          </div>
+                          <div className="text-[10.5px] text-zinc-500 dark:text-zinc-400 mt-0.5 truncate">
+                            自动同步文案与音色
+                          </div>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-3.5 h-3.5 text-purple-500 group-hover:translate-x-0.5 transition-transform shrink-0 ml-1" />
                     </div>
-                    <div className="min-w-0">
-                      <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 truncate">
-                        <span>推往「蝉镜数字人」</span>
-                        <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-cyan-100 dark:bg-cyan-900/60 text-cyan-700 dark:text-cyan-300 font-mono shrink-0">数字出镜</span>
+
+                    <div
+                      onClick={() => onPushToAvatar(pinnedScript)}
+                      className="p-2.5 rounded-xl border border-cyan-200/80 dark:border-cyan-900/60 bg-gradient-to-r from-cyan-50/70 to-blue-50/70 dark:from-cyan-950/20 dark:to-blue-950/20 hover:border-cyan-400 transition cursor-pointer flex items-center justify-between group"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-7 h-7 rounded-lg bg-cyan-500/10 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 flex items-center justify-center shrink-0">
+                          <Video className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 truncate">
+                            <span>推往「蝉镜数字人」</span>
+                            <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-cyan-100 dark:bg-cyan-900/60 text-cyan-700 dark:text-cyan-300 font-mono shrink-0">数字出镜</span>
+                          </div>
+                          <div className="text-[10.5px] text-zinc-500 dark:text-zinc-400 mt-0.5 truncate">
+                            生成高画质口播视频
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 truncate">
-                        生成高画质口型对齐播报视频
-                      </div>
+                      <ChevronRight className="w-3.5 h-3.5 text-cyan-500 group-hover:translate-x-0.5 transition-transform shrink-0 ml-1" />
                     </div>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-cyan-500 group-hover:translate-x-0.5 transition-transform shrink-0 ml-1" />
-                </div>
+                )}
               </div>
             </div>
           </>

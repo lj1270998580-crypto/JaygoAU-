@@ -520,7 +520,7 @@ html.dark .ai-input-streamer-card:hover {
   background: #ffffff;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   transition: background-color 0.2s;
 }
 

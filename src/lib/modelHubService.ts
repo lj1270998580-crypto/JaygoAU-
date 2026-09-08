@@ -14,6 +14,7 @@ export interface ChatCompletionOptions {
   stream?: boolean;
   onDelta?: (delta: string) => void;
   signal?: AbortSignal;
+  webSearch?: boolean;
 }
 
 export interface ConnectionTestResult {
@@ -112,13 +113,24 @@ export async function chatCompletion(
 
   const actualModel = provider.type === 'sensenova' ? (model || '').toLowerCase() : model;
 
-  const reqBody = {
+  const reqBody: any = {
     model: actualModel,
     messages: cleanMessages,
     temperature: options.temperature ?? 0.4,
     max_tokens: options.maxTokens ?? 2048,
     stream: isStream,
   };
+
+  // 默认开启大模型联网搜索功能（根据服务商特性适配官方参数）
+  if (options.webSearch !== false) {
+    if (provider.type === 'qwen') {
+      reqBody.enable_search = true;
+    } else if (provider.type === 'zhipu') {
+      reqBody.tools = [{ type: 'web_search', web_search: { enable: true } }];
+    } else if (provider.type === 'moonshot') {
+      reqBody.tools = [{ type: 'builtin_function', builtin_function: { name: '$web_search' } }];
+    }
+  }
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -237,6 +249,7 @@ export async function chatCompletion(
       const reader = res.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let fullText = '';
+      let reasoningBuffer = '';
       let buffer = '';
 
       // 流式读取心跳超时保护（每个 chunk 之间最多等待 20 秒）
@@ -273,7 +286,10 @@ export async function chatCompletion(
                 } else if (Array.isArray(choice?.delta?.content)) {
                   delta = choice.delta.content.map((c: any) => c.text || '').join('');
                 } else if (typeof choice?.delta?.reasoning_content === 'string') {
-                  // 如果是纯深度思考内容，且主 content 尚未出现，不作为正文输出，避免首部空白
+                  const rDelta = choice.delta.reasoning_content;
+                  reasoningBuffer += rDelta;
+                  // 流式通知思考过程
+                  options.onDelta?.(rDelta);
                 } else if (typeof choice?.text === 'string') {
                   delta = choice.text;
                 } else if (typeof choice?.message?.content === 'string') {
@@ -301,12 +317,19 @@ export async function chatCompletion(
         if (chunkTimer) clearTimeout(chunkTimer);
       }
 
+      let combined = fullText.trimStart();
+      if (!combined && reasoningBuffer.trim()) {
+        combined = `<think>\n${reasoningBuffer.trim()}\n</think>`;
+      } else if (combined && reasoningBuffer.trim() && !combined.includes('<think>')) {
+        combined = `<think>\n${reasoningBuffer.trim()}\n</think>\n\n${combined}`;
+      }
+
       // 如果流式读取结束但没有提取到任何有效正文，自动走一次非流式重试兜底
-      if (!fullText.trim()) {
+      if (!combined.trim()) {
         return await chatCompletion(cleanMessages, { ...options, stream: false }, settings);
       }
 
-      return fullText.trimStart();
+      return combined;
     } else {
       // 非流式直接解析 JSON
       const json = await res.json();
@@ -320,7 +343,26 @@ export async function chatCompletion(
         content = choice.text;
       }
 
+      const reasoning = choice?.message?.reasoning_content;
+      if (typeof reasoning === 'string' && reasoning.trim()) {
+        if (!content.trim()) {
+          content = `<think>\n${reasoning.trim()}\n</think>`;
+        } else if (!content.includes('<think>')) {
+          content = `<think>\n${reasoning.trim()}\n</think>\n\n${content}`;
+        }
+      }
+
       const cleanResult = (content || '').trimStart();
+      if (!cleanResult) {
+        if (choice?.finish_reason === 'content_filter') {
+          throw new Error('服务商内容风控拦截：当前提问或文案生成触发了服务商安全策略，未能返回正文，请微调要求或切换其他模型。');
+        }
+        if (choice?.finish_reason === 'length') {
+          throw new Error('模型输出 Token 达到上限：输出已被截断，请尝试缩减文案字数要求。');
+        }
+        throw new Error(`服务商未返回任何文本内容（HTTP ${res.status}，响应内容为空）。建议在输入框底部切换为其他模型（如通义千问、豆包或商汤）重试。`);
+      }
+
       if (options.onDelta && cleanResult) {
         options.onDelta(cleanResult);
       }

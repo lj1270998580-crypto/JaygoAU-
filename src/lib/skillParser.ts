@@ -264,8 +264,9 @@ export async function parseSkillFromZip(zipBuffer: ArrayBuffer | Uint8Array, zip
 
   const fileEntries: Array<{ path: string; file: JSZip.JSZipObject }> = [];
   zip.forEach((relativePath, file) => {
-    if (!file.dir && !relativePath.startsWith('__MACOSX') && !relativePath.includes('/.DS_Store')) {
-      fileEntries.push({ path: relativePath, file });
+    const normPath = relativePath.replace(/\\/g, '/');
+    if (!file.dir && !normPath.startsWith('__MACOSX') && !normPath.includes('/.DS_Store')) {
+      fileEntries.push({ path: normPath, file });
     }
   });
 
@@ -278,8 +279,8 @@ export async function parseSkillFromZip(zipBuffer: ArrayBuffer | Uint8Array, zip
   // 2) 任何以 .skill.md 结尾的文件
   // 3) 任何包含 --- Frontmatter 或 JSON 的 md/json 文件
   fileEntries.sort((a, b) => {
-    const aName = a.path.split('/').pop()?.toLowerCase() || '';
-    const bName = b.path.split('/').pop()?.toLowerCase() || '';
+    const aName = a.path.split(/[/\\]/).pop()?.toLowerCase() || '';
+    const bName = b.path.split(/[/\\]/).pop()?.toLowerCase() || '';
     if (aName === 'skill.md') return -1;
     if (bName === 'skill.md') return 1;
     if (aName.endsWith('.skill.md')) return -1;
@@ -289,7 +290,7 @@ export async function parseSkillFromZip(zipBuffer: ArrayBuffer | Uint8Array, zip
 
   let skillMainFile: { path: string; text: string } | null = null;
   for (const item of fileEntries) {
-    const fn = item.path.split('/').pop()?.toLowerCase() || '';
+    const fn = item.path.split(/[/\\]/).pop()?.toLowerCase() || '';
     if (fn === 'skill.md' || fn.endsWith('.skill.md') || fn.endsWith('.jaygoskill') || fn.endsWith('.json') || fn.endsWith('.md')) {
       const text = await item.file.async('text');
       if (fn === 'skill.md' || fn.endsWith('.skill.md') || text.includes('---') || (fn.endsWith('.json') && text.includes('"persona"'))) {
@@ -327,7 +328,7 @@ export async function parseSkillFromZip(zipBuffer: ArrayBuffer | Uint8Array, zip
         const content = await item.file.async('text');
         skillFiles.push({
           path: item.path,
-          name: item.path.split('/').pop() || item.path,
+          name: item.path.split(/[/\\]/).pop() || item.path,
           size: content.length,
           content,
         });

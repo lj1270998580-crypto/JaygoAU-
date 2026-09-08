@@ -299,3 +299,17 @@ export const DEFAULT_MODEL_HUB_SETTINGS: ModelHubSettings = {
     },
   },
 };
+
+/**
+ * 获取各大服务商大模型对应的最大上下文 Token 规格（用于 90% 容量自动压缩与状态预警）
+ */
+export function getModelContextLimit(modelId: string, providerType?: ModelProviderType): number {
+  const id = (modelId || '').toLowerCase();
+  if (id.includes('1000k') || id.includes('1m') || id.includes('turbo-latest') || id.includes('glm-4-long')) return 1000000;
+  if (id.includes('256k')) return 256000;
+  if (id.includes('128k') || id.includes('k3') || id.includes('plus') || id.includes('max') || id.includes('pro') || id.includes('4o') || id.includes('sonnet') || id.includes('seed-2.1')) return 128000;
+  if (id.includes('64k') || id.includes('flash') || id.includes('deepseek') || id.includes('glm') || id.includes('mini')) return 64000;
+  if (id.includes('32k')) return 32000;
+  return 64000;
+}
+

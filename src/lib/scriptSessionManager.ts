@@ -111,7 +111,11 @@ export function createNewSession(skill: SkillPreset, initialTitle?: string): Scr
  * 组装大模型 System Prompt（融合创作者人设画像与 zip 附属知识库文件）
  */
 export function buildSkillSystemPrompt(skill: SkillPreset): string {
-  let prompt = `你是一名顶级自媒体口播脚本重构与爆款创作大师。
+  let prompt = '';
+  if (skill.systemPrompt && skill.systemPrompt.trim()) {
+    prompt = skill.systemPrompt;
+  } else {
+    prompt = `你是一名顶级自媒体口播脚本重构与爆款创作大师。
 【当前遵循创作者人设】：${skill.persona || '专业自媒体博主'}
 【标志性口头禅】：${skill.catchphrases?.length ? skill.catchphrases.join('、') : '无'}
 【句长与节奏铁律】：${skill.pacingRules?.sentenceLength || '短句为主，每句不超过15字'}
@@ -121,6 +125,7 @@ ${skill.negativeConstraints?.length ? skill.negativeConstraints.map(c => `- ${c}
 【少样本参考范本】：
 输入：${skill.fewShotExamples?.[0]?.inputTopic || '主题'}
 输出：${skill.fewShotExamples?.[0]?.outputScript || ''}`;
+  }
 
   // 融合从 Zip 压缩包中解压识别出的附属知识库与参考文件
   if (skill.skillFiles && skill.skillFiles.length > 0) {
@@ -140,22 +145,59 @@ ${skill.negativeConstraints?.length ? skill.negativeConstraints.map(c => `- ${c}
 }
 
 /**
+ * 计算当前会话上下文相对模型最大容量的占用比例
+ */
+export function checkContextTokenRatio(
+  session: ScriptSession,
+  skill: SkillPreset,
+  modelContextLimit = 64000
+): { estimatedTokens: number; limit: number; ratio: number; isNearCapacity: boolean } {
+  let totalChars = skill.persona.length + (skill.description?.length || 0);
+  for (const f of skill.skillFiles || []) {
+    totalChars += f.content.length;
+  }
+  for (const m of session.messages) {
+    totalChars += m.content.length;
+    for (const a of m.attachments || []) {
+      totalChars += Math.min(a.content.length, 3000);
+    }
+  }
+  // 中文混排估算系数 1.4 Token/字符
+  const estimatedTokens = Math.ceil(totalChars * 1.4);
+  const limit = Math.max(modelContextLimit, 4000);
+  const ratio = estimatedTokens / limit;
+  return {
+    estimatedTokens,
+    limit,
+    ratio,
+    isNearCapacity: ratio >= 0.9,
+  };
+}
+
+/**
  * 自动上下文滑动窗口与长期记忆压缩
- * 将过早的对话历史压缩为关键共识摘要，保留近期完整上下文
+ * 根据模型参数匹配上下文支持，当上下文长度达到 90% 或轮次过多时自动深度压缩，提炼长期记忆
  */
 export function buildCompressedContext(
   session: ScriptSession,
   skill: SkillPreset,
-  maxRecentTurns = 4
-): { apiMessages: ChatMessage[]; updatedSummary: string; isCompressed: boolean } {
+  maxRecentTurns = 4,
+  modelContextLimit = 64000
+): {
+  apiMessages: ChatMessage[];
+  updatedSummary: string;
+  isCompressed: boolean;
+  reachedNinetyPercent: boolean;
+  estimatedTokens: number;
+} {
   const systemPrompt = buildSkillSystemPrompt(skill);
   const messages = session.messages;
-
-  // 过滤出除欢迎语之外的实际交互
   const realMessages = messages.filter(m => !m.id.startsWith('welcome_'));
 
-  // 若实际轮次较少（<= 4 轮），直接高保真全量传递
-  if (realMessages.length <= maxRecentTurns) {
+  const { estimatedTokens, isNearCapacity } = checkContextTokenRatio(session, skill, modelContextLimit);
+
+  // 若轮次较少且未达 90% 容量阈值，直接高保真全量传递
+  if (realMessages.length <= maxRecentTurns && !isNearCapacity) {
     const history: ChatMessage[] = realMessages.map(m => {
       let content = m.content;
       if (m.attachments && m.attachments.length > 0) {
@@ -169,12 +211,16 @@ export function buildCompressedContext(
       apiMessages: [{ role: 'system', content: systemPrompt }, ...history],
       updatedSummary: session.memorySummary || '',
       isCompressed: false,
+      reachedNinetyPercent: false,
+      estimatedTokens,
     };
   }
 
-  // 轮次较多：切分历史归档区与近期活跃区
-  const recentMessages = realMessages.slice(-maxRecentTurns);
-  const olderMessages = realMessages.slice(0, -maxRecentTurns);
+  // 轮次较多或已达到 90% 上限：切分历史归档区与近期活跃区
+  // 若已达 90% 容量，更加积极地压缩，仅保留最近 2 轮高保真，其余全量提炼为摘要
+  const actualRecentTurns = isNearCapacity ? Math.min(2, maxRecentTurns) : maxRecentTurns;
+  const recentMessages = realMessages.slice(-actualRecentTurns);
+  const olderMessages = realMessages.slice(0, -actualRecentTurns);
 
   // 增量提取早前轮次中的关键决策与主题
   let memorySummary = session.memorySummary || '';
@@ -195,7 +241,7 @@ export function buildCompressedContext(
   }
 
   if (newSummaries.length > 0) {
-    const combined = [...new Set(newSummaries)].slice(-8).join('\n');
+    const combined = [...new Set(newSummaries)].slice(-10).join('\n');
     memorySummary = `【前序创作历史与共识摘要】:\n${combined}\n【当前精选文案定稿方向】: ${session.pinnedScript ? session.pinnedScript.slice(0, 80) + '...' : '持续打磨中'}`;
   }
 
@@ -221,5 +267,7 @@ export function buildCompressedContext(
     ],
     updatedSummary: memorySummary,
     isCompressed: true,
+    reachedNinetyPercent: isNearCapacity,
+    estimatedTokens,
   };
 }
