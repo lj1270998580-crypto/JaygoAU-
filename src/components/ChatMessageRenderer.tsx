@@ -52,7 +52,10 @@ function renderInlineElements(text: string): React.ReactNode[] {
     const token = match[0];
     if (token.startsWith('**') && token.endsWith('**')) {
       parts.push(
-        <strong key={`b-${match.index}`} className="font-semibold text-zinc-900 dark:text-white">
+        <strong
+          key={`b-${match.index}`}
+          className="font-bold text-zinc-950 dark:text-zinc-100 bg-amber-500/15 dark:bg-amber-400/15 px-1 py-0.5 rounded mx-0.5 border-b-2 border-amber-500/50 dark:border-amber-400/50 tracking-wide"
+        >
           {token.slice(2, -2)}
         </strong>
       );

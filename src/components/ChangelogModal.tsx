@@ -27,7 +27,7 @@ export function ChangelogModal({ open, onClose }: Props) {
 
   if (!open) return null;
 
-  const currentVer = appVersion || '0.6.2';
+  const currentVer = appVersion || '0.6.3';
   const hasNewVer = Boolean(update.available && update.available.version !== currentVer);
 
   return (

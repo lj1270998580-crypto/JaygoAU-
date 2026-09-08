@@ -106,6 +106,7 @@ export function ScriptStudio({
   const [editStructure, setEditStructure] = useState('');
   const [editNegativeConstraints, setEditNegativeConstraints] = useState<string[]>([]);
   const [newNegativeInput, setNewNegativeInput] = useState('');
+  const [editSystemPrompt, setEditSystemPrompt] = useState('');
 
   // 对话框下方风格下拉菜单状态
   const [styleDropdownOpen, setStyleDropdownOpen] = useState(false);
@@ -222,6 +223,7 @@ export function ScriptStudio({
       setEditSentenceLength(selectedSkill.pacingRules?.sentenceLength || '');
       setEditStructure(selectedSkill.pacingRules?.structure || '');
       setEditNegativeConstraints([...(selectedSkill.negativeConstraints || [])]);
+      setEditSystemPrompt(selectedSkill.systemPrompt || '');
     }
   }, [selectedSkill?.id]);
 
@@ -388,6 +390,7 @@ export function ScriptStudio({
         structure: editStructure.trim() || selectedSkill.pacingRules.structure,
       },
       negativeConstraints: editNegativeConstraints.filter(Boolean),
+      systemPrompt: editSystemPrompt.trim() || undefined,
       updatedAt: Date.now(),
       isSystem: false, // 一旦被用户修改，自动转换为用户自定义风格
     };
@@ -412,10 +415,11 @@ export function ScriptStudio({
       description: editSkillDesc.trim() || selectedSkill.description,
       catchphrases: [...editCatchphrases],
       pacingRules: {
-        sentenceLength: editSentenceLength.trim() || selectedSkill.pacingRules.sentenceLength,
-        structure: editStructure.trim() || selectedSkill.pacingRules.structure,
+        sentenceLength: editSentenceLength.trim() || selectedSkill.pacingRules?.sentenceLength || '',
+        structure: editStructure.trim() || selectedSkill.pacingRules?.structure || '',
       },
       negativeConstraints: [...editNegativeConstraints],
+      systemPrompt: editSystemPrompt.trim() || undefined,
       updatedAt: Date.now(),
       isSystem: false,
     };
@@ -423,6 +427,34 @@ export function ScriptStudio({
     refreshSkills();
     setSelectedSkillId(newId);
     showToast(`已另存为新风格：【${newName}】`);
+  };
+
+  // 删除当前风格
+  const handleDeleteCurrentSkill = (skillId: string, skillName: string) => {
+    if (!window.confirm(`确定要删除创作风格【${skillName}】吗？`)) {
+      return;
+    }
+    deleteSkill(skillId);
+    const updated = getAllSkills();
+    setSkills(updated);
+    if (updated.length > 0) {
+      setSelectedSkillId(updated[0].id);
+      if (currentSession && currentSession.skillId === skillId) {
+        updateCurrentSession({ skillId: updated[0].id });
+      }
+    }
+    showToast(`已删除创作风格：【${skillName}】`);
+  };
+
+  // 恢复所有预设默认风格
+  const handleRestoreDefaults = () => {
+    restoreDefaultSkills();
+    const updated = getAllSkills();
+    setSkills(updated);
+    if (updated.length > 0) {
+      setSelectedSkillId(updated[0].id);
+    }
+    showToast('已恢复官方预设风格（王超然 / 宋俊生）');
   };
 
   // 上传附件素材文件
@@ -987,16 +1019,27 @@ export function ScriptStudio({
             </div>
           )}
 
-          {/* 左栏内容区 2：Skill 详情编辑框（支持自定义名称与人设） */}
+          {/* 左栏内容区 2：Skill 详情编辑框（支持自定义名称、人设、System Prompt 与删除风格） */}
           {leftTab === 'skill' && selectedSkill && (
             <div className="flex-1 p-3.5 overflow-y-auto space-y-3.5 text-xs">
               <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800">
-                <span className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
-                  <span>🎨</span> <span>风格详情配置</span>
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-medium">
-                  {selectedSkill.isSystem ? '官方预设' : '自定义风格'}
-                </span>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1 truncate">
+                    <span>🎨</span> <span>风格详情配置</span>
+                  </span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-medium shrink-0">
+                    {selectedSkill.isSystem ? '官方预设' : '自定义'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteCurrentSkill(selectedSkill.id, selectedSkill.name)}
+                  className="p-1 px-1.5 rounded-md text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-[11px] flex items-center gap-1 transition cursor-pointer shrink-0"
+                  title="删除当前创作风格"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>删除</span>
+                </button>
               </div>
 
               {/* 创作者风格名称（自定义） */}
@@ -1013,17 +1056,20 @@ export function ScriptStudio({
                 />
               </div>
 
-              {/* 导师人设定位 */}
+              {/* 导师人设定位（提升默认高度并支持纵向自由拖拽，满足诉求 6） */}
               <div className="space-y-1">
-                <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
-                  导师人设定位 (Persona)
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                    导师人设定位 (Persona)
+                  </label>
+                  <span className="text-[10px] text-zinc-400">可拖拽右下角任意调节高度</span>
+                </div>
                 <textarea
-                  rows={2}
+                  rows={5}
                   value={editSkillPersona}
                   onChange={e => setEditSkillPersona(e.target.value)}
-                  placeholder="设定导师的专业背景、语气、思考深度..."
-                  className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:border-blue-500 resize-none leading-relaxed"
+                  placeholder="设定导师的专业背景、语气风格、思考深度与核心认知..."
+                  className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:border-blue-500 resize-y min-h-[120px] leading-relaxed"
                 />
               </div>
 
@@ -1079,17 +1125,31 @@ export function ScriptStudio({
                 </div>
               </div>
 
-              {/* 句长与断句节奏约束 */}
+              {/* 句长与断句节奏约束（可纵向拖拽调节高度） */}
               <div className="space-y-1">
                 <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
                   句长与断句节奏铁律
                 </label>
-                <input
-                  type="text"
+                <textarea
+                  rows={2}
                   value={editSentenceLength}
                   onChange={e => setEditSentenceLength(e.target.value)}
                   placeholder="例如: 极短句，单句严格控制在16个字以内"
-                  className="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:border-blue-500"
+                  className="w-full p-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:border-blue-500 resize-y min-h-[56px]"
+                />
+              </div>
+
+              {/* 行文框架模式 */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                  行文框架与推演模式
+                </label>
+                <textarea
+                  rows={2}
+                  value={editStructure}
+                  onChange={e => setEditStructure(e.target.value)}
+                  placeholder="例如: 黄金3秒钩子 → 痛点真相 → 破局认知 → 金句升华"
+                  className="w-full p-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:border-blue-500 resize-y min-h-[56px]"
                 />
               </div>
 
@@ -1127,7 +1187,7 @@ export function ScriptStudio({
                         setNewNegativeInput('');
                       }
                     }}
-                    placeholder="例如: 严禁出现八股套话..."
+                    placeholder="例如: 严禁出现八股套话与陈旧鸡汤..."
                     className="flex-1 px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 outline-none"
                   />
                   <button
@@ -1143,6 +1203,23 @@ export function ScriptStudio({
                     添加
                   </button>
                 </div>
+              </div>
+
+              {/* Skill 完整规范提示词（System Prompt，支持纵向调节） */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                    Skill 完整规范提示词 (System Prompt)
+                  </label>
+                  <span className="text-[10px] text-zinc-400">可拖拽右下角调节高度</span>
+                </div>
+                <textarea
+                  rows={8}
+                  value={editSystemPrompt}
+                  onChange={e => setEditSystemPrompt(e.target.value)}
+                  placeholder="若填写将作为完整的专属系统指令；若留空则自动根据上方人设、口头禅与铁律实时组装..."
+                  className="w-full p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 font-mono text-[11px] text-zinc-900 dark:text-zinc-100 outline-none focus:border-blue-500 resize-y min-h-[160px] leading-relaxed"
+                />
               </div>
 
               {/* 附属文件展示（如果通过 zip 导入） */}
@@ -1163,33 +1240,53 @@ export function ScriptStudio({
                 </div>
               )}
 
-              {/* 保存与导出按钮矩阵 */}
+              {/* 保存、导出与删除操作栏 */}
               <div className="pt-2 border-t border-zinc-200/70 dark:border-zinc-800/70 space-y-2">
                 <button
                   type="button"
                   onClick={handleSaveSkillEdit}
-                  className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow-xs flex items-center justify-center gap-1.5"
+                  className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Check className="w-3.5 h-3.5" />
                   <span>保存修改并应用</span>
                 </button>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={handleSaveAsNewSkill}
-                    className="flex-1 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-[11px] font-medium text-zinc-700 dark:text-zinc-300 transition"
+                    className="flex-1 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-[11px] font-medium text-zinc-700 dark:text-zinc-300 transition cursor-pointer"
                   >
                     另存为新风格
                   </button>
                   <button
                     type="button"
                     onClick={selectedSkill.skillFiles?.length ? handleExportSkillZip : handleExportSkillMd}
-                    className="flex-1 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-[11px] font-medium text-zinc-700 dark:text-zinc-300 transition flex items-center justify-center gap-1"
+                    className="flex-1 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-[11px] font-medium text-zinc-700 dark:text-zinc-300 transition flex items-center justify-center gap-1 cursor-pointer"
                     title="导出当前风格"
                   >
                     <Upload className="w-3 h-3 rotate-180" />
                     <span>导出 {selectedSkill.skillFiles?.length ? 'Zip' : 'MD'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCurrentSkill(selectedSkill.id, selectedSkill.name)}
+                    className="py-1.5 px-2 rounded-xl border border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-[11px] font-medium text-rose-600 dark:text-rose-400 transition flex items-center justify-center gap-1 cursor-pointer"
+                    title="彻底删除此风格"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>删除</span>
+                  </button>
+                </div>
+
+                {/* 恢复官方默认风格的链接 */}
+                <div className="text-center pt-1">
+                  <button
+                    type="button"
+                    onClick={handleRestoreDefaults}
+                    className="text-[10.5px] text-zinc-400 hover:text-blue-500 underline transition cursor-pointer"
+                  >
+                    恢复官方默认预设风格 (王超然 / 宋俊生)
                   </button>
                 </div>
               </div>

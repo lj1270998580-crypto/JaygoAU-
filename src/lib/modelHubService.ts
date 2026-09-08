@@ -117,7 +117,7 @@ export async function chatCompletion(
     model: actualModel,
     messages: cleanMessages,
     temperature: options.temperature ?? 0.4,
-    max_tokens: options.maxTokens ?? 2048,
+    max_tokens: options.maxTokens ?? 8192,
     stream: isStream,
   };
 
@@ -137,8 +137,8 @@ export async function chatCompletion(
     Authorization: `Bearer ${provider.apiKey.trim()}`,
   };
 
-  // 超时与 429 智能指数退避重试控制器
-  const timeoutMs = isStream ? 60000 : 45000;
+  // 超时与 429 智能指数退避重试控制器（思考模型给予充裕时间）
+  const timeoutMs = isStream ? 120000 : 90000;
   const MAX_429_RETRIES = 3;
   let attempt = 0;
   let res: Response | null = null;
@@ -251,14 +251,16 @@ export async function chatCompletion(
       let fullText = '';
       let reasoningBuffer = '';
       let buffer = '';
+      let hasStartedThink = false;
+      let hasEndedThink = false;
 
-      // 流式读取心跳超时保护（每个 chunk 之间最多等待 20 秒）
+      // 流式读取心跳超时保护（思考阶段单个 chunk 等待放宽至 60 秒）
       let chunkTimer: any = null;
       const resetChunkTimeout = () => {
         if (chunkTimer) clearTimeout(chunkTimer);
         chunkTimer = setTimeout(() => {
           reader.cancel('流式传输空闲超时');
-        }, 20000);
+        }, 60000);
       };
 
       try {
@@ -281,15 +283,29 @@ export async function chatCompletion(
                 const choice = parsed.choices?.[0];
                 let delta = '';
 
+                // 提取思考推演内容
+                let rDelta = '';
+                if (typeof choice?.delta?.reasoning_content === 'string') {
+                  rDelta = choice.delta.reasoning_content;
+                } else if (typeof choice?.delta?.reasoning === 'string') {
+                  rDelta = choice.delta.reasoning;
+                }
+
+                if (rDelta) {
+                  reasoningBuffer += rDelta;
+                  if (!hasStartedThink) {
+                    hasStartedThink = true;
+                    options.onDelta?.(`<think>\n${rDelta}`);
+                  } else {
+                    options.onDelta?.(rDelta);
+                  }
+                }
+
+                // 提取正式输出正文内容
                 if (typeof choice?.delta?.content === 'string') {
                   delta = choice.delta.content;
                 } else if (Array.isArray(choice?.delta?.content)) {
                   delta = choice.delta.content.map((c: any) => c.text || '').join('');
-                } else if (typeof choice?.delta?.reasoning_content === 'string') {
-                  const rDelta = choice.delta.reasoning_content;
-                  reasoningBuffer += rDelta;
-                  // 流式通知思考过程
-                  options.onDelta?.(rDelta);
                 } else if (typeof choice?.text === 'string') {
                   delta = choice.text;
                 } else if (typeof choice?.message?.content === 'string') {
@@ -298,7 +314,13 @@ export async function chatCompletion(
 
                 if (delta) {
                   fullText += delta;
-                  options.onDelta?.(delta);
+                  // 若此前有思考过程且尚未闭合标签，在正文前无缝闭合 <think>
+                  if (hasStartedThink && !hasEndedThink) {
+                    hasEndedThink = true;
+                    options.onDelta?.(`\n</think>\n\n${delta}`);
+                  } else {
+                    options.onDelta?.(delta);
+                  }
                 }
               } catch (_) {
                 // 忽略个别 chunk 解析错误
@@ -317,10 +339,43 @@ export async function chatCompletion(
         if (chunkTimer) clearTimeout(chunkTimer);
       }
 
+      if (hasStartedThink && !hasEndedThink) {
+        hasEndedThink = true;
+        options.onDelta?.(`\n</think>\n\n`);
+      }
+
       let combined = fullText.trimStart();
-      if (!combined && reasoningBuffer.trim()) {
-        combined = `<think>\n${reasoningBuffer.trim()}\n</think>`;
-      } else if (combined && reasoningBuffer.trim() && !combined.includes('<think>')) {
+
+      // 核心防护：如果模型输出了深度推演，但在正文阶段没有输出内容（如思考过长用尽 Token 或提前停止）
+      // 自动发起一轮追问，令模型基于刚才的思考结果立即输出正式口播文案正文，确保创作者必定得到完整文章！
+      if (!combined.trim() && reasoningBuffer.trim()) {
+        console.warn('[modelHubService] 检测到模型仅输出了深度推演但无正文，自动触发续写成稿机制...');
+        const followUpMessages: ChatMessage[] = [
+          ...cleanMessages,
+          { role: 'assistant', content: `<think>\n${reasoningBuffer.trim()}\n</think>` },
+          { role: 'user', content: '请立即根据上述深度推演与构思结果，直接输出完整的口播文案正文，第一行直接开篇输出文案，不要再输出任何思考过程，开始：' }
+        ];
+
+        let followUpStreamed = '';
+        const followUpReply = await chatCompletion(
+          followUpMessages,
+          {
+            ...options,
+            stream: isStream,
+            maxTokens: 8192,
+            onDelta: (deltaChunk: string) => {
+              followUpStreamed += deltaChunk;
+              options.onDelta?.(deltaChunk);
+            }
+          },
+          settings
+        );
+
+        const realBody = (followUpReply || followUpStreamed).trim();
+        return `<think>\n${reasoningBuffer.trim()}\n</think>\n\n${realBody}`;
+      }
+
+      if (combined && reasoningBuffer.trim() && !combined.includes('<think>')) {
         combined = `<think>\n${reasoningBuffer.trim()}\n</think>\n\n${combined}`;
       }
 
@@ -346,7 +401,18 @@ export async function chatCompletion(
       const reasoning = choice?.message?.reasoning_content;
       if (typeof reasoning === 'string' && reasoning.trim()) {
         if (!content.trim()) {
-          content = `<think>\n${reasoning.trim()}\n</think>`;
+          // 非流式下若仅有思考，同样自动发起续写补齐
+          const followUpMessages: ChatMessage[] = [
+            ...cleanMessages,
+            { role: 'assistant', content: `<think>\n${reasoning.trim()}\n</think>` },
+            { role: 'user', content: '请立即根据上述深度推演与构思结果，直接输出完整的口播文案正文，第一行直接开篇，不要再输出任何思考过程，开始：' }
+          ];
+          const followUpReply = await chatCompletion(
+            followUpMessages,
+            { ...options, stream: false, maxTokens: 8192 },
+            settings
+          );
+          content = `<think>\n${reasoning.trim()}\n</think>\n\n${followUpReply.trimStart()}`;
         } else if (!content.includes('<think>')) {
           content = `<think>\n${reasoning.trim()}\n</think>\n\n${content}`;
         }
