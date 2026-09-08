@@ -186,7 +186,7 @@ export interface MediaResolutionOption {
   width?: number;         // 分辨率宽
   height?: number;        // 分辨率高
   format?: string;        // mp4, h264, h265
-  sizeEstimated?: number; // 预估文件大小 (bytes)
+  sizeEstimated?: number | string; // 预估文件大小 (bytes 或 MB 字符串)
   isDefault?: boolean;    // 是否为默认推荐项（最高画质）
 }
 

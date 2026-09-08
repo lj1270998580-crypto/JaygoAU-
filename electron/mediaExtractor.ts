@@ -16,7 +16,7 @@ export interface MediaResolutionOption {
   width?: number;         // 分辨率宽
   height?: number;        // 分辨率高
   format?: string;        // mp4, h264, h265
-  sizeEstimated?: number; // 预估文件大小 (bytes)
+  sizeEstimated?: number | string; // 预估文件大小 (bytes 或 MB 字符串)
   isDefault?: boolean;    // 是否为默认推荐项（最高画质）
 }
 
@@ -156,6 +156,11 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
     const cleanup = () => {
       clearTimeout(timer);
       try {
+        if (win.webContents.debugger.isAttached()) {
+          win.webContents.debugger.detach();
+        }
+      } catch {}
+      try {
         win.destroy();
       } catch {}
     };
@@ -186,6 +191,30 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
     let capturedVideo = '';
     let capturedAudio = '';
     const capturedVideos: string[] = [];
+    let awemeDetailData: any = null;
+
+    // 挂载 Chrome DevTools Protocol 监听抖音核心接口回包
+    try {
+      const cdp = win.webContents.debugger;
+      cdp.attach('1.3');
+      cdp.sendCommand('Network.enable');
+      cdp.on('message', async (_event, method, params) => {
+        if (method === 'Network.responseReceived') {
+          const u = params.response?.url || '';
+          if (u.includes('/aweme/v1/web/aweme/detail/')) {
+            try {
+              const bodyObj = await cdp.sendCommand('Network.getResponseBody', { requestId: params.requestId });
+              if (bodyObj && bodyObj.body) {
+                const parsed = JSON.parse(bodyObj.body);
+                if (parsed.aweme_detail) {
+                  awemeDetailData = parsed.aweme_detail;
+                }
+              }
+            } catch {}
+          }
+        }
+      });
+    } catch {}
 
     // 网络请求全流量嗅探
     win.webContents.session.webRequest.onBeforeRequest((details, callback) => {
@@ -240,7 +269,7 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
       }
     });
 
-    // 毫秒级轮询页面渲染树、DOM video 标签与全局 SSR 变量
+    // 毫秒级轮询页面渲染树与 CDP 详情回包
     let pollCount = 0;
     const interval = setInterval(async () => {
       if (settled || win.isDestroyed()) {
@@ -248,6 +277,140 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
         return;
       }
       pollCount++;
+
+      // 优先通道：CDP 成功拦截到 aweme_detail 原生高清数据字典
+      if (awemeDetailData) {
+        settled = true;
+        clearInterval(interval);
+        cleanup();
+
+        const item = awemeDetailData;
+        const title = (item.desc || '抖音作品').trim();
+        const author = item.author?.nickname || '抖音创作者';
+        const authorAvatar = item.author?.avatar_thumb?.url_list?.[0] || '';
+        const coverUrl = item.video?.cover?.url_list?.[0] || item.video?.origin_cover?.url_list?.[0] || '';
+        const durationSec = item.video?.duration ? Math.round(item.video.duration / 1000) : undefined;
+
+        // 图文作品图片集合
+        let images: string[] | undefined = undefined;
+        let rawImages: string[] | undefined = undefined;
+        if (item.images && item.images.length > 0) {
+          images = item.images.map((img: any) => img.url_list?.[0]).filter(Boolean);
+          rawImages = images?.map((u: string) => u.replace(/~.*$/, ''));
+        }
+
+        // 音频流提取
+        const audioUrl =
+          capturedAudio ||
+          item.video?.bit_rate_audio?.[0]?.audio_meta?.url_list?.[0] ||
+          item.music?.play_url?.url_list?.[0] ||
+          undefined;
+
+        // 多清晰度多规格解析（按清晰度等级排序：4K/2K/1080P/720P/540P）
+        const bitrates: any[] = item.video?.bit_rate || [];
+        const sortedBitrates = [...bitrates].sort((a: any, b: any) => {
+          const resA = (a.play_addr?.width || 0) * (a.play_addr?.height || 0);
+          const resB = (b.play_addr?.width || 0) * (b.play_addr?.height || 0);
+          if (resB !== resA) return resB - resA;
+          return (b.bit_rate || 0) - (a.bit_rate || 0);
+        });
+
+        const resolutions: MediaResolutionOption[] = [];
+        const seenTiers = new Set<string>();
+
+        sortedBitrates.forEach((b: any, idx: number) => {
+          const vUrl = b.play_addr?.url_list?.[0];
+          if (!vUrl) return;
+
+          const w = b.play_addr?.width || 0;
+          const h = b.play_addr?.height || 0;
+          const maxDim = Math.max(w, h);
+          const minDim = Math.min(w, h);
+
+          let tier = '720p';
+          let label = '720P 高清';
+
+          if (maxDim >= 3840 || minDim >= 2160) {
+            tier = '4k';
+            label = '超高清 4K (2160P)';
+          } else if (maxDim >= 2560 || minDim >= 1440) {
+            tier = '2k';
+            label = '2K 超清 (1440P)';
+          } else if (maxDim >= 1920 || minDim >= 1080) {
+            tier = '1080p';
+            label = '1080P 超清';
+          } else if (maxDim >= 1280 || minDim >= 720) {
+            tier = '720p';
+            label = '720P 高清';
+          } else {
+            tier = '540p';
+            label = '540P 标清';
+          }
+
+          const gearName = b.gear_name || '';
+          const key = `${tier}_${gearName}`;
+          if (seenTiers.has(key)) return;
+          seenTiers.add(key);
+
+          const sizeBytes = b.play_addr?.data_size || 0;
+          const sizeEstimated = sizeBytes > 0 ? `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB` : undefined;
+
+          resolutions.push({
+            id: `dy_${tier}_${idx}`,
+            label,
+            videoUrl: vUrl,
+            audioUrl,
+            width: w || undefined,
+            height: h || undefined,
+            bitrate: b.bit_rate || undefined,
+            format: 'mp4',
+            sizeEstimated,
+            isDefault: resolutions.length === 0,
+          });
+        });
+
+        // 若 bit_rate 未提取到则降级使用 play_addr
+        if (resolutions.length === 0 && item.video?.play_addr?.url_list?.[0]) {
+          const fallbackUrl = item.video.play_addr.url_list[0];
+          const sizeBytes = item.video.play_addr.data_size || 0;
+          resolutions.push({
+            id: 'dy_default',
+            label: '超清无水印原片',
+            videoUrl: fallbackUrl,
+            audioUrl,
+            format: 'mp4',
+            sizeEstimated: sizeBytes > 0 ? `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB` : undefined,
+            isDefault: true,
+          });
+        }
+
+        const primaryVideo = resolutions[0]?.videoUrl || capturedVideo || undefined;
+
+        return resolve({
+          platform: 'douyin',
+          platformName: '抖音',
+          mediaType: (images && images.length > 0 && !primaryVideo) ? 'images' : 'video',
+          title,
+          desc: item.desc || title,
+          author,
+          authorAvatar,
+          coverUrl,
+          durationSec,
+          videoUrl: primaryVideo,
+          audioUrl,
+          images,
+          rawImages,
+          resolutions: resolutions.length > 0 ? resolutions : undefined,
+          selectedResolutionId: resolutions[0]?.id,
+          originalUrl: targetUrl,
+          headers: {
+            'User-Agent': PC_UA,
+            'Referer': 'https://www.douyin.com/',
+          },
+        });
+      }
+
+      // 降级备用通道：DOM 与流量嗅探
       try {
         const info = await win.webContents.executeJavaScript(`
           (() => {
@@ -263,11 +426,10 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
               if (el) author = (el.textContent || '').trim();
             }
 
-            // 提取所有高清原图（排除头像、图标等非作品图）
             const imgs = Array.from(document.querySelectorAll('img')).map(i => i.src);
             const rawImages = imgs
               .filter(s => s.includes('douyinpic.com') && !s.includes('avatar') && !s.includes('icon') && !s.includes('user-avatar'))
-              .map(s => s.replace(/~.*$/, '')); // 移除缩放与压缩参数获取无损原图
+              .map(s => s.replace(/~.*$/, ''));
 
             const uniqueRaw = Array.from(new Set(rawImages));
             const cover = uniqueRaw[0] || (imgs.find(s => s.includes('douyinpic.com') && !s.includes('avatar')) || '');
@@ -287,21 +449,13 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
           })()
         `);
 
-        // 条件 A: 捕获到视频流（常规视频）
-        // 条件 B: 图文作品（包含多张图片或当前属于 note 页面，且不需要硬等视频流）
         const isPhotoNoteReady = info && (info.isNotePage || (info.images && info.images.length > 1)) && pollCount >= 6;
 
-        if (info && (capturedVideo || capturedAudio || isPhotoNoteReady)) {
-          // 如果捕获到视频但还未捕获到音频，给少量轮询时间等待可能分离的音频流
-          if (capturedVideo && !capturedAudio && pollCount < 15 && !info.isNotePage) {
-            return;
-          }
-
+        if (info && (capturedVideo || capturedAudio || isPhotoNoteReady) && pollCount >= 10) {
           settled = true;
           clearInterval(interval);
           cleanup();
 
-          // 组织抖音清晰度列表（按清晰度等级排序：1080P > 720P > 540P）
           const sortedVideos = [...capturedVideos].sort((a, b) => {
             const score = (u: string) => (u.includes('1080') ? 3 : u.includes('720') ? 2 : u.includes('540') ? 1 : 0);
             return score(b) - score(a);

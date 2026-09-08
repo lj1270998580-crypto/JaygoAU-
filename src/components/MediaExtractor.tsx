@@ -663,7 +663,7 @@ export default function MediaExtractor() {
                               )}
                               {resOpt.sizeEstimated && (
                                 <span className="text-[10px] text-zinc-400">
-                                  ({resOpt.sizeEstimated})
+                                  ({typeof resOpt.sizeEstimated === 'number' ? `${(resOpt.sizeEstimated / (1024 * 1024)).toFixed(1)} MB` : resOpt.sizeEstimated})
                                 </span>
                               )}
                             </button>

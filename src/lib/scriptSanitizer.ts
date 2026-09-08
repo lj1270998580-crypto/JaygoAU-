@@ -39,16 +39,48 @@ export function extractCleanScript(rawText: string): string {
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n');
 
-  // 1. 如果整体被 Markdown 代码块包裹，解构提取代码块内部内容
+  // 1. 彻底剥离 <think>...</think> 与未闭合的 <think> 深度推演块
+  text = text.replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, '');
+  text = text.replace(/<think\b[^>]*>[\s\S]*$/gi, '');
+  text = text.replace(/<thought\b[^>]*>[\s\S]*?<\/thought>/gi, '');
+  text = text.replace(/<thought\b[^>]*>[\s\S]*$/gi, '');
+
+  // 2. 剥离 Markdown 代码块外壳包裹
+  text = text.replace(/^```(?:markdown|text|plain|txt)?\s*\n([\s\S]*?)\n```\s*$/im, '$1');
   const codeBlockMatch = text.match(/```(?:markdown|text|plain|txt)?\s*([\s\S]*?)\s*```/i);
   if (codeBlockMatch && codeBlockMatch[1].trim().length > 15) {
-    text = codeBlockMatch[1];
+    if (!text.slice(0, text.indexOf('```')).includes('正文') && text.indexOf('```') < 100) {
+      text = codeBlockMatch[1];
+    }
   }
 
-  // 2. 切分成行逐行清洗首尾
+  // 3. 智能截取正文区间（识别正文开始标记与尾部汇报/说明分界线）
+  // 3.1 识别尾部汇报总结/创作说明/检查清单/分镜等分界线
+  // 匹配整行以 #、【、---、*** 开头，且包含汇报、思路、说明、检查清单、投流配套、复盘等关键词
+  const trailingBoundaryRegex = /(?:^|\n)\s*(?:#+\s*|【|\*{1,3}|---+\s*|\*\*\*+\s*)[^\n]*(?:创作思路|创作说明|改写说明|修改说明|改写逻辑|设计思路|设计说明|设计亮点|违规点|违规规避|合规说明|合规自检|自检|汇报总结|创作汇报|汇报|创作复盘|复盘说明|思路复盘|检查清单|投流配套|封面标题|拍摄建议|分镜建议|拍摄说明|分镜说明|出镜建议|语气建议|注意事项|互动话术|评论区话术)[^\n]*(?:\n|$)/i;
+  
+  const trailingMatch = text.match(trailingBoundaryRegex);
+  if (trailingMatch && trailingMatch.index !== undefined) {
+    const beforeBoundary = text.slice(0, trailingMatch.index).trim();
+    if (beforeBoundary.length >= 20) {
+      text = beforeBoundary;
+    }
+  }
+
+  // 3.2 识别正文开始标记（如【口播正文】、【文案正文】等）
+  const bodyStartRegex = /(?:^|\n)\s*(?:#+\s*|【|\*{1,3})?\s*(?:口播正文|文案正文|正文脚本|脚本文案|脚本正文|短视频文案|口播台词|正文内容|正文)(?:】|\*{1,3}|[：:])?\s*(?:\n|$)/i;
+  const startMatch = text.match(bodyStartRegex);
+  if (startMatch && startMatch.index !== undefined) {
+    const afterStart = text.slice(startMatch.index + startMatch[0].length).trim();
+    if (afterStart.length >= 20) {
+      text = afterStart;
+    }
+  }
+
+  // 4. 切分成行逐行清洗首尾
   let lines = text.split('\n');
 
-  // 3. 剥离头部的无意义行、空行与寒暄
+  // 4.1 剥离头部的无意义行、空行与寒暄
   let leadingLoopCount = 0;
   while (lines.length > 0 && leadingLoopCount < 20) {
     leadingLoopCount++;
@@ -65,7 +97,7 @@ export function extractCleanScript(rawText: string): string {
     break;
   }
 
-  // 4. 剥离尾部的客套总结、拍摄建议与空行
+  // 4.2 剥离尾部的客套总结、拍摄建议与空行
   let trailingLoopCount = 0;
   while (lines.length > 0 && trailingLoopCount < 20) {
     trailingLoopCount++;
@@ -82,8 +114,9 @@ export function extractCleanScript(rawText: string): string {
     break;
   }
 
-  // 5. 重新拼合并彻底 trim
+  // 5. 重新拼合并再次清理可能残留的 markdown 围栏
   let result = lines.join('\n').trim();
+  result = result.replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/i, '').trim();
 
   // 6. 收拢超过 2 个连续空行为标准 2 个换行
   result = result.replace(/\n{3,}/g, '\n\n');
