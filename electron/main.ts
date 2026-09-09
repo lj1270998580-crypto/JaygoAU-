@@ -2407,5 +2407,275 @@ ipcMain.handle('pick-document-files', async () => {
   }
 });
 
+// =========================================================================
+// 商汤日日新 (SenseNova TokenPlan) & 智能视频配插图 IPC 接口
+// =========================================================================
+
+// 1. 测试商汤 TokenPlan API Key 连通性
+ipcMain.handle('sensenova-test-key', async (_, args: { apiKey: string }) => {
+  try {
+    const key = (args.apiKey || '').trim();
+    if (!key) return { ok: false, message: '请提供商汤日日新 TokenPlan API Key' };
+    
+    // 调用 SenseNova models 端点探测密匙有效性
+    const res = await fetch('https://api.sensenova.cn/v1/models', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (res.status === 200) {
+      return { ok: true, message: '✅ 商汤日日新 TokenPlan 验证成功，服务正常！' };
+    }
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, message: `鉴权失败（HTTP ${res.status}）：API Key 无效或未开通权限` };
+    }
+    // 非 401 状态说明密匙鉴权已通过
+    return { ok: true, message: `✅ 商汤 TokenPlan 密匙连接正常（状态码 ${res.status}）` };
+  } catch (err: any) {
+    return { ok: false, message: `网络连接异常：${err?.message || '未知错误'}` };
+  }
+});
+
+// 2. 调用商汤日日新生成插图 (文生图 & 图生图)
+ipcMain.handle('sensenova-generate-image', async (_, args: {
+  apiKey: string;
+  model: string;
+  prompt: string;
+  size?: string;
+  style?: string;
+  imageBase64?: string;
+}) => {
+  try {
+    const key = (args.apiKey || '').trim();
+    if (!key) throw new Error('未配置商汤日日新 TokenPlan API Key，请在设置中配置');
+    const model = args.model || 'sensenova-u1-fast';
+    let prompt = (args.prompt || '').trim();
+    if (!prompt) throw new Error('提示词 prompt 不能为空');
+
+    // 风格修饰词增强
+    if (args.style && !prompt.includes(args.style)) {
+      const stylePrompts: Record<string, string> = {
+        realistic: '写实摄影风格，真实细腻细节，8k超清，商业摄影光影，真实质感',
+        chinese_ink: '中国水墨国风，意境悠远，墨色晕染，东方美学，传统水墨笔触',
+        flat_vector: '现代扁平矢量插画风格，清晰排版，利落几何线条，设计感强，明快配色',
+        '3d_render': '3D卡通渲染风格，皮克斯质感，柔和立体光照，细腻材质，高精度建模',
+        cyberpunk: '赛博朋克风格，霓虹炫光，未来科技感，暗色调高对比，科幻光晕',
+        infographic_clean: '高清信息图设计，结构化清晰排版，现代极简，数据图解，核心要点视觉化',
+        minimalist: '商业极简风格，高级留白构图，克制优雅，高级杂志质感',
+      };
+      if (stylePrompts[args.style]) {
+        prompt = `${prompt}，${stylePrompts[args.style]}`;
+      }
+    }
+
+    const isImg2Img = Boolean(args.imageBase64 && model === 'sensenova-u1.5-lite');
+    const endpoint = isImg2Img
+      ? 'https://api.sensenova.cn/v1/images/edits'
+      : 'https://api.sensenova.cn/v1/images/generations';
+
+    const reqBody: any = {
+      model,
+      prompt,
+      size: args.size || '2048x2048',
+      n: 1,
+    };
+    if (isImg2Img) {
+      reqBody.image = args.imageBase64;
+    }
+
+    dbg(`[SenseNova] calling ${endpoint} model=${model} prompt="${prompt.slice(0, 60)}..."`);
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(reqBody),
+    });
+
+    const resText = await res.text();
+    let json: any = {};
+    try {
+      json = JSON.parse(resText);
+    } catch {
+      throw new Error(`商汤接口响应解析失败（HTTP ${res.status}）：${resText.slice(0, 300)}`);
+    }
+
+    if (!res.ok) {
+      const errMsg = json?.error?.message || json?.message || json?.msg || `商汤生图请求失败（HTTP ${res.status}）`;
+      throw new Error(errMsg);
+    }
+
+    const imgUrl = json?.data?.[0]?.url;
+    const b64 = json?.data?.[0]?.b64_json;
+    if (!imgUrl && !b64) {
+      throw new Error('商汤接口未返回有效图片 URL 或 Base64 数据');
+    }
+
+    // 将图片保存到本地缓存目录
+    const illDir = path.join(app.getPath('userData'), 'illustrations');
+    if (!fs.existsSync(illDir)) fs.mkdirSync(illDir, { recursive: true });
+    const localFileName = `sn_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.png`;
+    const localPath = path.join(illDir, localFileName);
+
+    if (b64) {
+      fs.writeFileSync(localPath, Buffer.from(b64, 'base64'));
+    } else if (imgUrl) {
+      const imgRes = await fetch(imgUrl);
+      if (!imgRes.ok) throw new Error(`下载生成的图片失败（HTTP ${imgRes.status}）`);
+      const buf = Buffer.from(await imgRes.arrayBuffer());
+      fs.writeFileSync(localPath, buf);
+    }
+
+    dbg(`[SenseNova] image generated & saved to: ${localPath}`);
+    return {
+      ok: true,
+      localPath,
+      imageUrl: `file:///${localPath.replace(/\\/g, '/')}`,
+      model,
+      prompt,
+    };
+  } catch (err: any) {
+    dbg(`[SenseNova] error: ${err?.message || err}`);
+    return {
+      ok: false,
+      error: err?.message || '生成插图失败',
+    };
+  }
+});
+
+// 3. 使用 FFmpeg 将插图序列按时间轴合成到视频中并导出
+ipcMain.handle('export-video-with-overlays', async (event, args: {
+  videoPath: string;
+  outputPath?: string;
+  overlays: Array<{
+    imagePath: string;
+    startTime: number;
+    endTime: number;
+    xPercent: number;
+    yPercent: number;
+    widthPercent: number;
+    heightPercent?: number;
+  }>;
+}) => {
+  try {
+    if (!FFMPEG_PATH || !fs.existsSync(FFMPEG_PATH)) {
+      throw new Error('未找到 FFmpeg 引擎，无法进行视频合成');
+    }
+    const { videoPath, overlays } = args;
+    if (!videoPath || !fs.existsSync(videoPath)) {
+      throw new Error(`原视频文件不存在：${videoPath}`);
+    }
+    if (!overlays || overlays.length === 0) {
+      throw new Error('未指定任何要叠加的插图');
+    }
+
+    // 默认输出路径
+    let targetPath = args.outputPath;
+    if (!targetPath) {
+      const outDir = settings.outputDir || path.join(os.homedir(), 'Desktop');
+      const baseName = path.basename(videoPath, path.extname(videoPath));
+      targetPath = path.join(outDir, `${baseName}_智能配图_${Date.now()}.mp4`);
+    }
+
+    // 先用 ffmpeg 获取原视频尺寸
+    const dimensions = await new Promise<{ width: number; height: number }>((resolve) => {
+      const p = spawn(FFMPEG_PATH, ['-i', videoPath]);
+      let err = '';
+      p.stderr.on('data', (d) => err += d.toString());
+      p.on('close', () => {
+        const match = err.match(/Video:.*?,\s*(\d{2,5})x(\d{2,5})/);
+        if (match) {
+          resolve({ width: parseInt(match[1]), height: parseInt(match[2]) });
+        } else {
+          resolve({ width: 1080, height: 1920 });
+        }
+      });
+      p.on('error', () => resolve({ width: 1080, height: 1920 }));
+    });
+
+    const W = dimensions.width;
+    const H = dimensions.height;
+    dbg(`[VideoOverlay] input=${videoPath} W=${W} H=${H} overlaysCount=${overlays.length}`);
+
+    // 构建 FFmpeg 输入参数与 filter_complex
+    const ffmpegArgs = ['-y', '-i', videoPath];
+    for (const ov of overlays) {
+      ffmpegArgs.push('-i', ov.imagePath);
+    }
+
+    // 滤镜处理各插图
+    const filterParts: string[] = [];
+    let prevVideoTag = '0:v';
+
+    overlays.forEach((ov, idx) => {
+      const imgInputIndex = idx + 1;
+      const targetW = Math.max(16, Math.round((W * ov.widthPercent) / 2) * 2);
+      const scaledTag = `ov_${idx}`;
+      filterParts.push(`[${imgInputIndex}:v]scale=w=${targetW}:h=-2[${scaledTag}]`);
+
+      const nextVideoTag = idx === overlays.length - 1 ? 'outv' : `v_${idx}`;
+      const posX = Math.round(W * ov.xPercent);
+      const posY = Math.round(H * ov.yPercent);
+      const st = Math.max(0, ov.startTime).toFixed(2);
+      const et = Math.max(ov.startTime + 0.5, ov.endTime).toFixed(2);
+
+      filterParts.push(
+        `[${prevVideoTag}][${scaledTag}]overlay=x=${posX}:y=${posY}:enable='between(t,${st},${et})'[${nextVideoTag}]`
+      );
+      prevVideoTag = nextVideoTag;
+    });
+
+    ffmpegArgs.push(
+      '-filter_complex', filterParts.join(';'),
+      '-map', '[outv]',
+      '-map', '0:a?',
+      '-c:v', 'libx264',
+      '-preset', 'fast',
+      '-crf', '18',
+      '-c:a', 'copy',
+      targetPath
+    );
+
+    // 执行合成
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(FFMPEG_PATH, ffmpegArgs);
+      let stderr = '';
+      proc.stderr.on('data', (d) => {
+        const text = d.toString();
+        stderr += text;
+        const timeMatch = text.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/);
+        if (timeMatch && event?.sender) {
+          const secs = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+          event.sender.send('export-video-progress', { currentTimeSec: secs });
+        }
+      });
+      proc.on('close', (code) => {
+        if (code === 0 && fs.existsSync(targetPath) && fs.statSync(targetPath).size > 1000) {
+          resolve();
+        } else {
+          reject(new Error(`FFmpeg 视频导出失败（退出码 ${code}）：${stderr.slice(-500)}`));
+        }
+      });
+      proc.on('error', reject);
+    });
+
+    dbg(`[VideoOverlay] export finished -> ${targetPath}`);
+    return {
+      ok: true,
+      outputPath: targetPath,
+    };
+  } catch (err: any) {
+    dbg(`[VideoOverlay] export error: ${err?.message || err}`);
+    return {
+      ok: false,
+      error: err?.message || '视频导出失败',
+    };
+  }
+});
+
 
 

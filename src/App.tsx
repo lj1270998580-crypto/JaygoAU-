@@ -10,6 +10,7 @@ import Settings from './components/Settings';
 import Transcribe from './components/Transcribe';
 import AvatarStudio from './components/AvatarStudio';
 import MediaExtractor from './components/MediaExtractor';
+import VideoIllustrator from './components/VideoIllustrator';
 import { ScriptStudio } from './components/ScriptStudio';
 import { WorkflowStudio } from './components/WorkflowStudio';
 import { ModelHubModal } from './components/ModelHubModal';
@@ -83,6 +84,13 @@ const Icon = {
       <polygon points="10 8 16 11.5 10 15 10 8" fill="currentColor" />
     </svg>
   ),
+  illustrator: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <polyline points="21 15 16 10 5 21" />
+    </svg>
+  ),
   settings: (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
@@ -112,6 +120,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { key: 'script', label: 'AI 文案工坊', icon: Icon.script },
       { key: 'workflow', label: '定时流水线', icon: Icon.workflow },
       { key: 'avatar', label: '蝉镜数字人', icon: Icon.avatar },
+      { key: 'illustrator', label: '视频配插图', icon: Icon.illustrator },
       { key: 'extractor', label: '媒体提取', icon: Icon.extractor },
       { key: 'transcribe', label: '视音频转录', icon: Icon.transcribe },
     ],
@@ -131,6 +140,7 @@ const TAB_BREADCRUMBS: Record<Tab, { group: string; label: string }> = {
   script: { group: '视听创作', label: 'AI 文案工坊' },
   workflow: { group: '视听创作', label: '定时流水线' },
   avatar: { group: '视听创作', label: '蝉镜数字人' },
+  illustrator: { group: '视听创作', label: '视频配插图' },
   extractor: { group: '视听创作', label: '媒体提取' },
   transcribe: { group: '视听创作', label: '视音频转录' },
   library: { group: '资产管理', label: '本地音频' },
@@ -596,6 +606,11 @@ export default function App() {
               {visitedTabs.has('avatar') && (
                 <div className={`h-full ${tab === 'avatar' ? 'flex flex-col' : 'hidden'}`}>
                   <AvatarStudio />
+                </div>
+              )}
+              {visitedTabs.has('illustrator') && (
+                <div className={`h-full ${tab === 'illustrator' ? 'flex flex-col' : 'hidden'}`}>
+                  <VideoIllustrator />
                 </div>
               )}
               {visitedTabs.has('script') && (

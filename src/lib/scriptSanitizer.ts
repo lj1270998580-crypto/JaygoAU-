@@ -118,6 +118,20 @@ export function extractCleanScript(rawText: string): string {
   let result = lines.join('\n').trim();
   result = result.replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/i, '').trim();
 
+  // 5.1 彻底剔除 Markdown 格式标记与语音合成朗读干扰符（重点：彻底去除 * 与 **）
+  // (1) 还原加粗 **文本** -> 文本 (支持多星号)
+  result = result.replace(/\*{2,}([^*\n]+?)\*{2,}/g, '$1');
+  // (2) 还原斜体 *文本* -> 文本
+  result = result.replace(/\*([^*\n]+?)\*/g, '$1');
+  // (3) 去除行首的 Markdown 标题符号（如 ### 标题 -> 标题）
+  result = result.replace(/^[ \t]*#+[ \t]+/gm, '');
+  // (4) 去除行首的无序列表标记（如 * 列表项 或 - 列表项 -> 列表项）
+  result = result.replace(/^[ \t]*[*•\-][ \t]+/gm, '');
+  // (5) 还原行内行内代码块 `文本` -> 文本
+  result = result.replace(/`+([^`\n]+?)`+/g, '$1');
+  // (6) 彻底清除全角与半角星号符号（杜绝语音大模型朗读出“星号”），并清除残余反引号
+  result = result.replace(/[*＊`]/g, '');
+
   // 6. 收拢超过 2 个连续空行为标准 2 个换行
   result = result.replace(/\n{3,}/g, '\n\n');
 

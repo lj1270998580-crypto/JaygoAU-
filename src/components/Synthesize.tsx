@@ -32,7 +32,13 @@ export default function Synthesize() {
 
   useEffect(() => {
     if (pendingSynthText) {
-      setText(pendingSynthText.text);
+      // 杜绝星号与 markdown 标记被读出声
+      const cleanText = (pendingSynthText.text || '')
+        .replace(/\*{2,}([^*\n]+?)\*{2,}/g, '$1')
+        .replace(/\*([^*\n]+?)\*/g, '$1')
+        .replace(/^[ \t]*[*•\-][ \t]+/gm, '')
+        .replace(/[*＊`]/g, '');
+      setText(cleanText);
       if (pendingSynthText.voiceId) {
         setOfficialVoice(pendingSynthText.voiceId);
       }

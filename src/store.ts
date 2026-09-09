@@ -51,7 +51,7 @@ function mergeLibrary(existing: LibraryItem[], scanned: ScannedAudio[]): Library
   return updatedExisting.sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export type Tab = 'settings' | 'clone' | 'voices' | 'synth' | 'library' | 'transcribe' | 'avatar' | 'extractor' | 'script' | 'workflow';
+export type Tab = 'settings' | 'clone' | 'voices' | 'synth' | 'library' | 'transcribe' | 'avatar' | 'extractor' | 'script' | 'workflow' | 'illustrator';
 export type { LibraryItem } from './types';
 import type { ModelHubSettings } from './lib/modelHubTypes';
 import { DEFAULT_MODEL_HUB_SETTINGS, PRESET_PROVIDERS } from './lib/modelHubTypes';
@@ -116,6 +116,8 @@ interface AppState {
   setPendingSynthText: (p: { text: string; voiceId?: string } | null) => void;
   pendingAvatarText: string | null;
   setPendingAvatarText: (t: string | null) => void;
+  pendingIllustrator: { videoUrl?: string; videoPath?: string; scriptText?: string; title?: string } | null;
+  setPendingIllustrator: (p: { videoUrl?: string; videoPath?: string; scriptText?: string; title?: string } | null) => void;
   changelogOpen: boolean;
   setChangelogOpen: (open: boolean) => void;
 }
@@ -235,6 +237,8 @@ export const useStore = create<AppState>((set, get) => ({
   setPendingSynthText: (p) => set({ pendingSynthText: p }),
   pendingAvatarText: null,
   setPendingAvatarText: (t) => set({ pendingAvatarText: t }),
+  pendingIllustrator: null,
+  setPendingIllustrator: (p) => set({ pendingIllustrator: p }),
   changelogOpen: false,
   setChangelogOpen: (open) => set({ changelogOpen: open }),
 

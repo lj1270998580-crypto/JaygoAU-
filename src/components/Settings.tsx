@@ -107,6 +107,32 @@ export default function Settings() {
     }
   };
 
+  const [snTesting, setSnTesting] = useState(false);
+  const [snTestResult, setSnTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const testSenseNovaKey = async () => {
+    if (!settings.sensenovaApiKey?.trim()) {
+      showToast('请先输入商汤 TokenPlan API Key', 'err');
+      return;
+    }
+    setSnTesting(true);
+    setSnTestResult(null);
+    try {
+      const res = await api.sensenovaTestKey(settings.sensenovaApiKey.trim());
+      setSnTestResult(res);
+      if (res.ok) {
+        showToast('商汤日日新 TokenPlan 连接成功', 'ok');
+      } else {
+        showToast(res.message || '连接失败', 'err');
+      }
+    } catch (e: any) {
+      setSnTestResult({ ok: false, message: e?.message || '连接异常' });
+      showToast(e?.message || '连接异常', 'err');
+    } finally {
+      setSnTesting(false);
+    }
+  };
+
   return (
     <div className="page">
       <div className="page-head">
@@ -279,6 +305,91 @@ export default function Settings() {
             <div>{cjTestResult.message}</div>
           </div>
         )}
+      </Section>
+
+      <Section
+        title="商汤日日新 SenseNova（智能视频插图模型）"
+        desc="驱动「智能视频配插图」工作台。默认支持 sensenova-u1.5-lite（标准图/场景质感）与 sensenova-u1-fast（信息图/数据图表）智能路由。"
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="md:col-span-2">
+            <label className="label">TokenPlan API Key</label>
+            <div className="flex gap-2">
+              <input
+                type={showSecrets ? 'text' : 'password'}
+                className="glass-input flex-1 font-mono"
+                placeholder="输入商汤日日新 TokenPlan API Key..."
+                value={settings.sensenovaApiKey || ''}
+                onChange={(e) => {
+                  patchSettings({ sensenovaApiKey: e.target.value });
+                  setSnTestResult(null);
+                }}
+              />
+              <button
+                type="button"
+                onClick={testSenseNovaKey}
+                disabled={snTesting || !settings.sensenovaApiKey?.trim()}
+                className="btn-ghost text-xs px-3"
+              >
+                {snTesting ? '测试中…' : '测试连接'}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="label">默认偏好模型</label>
+            <select
+              className="glass-input w-full"
+              value={settings.sensenovaDefaultModel || 'sensenova-u1.5-lite'}
+              onChange={(e) => patchSettings({ sensenovaDefaultModel: e.target.value })}
+            >
+              <option value="sensenova-u1.5-lite">sensenova-u1.5-lite (标准图 · 4K高质场景/图生图)</option>
+              <option value="sensenova-u1-fast">sensenova-u1-fast (信息图 · 极速知识数据排版)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="label">默认生图画幅比例</label>
+            <select
+              className="glass-input w-full"
+              value={settings.sensenovaDefaultRatio || '1:1'}
+              onChange={(e) => patchSettings({ sensenovaDefaultRatio: e.target.value })}
+            >
+              <option value="1:1">1:1 正方形画中画 (2048x2048)</option>
+              <option value="9:16">9:16 竖屏手机卡片 (1536x2752)</option>
+              <option value="16:9">16:9 横屏信息图 (2752x1536)</option>
+              <option value="3:4">3:4 竖卡清单 (1760x2368)</option>
+              <option value="4:3">4:3 横卡展示 (2368x1760)</option>
+            </select>
+          </div>
+        </div>
+
+        {snTestResult && (
+          <div
+            className={`mt-3 p-3 rounded-lg text-xs border ${
+              snTestResult.ok
+                ? 'border-emerald-200 bg-emerald-50/60 text-emerald-800 dark:bg-emerald-950/30 dark:border-emerald-800/50 dark:text-emerald-300'
+                : 'border-rose-200 bg-rose-50/60 text-rose-800 dark:bg-rose-950/30 dark:border-rose-800/50 dark:text-rose-300'
+            }`}
+          >
+            {snTestResult.message}
+          </div>
+        )}
+
+        <div className="mt-3 flex items-center justify-between text-[11.5px] text-zinc-400 dark:text-zinc-500">
+          <span>
+            获取密匙与官方文档：
+            <a
+              href="https://platform.sensenova.cn/docs"
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-600 dark:text-blue-400 hover:underline ml-1"
+            >
+              platform.sensenova.cn/docs
+            </a>
+          </span>
+          <span className="text-zinc-400">支持官方预设风格、比例与位置联动排版</span>
+        </div>
       </Section>
 
       <Section title="合成默认参数" desc="复刻语种、资源 ID，以及每次合成时的默认格式与采样率。">

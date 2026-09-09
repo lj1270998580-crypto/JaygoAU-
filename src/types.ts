@@ -40,6 +40,12 @@ export interface Settings {
   modelHubSettings?: any;
   customSkills?: any[];
   workflowProjects?: any[];
+  // ---- 商汤日日新 (SenseNova TokenPlan) ----
+  sensenovaApiKey?: string;
+  sensenovaDefaultModel?: string; // 'sensenova-u1.5-lite' | 'sensenova-u1-fast'
+  sensenovaDefaultStyle?: string;
+  sensenovaDefaultRatio?: string; // '16:9' | '9:16' | '1:1' | '4:3' | '3:4'
+  sensenovaRoutingMode?: 'smart' | 'standard' | 'infographic';
 }
 
 export interface SynthProgress {
@@ -171,9 +177,59 @@ export interface JaygoAPI {
   downloadAllExtractedImages(a: { images: string[]; title: string }): Promise<{ folderPath: string; count: number } | null>;
   extractMediaForTranscribe(a: { mediaInfo: ParsedMediaInfo }): Promise<{ filePath: string; fileName: string }>;
   showItemInFolder(path: string): Promise<boolean>;
-  // ---- 历史文章与多格式文档解析 (.txt, .md, .pdf, .docx, .json, .csv) ----
+  // ---- 历史文章与多格式文档解析 (.txt, *.md, *.pdf, *.docx, *.json, *.csv) ----
   parseDocumentFile(filePath: string): Promise<{ ok: boolean; name?: string; path?: string; size?: number; text?: string; error?: string }>;
   pickDocumentFiles(): Promise<Array<{ ok: boolean; name: string; path: string; size: number; text: string; error?: string }>>;
+  // ---- 商汤日日新 (SenseNova TokenPlan) & 智能视频配插图 ----
+  sensenovaTestKey(apiKey: string): Promise<{ ok: boolean; message: string }>;
+  sensenovaGenerateImage(a: {
+    apiKey: string;
+    model: string;
+    prompt: string;
+    size?: string;
+    style?: string;
+    imageBase64?: string;
+  }): Promise<{ ok: boolean; imageUrl?: string; localPath?: string; model?: string; prompt?: string; error?: string }>;
+  exportVideoWithOverlays(a: {
+    videoPath: string;
+    outputPath?: string;
+    overlays: Array<{
+      imagePath: string;
+      startTime: number;
+      endTime: number;
+      xPercent: number;
+      yPercent: number;
+      widthPercent: number;
+      heightPercent?: number;
+    }>;
+  }): Promise<{ ok: boolean; outputPath?: string; error?: string }>;
+  onExportVideoProgress(cb: (data: { currentTimeSec: number }) => void): () => void;
+}
+
+export interface VideoIllustrationItem {
+  id: string;
+  startTime: number; // 出现时刻 (秒)
+  endTime: number;   // 消失时刻 (秒)
+  contextText: string;
+  concept: string;
+  prompt: string;
+  type: 'infographic' | 'standard'; // 信息图 (知识数据) vs 标准图 (画面场景)
+  model: 'sensenova-u1-fast' | 'sensenova-u1.5-lite';
+  style: string;
+  ratio: string;
+  status: 'idle' | 'generating' | 'success' | 'failed';
+  imageUrl?: string;
+  localPath?: string;
+  referenceImage?: string; // 图生图参考图 (Base64 或路径)
+  error?: string;
+}
+
+export interface IllustrationLayout {
+  xPercent: number;     // 0.0 - 1.0
+  yPercent: number;     // 0.0 - 1.0
+  widthPercent: number; // 0.0 - 1.0
+  heightPercent: number;// 0.0 - 1.0
+  positionPreset: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'center' | 'custom';
 }
 
 export interface MediaResolutionOption {

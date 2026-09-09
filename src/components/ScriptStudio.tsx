@@ -1940,7 +1940,7 @@ export function ScriptStudio({
                 {showDispatchCenter && (
                   <div className="space-y-2 pt-1 animate-in fade-in">
                     <div
-                      onClick={() => onPushToSynth(pinnedScript, selectedSkill?.voiceBinding?.voiceId)}
+                      onClick={() => onPushToSynth(extractCleanScript(pinnedScript), selectedSkill?.voiceBinding?.voiceId)}
                       className="p-2.5 rounded-xl border border-purple-200/80 dark:border-purple-900/60 bg-gradient-to-r from-purple-50/70 to-indigo-50/70 dark:from-purple-950/20 dark:to-indigo-950/20 hover:border-purple-400 transition cursor-pointer flex items-center justify-between group"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
@@ -1961,7 +1961,7 @@ export function ScriptStudio({
                     </div>
 
                     <div
-                      onClick={() => onPushToAvatar(pinnedScript)}
+                      onClick={() => onPushToAvatar(extractCleanScript(pinnedScript))}
                       className="p-2.5 rounded-xl border border-cyan-200/80 dark:border-cyan-900/60 bg-gradient-to-r from-cyan-50/70 to-blue-50/70 dark:from-cyan-950/20 dark:to-blue-950/20 hover:border-cyan-400 transition cursor-pointer flex items-center justify-between group"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">

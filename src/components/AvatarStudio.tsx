@@ -24,7 +24,7 @@ const isAvatarReady = (item?: CustomAvatarItem | null): boolean => {
 };
 
 export default function AvatarStudio() {
-  const { settings, patchSettings, showToast, setTab, library, pendingAvatarText, setPendingAvatarText } = useStore();
+  const { settings, patchSettings, showToast, setTab, library, pendingAvatarText, setPendingAvatarText, setPendingIllustrator } = useStore();
 
   // 凭证配置
   const hasCredentials = Boolean(settings?.chanjingAppId?.trim() && settings?.chanjingSecretKey?.trim());
@@ -1555,6 +1555,23 @@ export default function AvatarStudio() {
                       </button>
                     </div>
 
+                    {/* 🎨 一键智能配插图 (商汤日日新包装) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPendingIllustrator({
+                          videoUrl: currentTask.video_url,
+                          scriptText: scriptText || currentTask.msg || '',
+                          title: `数字人出片_${currentTask.id.slice(0, 8)}`,
+                        });
+                        setTab('illustrator');
+                        showToast('已无缝带入「智能视频配插图」！', 'ok');
+                      }}
+                      className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-rose-500 via-pink-500 to-indigo-600 hover:from-rose-600 hover:to-indigo-700 text-white font-semibold text-xs shadow-md shadow-pink-500/20 transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <span>🎨 一键智能配插图 (商汤 SenseNova 包装出片)</span>
+                    </button>
+
                     {/* 连续制作下一个视频 / 快速重新合成 专区 */}
                     <div className="pt-3 border-t border-zinc-200/80 dark:border-zinc-800 space-y-2">
                       <button
@@ -1931,6 +1948,21 @@ export default function AvatarStudio() {
                                 title="复制链接"
                               >
                                 复制
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPendingIllustrator({
+                                    videoUrl: item.video_url,
+                                    title: `历史成片_${item.id.slice(0, 8)}`,
+                                  });
+                                  setTab('illustrator');
+                                  showToast('已推往「智能视频配插图」！', 'ok');
+                                }}
+                                className="btn-ghost !py-1 !px-2 !text-xs text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                                title="推往智能视频配插图"
+                              >
+                                🎨 配插图
                               </button>
                             </>
                           ) : (

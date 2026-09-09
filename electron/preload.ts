@@ -57,6 +57,12 @@ export type Settings = {
   modelHubSettings?: any;
   customSkills?: any[];
   workflowProjects?: any[];
+  // ---- 商汤日日新 (SenseNova TokenPlan) ----
+  sensenovaApiKey?: string;
+  sensenovaDefaultModel?: string;
+  sensenovaDefaultStyle?: string;
+  sensenovaDefaultRatio?: string;
+  sensenovaRoutingMode?: 'smart' | 'standard' | 'infographic';
 };
 
 export type SynthProgress = { stage: 'streaming' | 'done'; pct: number; bytes: number };
@@ -221,6 +227,18 @@ const api = {
     ipcRenderer.invoke('parse-document-file', filePath),
   pickDocumentFiles: () =>
     ipcRenderer.invoke('pick-document-files'),
+  // ---- 商汤日日新 (SenseNova TokenPlan) & 智能视频配插图 ----
+  sensenovaTestKey: (apiKey: string) =>
+    ipcRenderer.invoke('sensenova-test-key', { apiKey }),
+  sensenovaGenerateImage: (args: any) =>
+    ipcRenderer.invoke('sensenova-generate-image', args),
+  exportVideoWithOverlays: (args: any) =>
+    ipcRenderer.invoke('export-video-with-overlays', args),
+  onExportVideoProgress: (cb: (data: { currentTimeSec: number }) => void) => {
+    const listener = (_e: any, data: any) => cb(data);
+    ipcRenderer.on('export-video-progress', listener);
+    return () => ipcRenderer.removeListener('export-video-progress', listener);
+  },
 };
 
 contextBridge.exposeInMainWorld('JaygoAPI', api);
