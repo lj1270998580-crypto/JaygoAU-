@@ -241,7 +241,7 @@ export interface IllustrationLayout {
   yPercent: number;     // 0.0 - 1.0
   widthPercent: number; // 0.0 - 1.0
   heightPercent: number;// 0.0 - 1.0
-  positionPreset: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'center' | 'custom';
+  positionPreset: 'top-left' | 'top' | 'top-right' | 'bottom-left' | 'bottom' | 'bottom-right' | 'center' | 'custom';
   transitionEffect?: 'fade' | 'slide' | 'zoom' | 'none';
   borderStyle?: 'none' | 'clean_white' | 'rounded_card' | 'star_badge' | 'cyber_glow';
 }

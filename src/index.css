@@ -555,5 +555,27 @@ html.dark .ai-input-streamer-inner {
 .anim-ill-zoom {
   animation: illZoomIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+/* 视频插图舞台拖拽对齐参考线 */
+.snap-line-v {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  border-left: 1.5px dashed #3b82f6;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.7);
+  z-index: 40;
+  pointer-events: none;
+}
 
-
+.snap-line-h {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  border-top: 1.5px dashed #3b82f6;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.7);
+  z-index: 40;
+  pointer-events: none;
+}

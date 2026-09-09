@@ -60,33 +60,33 @@ export interface StyleConfig {
 export const STYLE_OPTIONS: StyleConfig[] = [
   {
     id: 'modern_business',
-    label: '现代商务扁平 (图2标杆·推荐)',
-    badge: '知识图解首选',
-    desc: '浅米白底、商务宝蓝与珊瑚红点缀、清晰2.5D微立体图解',
-    paletteTitle: '现代商务规范色系',
-    bgTone: '浅米白柔和商务底色（#FAF9F6），干净留白',
-    primaryColor: '深邃商务宝蓝（#1E40AF / #2563EB）',
-    accentColor: '珊瑚警示红（#DC2626）与暖金高亮（#F59E0B）',
-    standardPrompt: '现代商业极简插画风格，浅米白背景，商务宝蓝色调，精致扁平矢量质感，优雅留白，现代商务隐喻，8k超清，无水印',
-    infographicPrompt: '现代高质感商业信息图设计，左右或上下结构化卡片排版。极简浅米白商务底色，商务宝蓝为主色调，珊瑚红用于警示风险与禁止事项，琥珀金用于关键数字高亮。包含清晰的流程导向箭头、对比模块看板与结构化数据卡片，微立体矢量质感，实体标注丰富清晰，专业可信，无任何水印',
+    label: '现代商务扁平',
+    badge: '结构化图解',
+    desc: '极简白底 · 商务宝蓝与警示红点缀 · 清晰2.5D微立体图解',
+    paletteTitle: '现代商务色系',
+    bgTone: '极简浅米白色商务底色，干净留白',
+    primaryColor: '深邃商务宝蓝',
+    accentColor: '珊瑚警示红与琥珀金高亮',
+    standardPrompt: '现代商业极简插画风格，极简浅米白背景，商务宝蓝色调，精致扁平矢量质感，优雅留白，现代商务隐喻，8k超清，无水印',
+    infographicPrompt: '现代高质感商业信息图设计，左右或上下结构化卡片排版。极简浅米白商务底色，商务宝蓝为主色调，珊瑚红用于警示风险与禁止事项，琥珀金用于关键数据高亮。包含清晰的流程导向箭头、对比模块看板与结构化数据卡片，微立体矢量质感，实体标注丰富清晰，专业可信，无任何水印',
   },
   {
     id: 'isometric_3d',
-    label: '3D立体渲染 (等距建模)',
-    badge: '立体层叠光影',
-    desc: '皮克斯级柔光 3D 渲染，阶梯图层、水晶质感立体卡片',
+    label: '3D立体渲染',
+    badge: '等距建模光影',
+    desc: '柔光 3D 渲染 · 阶梯图层 · 水晶质感立体卡片',
     paletteTitle: '3D等距科技色系',
-    bgTone: '浅柔灰白底（#F1F5F9）与温和立体环境光',
-    primaryColor: '科技青蓝（#0284C7）',
-    accentColor: '活力橙红（#EA580C）与高光青柠（#84CC16）',
-    standardPrompt: '3D卡通高精度建模渲染，柔和立体光照，皮克斯细腻材质，温和环境光，现代商务科技，精致细节，8k超清，无水印',
-    infographicPrompt: '3D立体等距（Isometric）商业信息图解。浅灰白立体展示台，包含高光水晶材质的3D阶梯层叠架构、三维圆柱柱状图与立体流向导管，科技青蓝色为主，橙红高亮关键节点，精致立体光影，现代科技感，无水印',
+    bgTone: '浅柔灰白底色与温和立体环境光',
+    primaryColor: '科技青蓝',
+    accentColor: '活力橙红与高光青柠',
+    standardPrompt: '3D卡通高精度建模渲染，柔和立体光照，细腻材质，温和环境光，现代商务科技，精致细节，8k超清，无水印',
+    infographicPrompt: '3D立体等距商业信息图解。浅灰白立体展示台，包含高光水晶材质的3D阶梯层叠架构、三维柱状图与立体流向导管，科技青蓝色为主，橙红高亮关键节点，精致立体光影，现代科技感，无水印',
   },
   {
     id: 'cinematic_real',
-    label: '商业写实摄影 (电影光影)',
+    label: '商业写实摄影',
     badge: '写实纪实大片',
-    desc: '8K超清商业纪实摄影，微景深虚化，高保真写实光影',
+    desc: '超清商业纪实摄影 · 微景深虚化 · 高保真写实光影',
     paletteTitle: '电影商业写实影调',
     bgTone: '高端商务办公环境微景深虚化背景',
     primaryColor: '自然侧光冷暖对比',
@@ -96,45 +96,45 @@ export const STYLE_OPTIONS: StyleConfig[] = [
   },
   {
     id: 'chinese_ink',
-    label: '中国风水墨 (东方古韵)',
+    label: '中国风水墨',
     badge: '宣纸意境流转',
-    desc: '传统水墨意境，朱砂印章点缀，东方文人典雅美学',
-    paletteTitle: '东方文人宣纸色系',
-    bgTone: '古法宣纸淡米黄微纹理（#F7F3E8）',
-    primaryColor: '浓淡相宜的焦墨与徽墨深灰',
-    accentColor: '朱砂红印章与强调线（#C23B23）',
-    standardPrompt: '中国传统水墨画意境，墨色晕染，浓淡枯湿相生，留白写意，东方文人美学笔触，宣纸纹理，典雅宁静，无水印',
-    infographicPrompt: '新中式水墨风结构信息图解。仿宣纸卷轴底色，采用传统中式水墨线条勾勒框架分支，搭配朱砂红印章式节点与墨线流程箭头，古风雅致排版，结构清晰严谨，无水印',
+    desc: '水墨写意 · 黑白留白 · 朱砂印章点缀',
+    paletteTitle: '东方典雅水墨色系',
+    bgTone: '温润宣纸米黄底色与淡墨晕染',
+    primaryColor: '浓淡相间松烟墨黑',
+    accentColor: '传统朱砂红印与落日淡赭',
+    standardPrompt: '中国传统写意水墨画风格，宣纸肌理，气韵生动，淡墨晕染，朱砂印章点缀，东方美学留白，意境悠远，无水印',
+    infographicPrompt: '中国风古典手卷信息图。古色宣纸底色，以写意水墨山水线稿为框架，古籍雕版字体模块排版，朱砂印章标注核心要点，淡墨虚线指引流向，典雅东方知识图谱，无水印',
   },
   {
     id: 'cyberpunk',
-    label: '未来科技赛博 (全息HUD)',
-    badge: '霓虹暗黑科幻',
-    desc: '暗色黑曜石底，荧光青与洋红双色发光，全息数据图表',
-    paletteTitle: '赛博全息发光色系',
-    bgTone: '暗黑深空蓝黑底（#0B0F19）',
-    primaryColor: '霓虹荧光青蓝（#00F0FF）',
-    accentColor: '炫光洋红（#FF0055）与量子金黄（#FFE600）',
-    standardPrompt: '未来赛博朋克风格，暗夜黑曜石背景，霓虹微光环绕，高科技机械与全息微粒，高对比度科幻光影，无水印',
-    infographicPrompt: '未来科技全息 HUD 数据信息图解。暗黑深色科技背景，发光荧光青与洋红色流线箭头，半透明发光悬浮数据卡片，网格坐标系与科技环形仪表盘，科幻未来感，无水印',
+    label: '未来科技赛博',
+    badge: '暗黑全息数据',
+    desc: '深邃暗夜黑底 · 蓝紫全息流光与荧光青绿',
+    paletteTitle: '未来赛博全息色系',
+    bgTone: '深邃暗夜哑光黑底与微光网格',
+    primaryColor: '全息电光青蓝与霓虹紫',
+    accentColor: '荧光柠檬绿与警示高亮粉',
+    standardPrompt: '未来赛博朋克科技概念艺术，深邃暗黑背景，电光蓝与霓虹紫流光，全息悬浮质感，未来科幻张力，8k超清，无水印',
+    infographicPrompt: '未来科技全息数据驾驶舱信息图。暗夜哑光黑底，悬浮三维全息数据图表、发光导轨线条与矩阵卡片，电光蓝为主色，荧光绿高亮关键数字，高精细度科幻UI视觉，无水印',
   },
   {
     id: 'anime_cartoon',
-    label: '现代动漫卡通 (治愈明快)',
-    badge: '亲和活力表达',
-    desc: '清晰利落描线，明亮活泼配色，亲和力强，图文易读',
-    paletteTitle: '活力动漫赛璐璐色系',
-    bgTone: '明亮奶白与清爽浅蓝底',
-    primaryColor: '活力天蓝与群青',
-    accentColor: '鲜明暖橙与珊瑚红',
-    standardPrompt: '精美现代日漫/美漫插画风格，干净平滑的描线，明快通透的赛璐璐上色，丰富的情绪张力，治愈系现代卡通质感，无水印',
+    label: '现代动漫卡通',
+    badge: '明快治愈描线',
+    desc: '清爽赛璐璐平涂 · 利落描线 · 鲜艳明快',
+    paletteTitle: '明快现代动漫色系',
+    bgTone: '清透奶白底色与微蓝天光',
+    primaryColor: '活力天空蓝与明朗藏青',
+    accentColor: '活力珊瑚橙与向日葵暖黄',
+    standardPrompt: '精美现代日漫插画风格，干净平滑的描线，明快通透的赛璐璐上色，丰富的情绪张力，治愈系现代卡通质感，无水印',
     infographicPrompt: '趣味漫画科普信息图卡片。清爽明亮卡通背景，手绘描线风格的趣味卡片与向导气泡，鲜活明快的箭头与红黄绿配色指示，知识点清晰有趣，易读易懂，无水印',
   },
   {
     id: 'classical_oil',
-    label: '古典艺术油画 (浓郁厚涂)',
+    label: '古典艺术油画',
     badge: '欧洲典藏质感',
-    desc: '古典主义厚涂肌理，伦勃朗式经典明暗对比',
+    desc: '古典主义厚涂肌理 · 经典明暗对比',
     paletteTitle: '古典学院油画色系',
     bgTone: '深沉暖褐与古典亚麻底色',
     primaryColor: '深沉群青与赭石',
@@ -144,17 +144,37 @@ export const STYLE_OPTIONS: StyleConfig[] = [
   },
   {
     id: 'watercolor_book',
-    label: '清新水彩绘本 (温润手绘)',
+    label: '清新水彩绘本',
     badge: '通透自然晕染',
-    desc: '水色自然交融，温润柔和，轻盈灵动',
+    desc: '水色自然交融 · 温润柔和 · 轻盈灵动',
     paletteTitle: '温润水彩绘本色系',
-    bgTone: '水彩纸颗粒白底（#FAFAFA）',
+    bgTone: '水彩纸颗粒质感浅白底色',
     primaryColor: '柔和湖蓝与橄榄绿',
     accentColor: '温润绯红与落日金黄',
     standardPrompt: '手绘清新水彩插画，水色自然渗透晕染，透明感十足，水彩纸质感纹理，温柔轻盈，无水印',
     infographicPrompt: '手绘水彩风格知识手账信息图。浅色水彩纸背景，手绘温和彩铅箭头与水彩渐变分栏卡片，柔和色彩标注对比与步骤，温暖亲和，无水印',
   },
 ];
+
+// 彻底清除 HEX 码、RGB 码与指令元词的净化器，防止大模型将色码印在图片卡片上
+export function sanitizePromptForImageGen(p: string): string {
+  if (!p) return '';
+  return p
+    .replace(/#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})/g, '')
+    .replace(/rgba?\([^)]+\)/gi, '')
+    .replace(/[（(]\s*#[^）)]*[）)]/g, '')
+    .replace(/[（(]\s*(图[0-9]|标杆|推荐)[^）)]*[）)]/g, '')
+    .replace(/统一背景底色基调[：:]?/g, '')
+    .replace(/统一核心主色调[：:]?/g, '')
+    .replace(/统一辅助高亮\/警示色[：:]?/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+// 课程带货与推销类内容绝对禁配正则
+export const SALES_PITCH_REGEX =
+  /(购买课程|点击下方|小黄车|拍下|去买|下单|橱窗|私信我|粉丝群|粉丝团|福利价|限时特惠|限时秒杀|原价.*现价|左下角|购物车|链接在|领资料|扣[0-9]|评论区回复|关注直播间|赶紧抢)/;
+
 
 // 比例尺寸预设（对齐商汤 SenseNova 官方推荐规格）
 export const RATIO_OPTIONS = [
@@ -246,7 +266,7 @@ export const VISUAL_CATEGORIES: Record<string, { label: string; icon: any; color
 };
 
 export const VideoIllustrator: React.FC = () => {
-  const { settings, patchSettings, showToast } = useStore();
+  const { settings, patchSettings, showToast, pendingIllustrator, setPendingIllustrator } = useStore();
 
   // 核心状态
   const [videoUrl, setVideoUrl] = useState<string>('');
@@ -273,8 +293,11 @@ export const VideoIllustrator: React.FC = () => {
   const [linkAllPositions, setLinkAllPositions] = useState<boolean>(true);
   const [transitionEffect, setTransitionEffect] = useState<'fade' | 'slide' | 'zoom' | 'none'>('fade');
   const [borderStyle, setBorderStyle] = useState<'none' | 'clean_white' | 'rounded_card' | 'star_badge' | 'cyber_glow'>('none');
-  const [removeWatermark, setRemoveWatermark] = useState<boolean>(false);
   const [isEditingOverlay, setIsEditingOverlay] = useState<boolean>(false);
+
+  // 拖拽居中辅助参考线对齐状态
+  const [isSnappingV, setIsSnappingV] = useState<boolean>(false);
+  const [isSnappingH, setIsSnappingH] = useState<boolean>(false);
 
   // 放大视频预览 Modal 控制
   const [showExpandedVideo, setShowExpandedVideo] = useState<boolean>(false);
@@ -322,6 +345,23 @@ export const VideoIllustrator: React.FC = () => {
     isResizing: boolean;
   } | null>(null);
 
+  // 响应来自数字人等模块的一键推送视频与文案
+  useEffect(() => {
+    if (pendingIllustrator) {
+      if (pendingIllustrator.videoUrl || pendingIllustrator.videoPath) {
+        loadFromUrl(
+          pendingIllustrator.videoUrl || pendingIllustrator.videoPath!,
+          pendingIllustrator.title || '数字人成片'
+        );
+      }
+      if (pendingIllustrator.scriptText) {
+        setScriptText(pendingIllustrator.scriptText);
+      }
+      setPendingIllustrator(null);
+      showToast('已从数字人工坊载入视频与文案！', 'ok');
+    }
+  }, [pendingIllustrator]);
+
   // 初始化加载配置与流转中心媒体
   useEffect(() => {
     const key = (settings as any).sensenovaApiKey || '';
@@ -339,9 +379,6 @@ export const VideoIllustrator: React.FC = () => {
             loadFromUrl(data.videoUrl || data.path, data.title || '流转中心带入视频');
             if (data.desc || data.text) {
               setScriptText(data.desc || data.text);
-            }
-            if (data.isChanjingVideo || (data.title && data.title.includes('数字人'))) {
-              setRemoveWatermark(true);
             }
             sessionStorage.removeItem('jaygo_transfer_media');
           }
@@ -521,8 +558,28 @@ export const VideoIllustrator: React.FC = () => {
         const maxLeft = Math.max(0, sw - currentW);
         const maxTop = Math.max(0, sh - currentH);
 
-        const newLeft = Math.max(0, Math.min(maxLeft, dragRef.current.startLeft + dx));
-        const newTop = Math.max(0, Math.min(maxTop, dragRef.current.startTop + dy));
+        let newLeft = Math.max(0, Math.min(maxLeft, dragRef.current.startLeft + dx));
+        let newTop = Math.max(0, Math.min(maxTop, dragRef.current.startTop + dy));
+
+        // 磁吸居中对齐检测 (Snap to Center & Guidelines)
+        const centerLeft = (sw - currentW) / 2;
+        const centerTop = (sh - currentH) / 2;
+        let snapV = false;
+        let snapH = false;
+
+        // 水平居中吸附阈值（±14px）
+        if (Math.abs(newLeft - centerLeft) <= 14) {
+          newLeft = centerLeft;
+          snapV = true;
+        }
+        // 垂直居中吸附阈值（±14px）
+        if (Math.abs(newTop - centerTop) <= 14) {
+          newTop = centerTop;
+          snapH = true;
+        }
+
+        setIsSnappingV(snapV);
+        setIsSnappingH(snapH);
 
         const xPct = Math.round((newLeft / sw) * 1000) / 1000;
         const yPct = Math.round((newTop / sh) * 1000) / 1000;
@@ -559,6 +616,8 @@ export const VideoIllustrator: React.FC = () => {
 
     const handleMouseUp = () => {
       dragRef.current = null;
+      setIsSnappingV(false);
+      setIsSnappingH(false);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
@@ -567,8 +626,10 @@ export const VideoIllustrator: React.FC = () => {
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  // 快速方位吸附预设
-  const applyPositionPreset = (preset: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'center') => {
+  // 快速方位吸附预设 (7 点安全停靠矩阵)
+  const applyPositionPreset = (
+    preset: 'top-left' | 'top' | 'top-right' | 'bottom-left' | 'bottom' | 'bottom-right' | 'center'
+  ) => {
     const isVertical = videoDimensions.height > videoDimensions.width;
     const defaultW = isVertical ? 0.78 : 0.44;
     const defaultH = defaultW / (activeRatioObj.ratioNum || 16 / 9);
@@ -578,14 +639,22 @@ export const VideoIllustrator: React.FC = () => {
     switch (preset) {
       case 'top-left':
         xp = isVertical ? 0.11 : 0.04;
-        yp = isVertical ? 0.12 : 0.06;
+        yp = isVertical ? 0.10 : 0.06;
+        break;
+      case 'top':
+        xp = Math.max(0, (1 - defaultW) / 2);
+        yp = isVertical ? 0.10 : 0.06;
         break;
       case 'top-right':
         xp = isVertical ? 1 - defaultW - 0.11 : 1 - defaultW - 0.04;
-        yp = isVertical ? 0.12 : 0.06;
+        yp = isVertical ? 0.10 : 0.06;
         break;
       case 'bottom-left':
         xp = isVertical ? 0.11 : 0.04;
+        yp = isVertical ? 0.88 - defaultH : 0.92 - defaultH;
+        break;
+      case 'bottom':
+        xp = Math.max(0, (1 - defaultW) / 2);
         yp = isVertical ? 0.88 - defaultH : 0.92 - defaultH;
         break;
       case 'bottom-right':
@@ -640,14 +709,25 @@ export const VideoIllustrator: React.FC = () => {
       const systemPrompt = `你是一位国际顶尖的影视级短视频分镜视觉导演与信息架构设计大师。
 你的任务是深度理解用户的视频完整口播台词，基于全局上下文和专业因果逻辑，规划最具视觉价值与干货含量的视频插图（Illustration Storyboard）。
 
-【全片视觉规范与调色板锚点（Visual Anchor & Palette）】
+【全片统一视觉基调（全片插图色彩与质感高度统一）】
 全片选定统一视觉风格：【${currentStyleObj.label}】
-- 统一背景底色基调：${currentStyleObj.bgTone}
-- 统一核心主色调：${currentStyleObj.primaryColor}
-- 统一辅助高亮/警示色：${currentStyleObj.accentColor}
-- 标准图视觉规范：${currentStyleObj.standardPrompt}
-- 信息图视觉规范：${currentStyleObj.infographicPrompt}
-无论生成信息图还是标准图，必须严格遵循上述相同的统一调色板、材质与光影，使全片插图如同专业设计师整套定制，色彩完全统一！
+- 视觉基调描述：${currentStyleObj.bgTone}，以${currentStyleObj.primaryColor}为主色调，以${currentStyleObj.accentColor}作为高亮与警示色。
+- 标准插图规范：${currentStyleObj.standardPrompt}
+- 信息图解规范：${currentStyleObj.infographicPrompt}
+
+【带货营销与推销转化话术绝对禁配令（铁律）】
+严禁为任何涉及“点击小黄车、购买课程、下单抢购、橱窗、领资料、私信我、关注直播间、扣1领福利、原价现价优惠”等纯带货营销或转化导流话术规划插图！
+凡遇到此类推销话术，必须直接跳过，保持纯净留白，绝不生成任何无效插图。
+
+【生图提示词（prompt）纯净度与结构化提炼铁律（重中之重）】
+1. 绝对严禁在 prompt 中出现任何 '#' 十六进制色码（如 #FAF9F6、#1E40AF 等）或 RGB 数值！生图模型会把这些代码当成文字直接印在图片上！
+2. 绝对严禁在 prompt 中出现“统一背景底色基调”、“统一核心主色调”、“辅助高亮”等指令元词！
+3. 绝对严禁直接照抄口播整句台词作为标题！必须由你对该时刻的核心信息进行【深度结构化提炼与总结】：
+   - 必须提炼出简明专业的主标题（6-12字，例如：“新公司法股东连带清偿穿透机制”）
+   - 提炼出核心结构卡片（如：左侧【业务与资金混同风险】、右侧【独立法人隔离架构】）
+   - 包含对比符号（打叉/打勾）、流程导向箭头、数据卡片等图解实体
+4. 提示词标准规范范例：
+   "现代商务信息图，极简浅米白商务底色，深邃商务宝蓝与珊瑚警示红双色模块排版。画面正中展示结构化图解看板，主标题为“新公司法股东连带清偿穿透机制”，左侧卡片展示“业务与资金混同风险”，右侧卡片展示“独立法人防火墙隔离架构”，配有清晰对比指引箭头，扁平矢量设计，专业出版物排版，8k超清，无水印"
 
 【密集度规划节奏（${currentDensityObj.label}）】
 - 目标密度模式：${currentDensityObj.badge}
@@ -664,9 +744,6 @@ export const VideoIllustrator: React.FC = () => {
    - step_framework（步骤与框架）：多阶流程、持股架构图、防火墙层叠、业务分支导向。
    - vs_comparison（正反对比与避坑）：左右红绿对比清单、违规穿透风险 vs 合规安全方案。
    - concept_metaphor（核心概念隐喻）：商业意象、天平合规、放大镜穿透审视、精密机械运转。
-4. 信息图（infographic）四要素提示词规范：
-   必须直接包含口播文案中的【具体业务名词、法条依据、税率数据、主体名称、流程箭头指示】，严禁只写泛泛的“步骤一/步骤二/卡片A”！
-   例如：“现代高质感商业信息图设计，左右双栏对比排版。极简浅米白商务底色（#FAF9F6），经典商务宝蓝为主色调。左侧红色警示打叉标出【自然人直接持股：法定个税20%且直接穿透风险】，右侧绿色打勾标出【控股公司持股：居民企业间0%免税流转与防火墙架构】，包含清晰流向箭头与数据卡片，微立体矢量质感，无水印”
 
 输出格式：严格合法的纯 JSON 数组，绝不要包含 markdown 围栏或其它对话寒暄：
 [
@@ -678,7 +755,7 @@ export const VideoIllustrator: React.FC = () => {
     "category": "data_stat",
     "type": "infographic",
     "model": "sensenova-u1-fast",
-    "prompt": "融入统一色系与具体业务实体的专业商汤提示词"
+    "prompt": "融入统一色系与提炼出的结构化模块实体的专业提示词 (0色码0指令泄露)"
   }
 ]`;
 
@@ -734,10 +811,16 @@ ${scriptText}
 
         for (let i = 0; i < rawSentences.length; i++) {
           const rawSent = rawSentences[i];
+          // 过滤客套寒暄
           if (
             /^(大家好|欢迎大家|点赞关注|欢迎点赞|关注我|哈喽|感谢大家|我是[^\s，。]+)[，。！？!\s]*$/.test(rawSent) ||
             (rawSent.length < 15 && /(大家好|点赞|关注|欢迎|哈喽)/.test(rawSent))
           ) {
+            continue;
+          }
+
+          // 严格禁配令：凡涉及带货、小黄车、卖课、优惠、下单话术，一律不配图
+          if (SALES_PITCH_REGEX.test(rawSent)) {
             continue;
           }
 
@@ -751,10 +834,15 @@ ${scriptText}
             ''
           );
 
+          let titleEntity = cleanSent.replace(/[，。！？!?]/g, ' ').replace(/\s+/g, ' ').trim();
+          if (titleEntity.length > 14) titleEntity = titleEntity.slice(0, 14);
+
           let score = 10;
           let cat: 'data_stat' | 'step_framework' | 'vs_comparison' | 'concept_metaphor' = 'concept_metaphor';
           let cpt = '核心认知与商业隐喻';
-          let pmt = `${currentStyleObj.standardPrompt}。画面核心生动呈现围绕【${cleanSent.slice(0, 24)}】的隐喻意象，${currentStyleObj.bgTone}，${currentStyleObj.primaryColor}为主调，${currentStyleObj.accentColor}点缀，细节丰富，无水印`;
+          let pmt = sanitizePromptForImageGen(
+            `${currentStyleObj.standardPrompt}。画面核心生动呈现围绕【${titleEntity}】的隐喻意象，${currentStyleObj.bgTone}，${currentStyleObj.primaryColor}为主调，${currentStyleObj.accentColor}点缀，细节丰富，无水印`
+          );
 
           const withoutQianwan = cleanSent.replace(/千万(别|不要|不能)/g, '');
 
@@ -765,21 +853,27 @@ ${scriptText}
             score += 45;
             cat = 'data_stat';
             cpt = '核心数据指标与对比图解';
-            pmt = `${currentStyleObj.infographicPrompt}。画面正中明确呈现【${cleanSent.slice(0, 26)}】的结构化数据对比看板，内嵌精准指标数值与比例，附带导向箭头与卡片，${currentStyleObj.bgTone}，${currentStyleObj.primaryColor}为主色，${currentStyleObj.accentColor}突出关键数值，无水印`;
+            pmt = sanitizePromptForImageGen(
+              `${currentStyleObj.infographicPrompt}。画面正中展示【${titleEntity}】结构化数据对比看板，内嵌精准指标数值与比例卡片，附带导向箭头，${currentStyleObj.bgTone}，${currentStyleObj.primaryColor}为主色，${currentStyleObj.accentColor}突出关键数值，无水印`
+            );
           } else if (
             /(第一|第二|第三|步骤|法则|方法|体系|逻辑|框架|三步|四维|流程|架构|穿透|隔离|第[一二三四五六七八九十])/.test(cleanSent)
           ) {
             score += 40;
             cat = 'step_framework';
             cpt = '关键进阶步骤与架构图解';
-            pmt = `${currentStyleObj.infographicPrompt}。以模块化多阶层叠图解清晰展现【${cleanSent.slice(0, 26)}】的核心架构与流向分支，各节点标注具体业务名称与导向箭头，${currentStyleObj.bgTone}，${currentStyleObj.primaryColor}为主，${currentStyleObj.accentColor}点缀重点，层次分明，无水印`;
+            pmt = sanitizePromptForImageGen(
+              `${currentStyleObj.infographicPrompt}。以模块化多阶层叠图解清晰展现【${titleEntity}】的核心架构与流向分支，各节点标注具体业务名称与导向箭头，${currentStyleObj.bgTone}，${currentStyleObj.primaryColor}为主，${currentStyleObj.accentColor}点缀重点，层次分明，无水印`
+            );
           } else if (
             /(千万别|千万不要|千万不能|不要|不能|避坑|陷阱|风险|对比|区别|相较于|红线|违规|警惕|连带|清偿)/.test(cleanSent)
           ) {
             score += 35;
             cat = 'vs_comparison';
             cpt = '避坑红线与正反对比清单';
-            pmt = `${currentStyleObj.infographicPrompt}。采用左右双栏对比排版，左侧红色警示打叉列出【${cleanSent.slice(0, 24)}】中的严重风险与违规点，右侧绿色合规打勾展示正确方案与安全防火墙架构，${currentStyleObj.bgTone}，${currentStyleObj.primaryColor}统一基调，无水印`;
+            pmt = sanitizePromptForImageGen(
+              `${currentStyleObj.infographicPrompt}。采用左右双栏对比排版，左侧红色警示打叉列出【${titleEntity}】中的严重风险与违规点，右侧绿色合规打勾展示正确方案与安全防火墙架构，${currentStyleObj.bgTone}，${currentStyleObj.primaryColor}统一基调，无水印`
+            );
           } else if (/(核心|本质|真相|关键|痛点|破局|爆发|重构|底层|永续)/.test(cleanSent)) {
             score += 25;
             cat = 'concept_metaphor';
@@ -900,7 +994,7 @@ ${scriptText}
       const res = await api.sensenovaGenerateImage({
         apiKey: snApiKey.trim(),
         model: item.model,
-        prompt: item.prompt,
+        prompt: sanitizePromptForImageGen(item.prompt),
         size: ratioObj.size,
         style: item.style,
         imageBase64: item.referenceImage,
@@ -945,7 +1039,7 @@ ${scriptText}
       endTime: et,
       contextText: '手动打点插图分镜',
       concept: '重点补充插图',
-      prompt: `${currentStyleObj.infographicPrompt}，画面纯净，高分辨率，无水印`,
+      prompt: sanitizePromptForImageGen(`${currentStyleObj.infographicPrompt}，画面纯净，高分辨率，无水印`),
       type: routingMode === 'standard' ? 'standard' : 'infographic',
       model: routingMode === 'standard' ? 'sensenova-u1.5-lite' : 'sensenova-u1-fast',
       category: 'step_framework',
@@ -954,19 +1048,22 @@ ${scriptText}
       status: 'idle',
     };
 
-    setIllustrations((prev) => [...prev, newItem].sort((a, b) => a.startTime - b.startTime));
+    setIllustrations((prev) => {
+      const next = [...prev, newItem].sort((a, b) => a.startTime - b.startTime);
+      return next;
+    });
     setSelectedIllustrationId(newItem.id);
-    showToast(`已在 ${st}s 处新增打点分镜`, 'ok');
+    showToast('已在当前时间点增加一个插图打点分镜', 'ok');
   };
 
-  // 删除插图
+  // 删除单张插图分镜
   const handleDeleteIllustration = (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setIllustrations((prev) => prev.filter((it) => it.id !== id));
     if (selectedIllustrationId === id) {
       setSelectedIllustrationId(null);
     }
-    showToast('已删除分镜', 'ok');
+    showToast('已删除该分镜', 'info');
   };
 
   // 测试商汤 TokenPlan API Key
@@ -1006,13 +1103,14 @@ ${scriptText}
     setShowKeyConfig(false);
   };
 
-  // 导出合成带插图视频
+  // 一键合成导出全部插图到最终视频成片
   const handleExportVideo = async () => {
-    const targetSource = videoPath || (videoUrl?.startsWith('file:///') ? videoUrl.replace('file:///', '') : videoUrl);
+    const targetSource = videoPath || videoUrl;
     if (!targetSource) {
-      showToast('请先加载视频源文件', 'err');
+      showToast('请先载入视频文件', 'err');
       return;
     }
+
     const readyItems = illustrations.filter((it) => it.status === 'success' && it.localPath);
     if (readyItems.length === 0) {
       showToast('尚无已生成的插图，请先生成插图', 'err');
@@ -1039,7 +1137,7 @@ ${scriptText}
 
       const res = await api.exportVideoWithOverlays({
         videoPath: targetSource,
-        removeOriginalWatermark: removeWatermark,
+        removeOriginalWatermark: true,
         overlays,
       });
 
@@ -1103,14 +1201,14 @@ ${scriptText}
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">智能视频配插图</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/60">
-                v0.7.0 · 全屏预览与统一风格
+                v0.7.1 · 紧凑排版与智能去标
               </span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 font-semibold border border-emerald-200/60 dark:border-emerald-800/60">
                 多图无损导出
               </span>
             </div>
             <p className="text-[11.5px] text-zinc-400 mt-0.5">
-              深度上下文规划 · 全片统一调色板 · 3档密集度 · 视频放大全屏预览 · 0遗漏导出
+              深度上下文提炼 · 全片统一调色板 · 3档密集度 · 视频放大预览 · 0遗漏导出
             </p>
           </div>
         </div>
@@ -1180,11 +1278,11 @@ ${scriptText}
         {/* 左侧：专业视频导演舞台（Video Stage） */}
         <div
           onClick={() => setIsEditingOverlay(false)} // 点击背景区域退出编辑模式，返回纯净无边框预览
-          className="flex-1 flex flex-col p-4 border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-100/50 dark:bg-[#090a0f] overflow-y-auto"
+          className="flex-1 flex flex-col p-3 border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-100/50 dark:bg-[#090a0f] overflow-y-auto min-w-0"
         >
           {videoUrl ? (
             <div className="flex-1 flex flex-col items-center justify-start max-w-2xl mx-auto w-full">
-              {/* 舞台顶栏信息：分辨率、画幅、坐标提示（移除冗余纯净按钮） */}
+              {/* 舞台顶栏信息：分辨率、画幅、坐标提示 */}
               <div className="w-full flex items-center justify-between mb-2 px-1 text-[11px] text-zinc-400">
                 <div className="flex items-center gap-2">
                   <span className="px-2 py-0.5 rounded-md bg-zinc-200 dark:bg-zinc-800 font-mono text-zinc-700 dark:text-zinc-300 font-medium">
@@ -1228,6 +1326,10 @@ ${scriptText}
                     onPause={() => setIsPlaying(false)}
                     className="w-full h-full object-fill block pointer-events-auto"
                   />
+
+                  {/* 拖拽居中吸附辅助对齐参考线 */}
+                  {isSnappingV && <div className="snap-line-v" />}
+                  {isSnappingH && <div className="snap-line-h" />}
 
                   {/* 真实画幅插图浮层（默认纯净展示无遮挡，点击后进入编辑模式；经典纯净下无圆角） */}
                   {activeIllustration && (
@@ -1365,10 +1467,10 @@ ${scriptText}
               {/* 舞台下方：插图包装与全片位置联动控制台 */}
               <div
                 onClick={(e) => e.stopPropagation()}
-                className="w-full mt-3 p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#111217] shadow-sm space-y-3"
+                className="w-full mt-2.5 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#111217] shadow-sm space-y-2.5"
               >
-                {/* 顶层开关：全片联动与去原片水印 */}
-                <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800/80">
+                {/* 顶层开关：全片联动与静默去水印状态 */}
+                <div className="flex items-center justify-between pb-1.5 border-b border-zinc-100 dark:border-zinc-800/80">
                   <div className="flex items-center gap-3">
                     <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
                       <Sliders className="w-3.5 h-3.5 text-indigo-500" />
@@ -1388,22 +1490,17 @@ ${scriptText}
                     </label>
                   </div>
 
-                  {/* 智能消除原片水印（支持蝉镜等左上角标识） */}
-                  <label className="flex items-center gap-1.5 text-[11px] cursor-pointer select-none bg-rose-50/70 dark:bg-rose-950/30 px-2 py-0.5 rounded-md border border-rose-200/60 dark:border-rose-900/40 text-rose-700 dark:text-rose-300">
-                    <input
-                      type="checkbox"
-                      checked={removeWatermark}
-                      onChange={(e) => setRemoveWatermark(e.target.checked)}
-                      className="rounded accent-rose-600 cursor-pointer"
-                    />
-                    <span className="font-medium">智能消除原片左上角水印 (蝉镜标志)</span>
-                  </label>
+                  {/* 默认全自动静默消除原片水印标签 */}
+                  <span className="text-[10.5px] px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-900/40 text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                    <Check className="w-3 h-3 text-emerald-500" />
+                    <span>导出全自动静默消除水印</span>
+                  </span>
                 </div>
 
                 {/* 动效选择与边框样式 */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2.5">
                   <div>
-                    <label className="text-[10.5px] font-semibold text-zinc-500 mb-1.5 flex items-center gap-1">
+                    <label className="text-[10.5px] font-semibold text-zinc-500 mb-1 flex items-center gap-1">
                       <Zap className="w-3 h-3 text-amber-500" />
                       <span>插图进退主动效</span>
                     </label>
@@ -1417,7 +1514,7 @@ ${scriptText}
                             setGlobalLayout((prev) => ({ ...prev, transitionEffect: t.id as any }));
                             showToast(`已应用【${t.label}】视觉动效`, 'ok');
                           }}
-                          className={`px-2 py-1 rounded-md text-[11px] font-medium border transition cursor-pointer ${
+                          className={`px-2 py-0.5 rounded-md text-[10.5px] font-medium border transition cursor-pointer ${
                             transitionEffect === t.id
                               ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
                               : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
@@ -1431,7 +1528,7 @@ ${scriptText}
                   </div>
 
                   <div>
-                    <label className="text-[10.5px] font-semibold text-zinc-500 mb-1.5 flex items-center gap-1">
+                    <label className="text-[10.5px] font-semibold text-zinc-500 mb-1 flex items-center gap-1">
                       <Sparkle className="w-3 h-3 text-indigo-500" />
                       <span>图片边框容器预设 (选无边框为直角)</span>
                     </label>
@@ -1445,7 +1542,7 @@ ${scriptText}
                             setGlobalLayout((prev) => ({ ...prev, borderStyle: b.id as any }));
                             showToast(`已应用【${b.label}】边框样式`, 'ok');
                           }}
-                          className={`px-2 py-1 rounded-md text-[11px] font-medium border transition cursor-pointer ${
+                          className={`px-2 py-0.5 rounded-md text-[10.5px] font-medium border transition cursor-pointer ${
                             borderStyle === b.id
                               ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
                               : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
@@ -1459,10 +1556,10 @@ ${scriptText}
                   </div>
                 </div>
 
-                {/* 画幅规格与方位吸附 */}
-                <div className="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-100 dark:border-zinc-800/80">
+                {/* 画幅规格与 7 方位精准吸附 */}
+                <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-zinc-100 dark:border-zinc-800/80">
                   <div>
-                    <label className="text-[10.5px] font-semibold text-zinc-500 mb-1.5 block">
+                    <label className="text-[10.5px] font-semibold text-zinc-500 mb-1 block">
                       画幅比例（选什么预览呈现什么）
                     </label>
                     <div className="flex items-center gap-1 flex-wrap">
@@ -1471,7 +1568,7 @@ ${scriptText}
                           key={r.id}
                           type="button"
                           onClick={() => handleChangeDefaultRatio(r.id)}
-                          className={`px-2 py-1 rounded-md text-[11px] font-medium border transition cursor-pointer ${
+                          className={`px-2 py-0.5 rounded-md text-[10.5px] font-medium border transition cursor-pointer ${
                             (activeIllustration?.ratio || defaultRatio) === r.id
                               ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
                               : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
@@ -1485,22 +1582,30 @@ ${scriptText}
                   </div>
 
                   <div>
-                    <label className="text-[10.5px] font-semibold text-zinc-500 mb-1.5 block">
-                      智能吸附方位（根据横竖屏安全适配）
+                    <label className="text-[10.5px] font-semibold text-zinc-500 mb-1 block">
+                      智能吸附方位 (7 点安全矩阵)
                     </label>
                     <div className="flex items-center gap-1 flex-wrap">
-                      {(['center', 'top-left', 'top-right', 'bottom-left', 'bottom-right'] as const).map((pos) => (
+                      {[
+                        { id: 'top-left', label: '左上' },
+                        { id: 'top', label: '上中' },
+                        { id: 'top-right', label: '右上' },
+                        { id: 'center', label: '正中' },
+                        { id: 'bottom-left', label: '左下' },
+                        { id: 'bottom', label: '下中' },
+                        { id: 'bottom-right', label: '右下' },
+                      ].map((pos) => (
                         <button
-                          key={pos}
+                          key={pos.id}
                           type="button"
-                          onClick={() => applyPositionPreset(pos)}
-                          className={`px-2 py-1 rounded-md text-[11px] font-medium border transition cursor-pointer ${
-                            globalLayout.positionPreset === pos
+                          onClick={() => applyPositionPreset(pos.id as any)}
+                          className={`px-1.5 py-0.5 rounded-md text-[10px] font-medium border transition cursor-pointer ${
+                            globalLayout.positionPreset === pos.id
                               ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
                               : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
                           }`}
                         >
-                          {pos === 'center' ? '正中对齐' : pos === 'top-left' ? '左上贴靠' : pos === 'top-right' ? '右上贴靠' : pos === 'bottom-left' ? '左下安全' : '右下安全'}
+                          {pos.label}
                         </button>
                       ))}
                     </div>
@@ -1529,107 +1634,91 @@ ${scriptText}
           )}
         </div>
 
-        {/* 右侧：分镜策划、统一风格库、3档密集度与插图清单 */}
-        <div className="w-[460px] flex flex-col bg-white dark:bg-[#111217] shrink-0 border-l border-zinc-200 dark:border-zinc-800/80">
+        {/* 右侧：分镜策划、统一风格库、3档密集度与插图清单 (紧凑自适应排版 w-[340px] xl:w-[380px]) */}
+        <div className="w-[340px] xl:w-[380px] flex flex-col bg-white dark:bg-[#111217] shrink-0 border-l border-zinc-200 dark:border-zinc-800/80 min-w-0">
           {/* 策划配置区 */}
-          <div className="p-4 border-b border-zinc-200 dark:border-zinc-800/80 space-y-3 shrink-0">
+          <div className="p-3 border-b border-zinc-200 dark:border-zinc-800/80 space-y-2 shrink-0">
             {/* 路由模式切换 */}
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                  <SplitSquareVertical className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>商汤 SenseNova 路由策略</span>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11.5px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
+                  <SplitSquareVertical className="w-3 h-3 text-indigo-500" />
+                  <span>SenseNova 路由策略</span>
                 </label>
-                <span className="text-[10px] text-zinc-400 font-medium">智能分流两款专精模型</span>
+                <span className="text-[9.5px] text-zinc-400">两款专精模型分流</span>
               </div>
-              <div className="grid grid-cols-3 gap-1.5 bg-zinc-100 dark:bg-zinc-900/80 p-1 rounded-xl border border-zinc-200/80 dark:border-zinc-800">
+              <div className="grid grid-cols-3 gap-1 bg-zinc-100 dark:bg-zinc-900/80 p-0.5 rounded-lg border border-zinc-200/80 dark:border-zinc-800">
                 {[
-                  { id: 'smart', label: '四维智能路由', icon: Sparkles },
-                  { id: 'infographic', label: '全量信息图', icon: BarChart2 },
-                  { id: 'standard', label: '全量标准图', icon: ImageIcon },
+                  { id: 'smart', label: '智能路由', icon: Sparkles },
+                  { id: 'infographic', label: '信息图', icon: BarChart2 },
+                  { id: 'standard', label: '标准图', icon: ImageIcon },
                 ].map((m) => (
                   <button
                     key={m.id}
                     type="button"
                     onClick={() => setRoutingMode(m.id as any)}
-                    className={`py-1.5 rounded-lg text-xs font-medium transition cursor-pointer flex items-center justify-center gap-1 ${
+                    className={`py-1 rounded-md text-[11px] font-medium transition cursor-pointer flex items-center justify-center gap-1 ${
                       routingMode === m.id
-                        ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-sm font-bold'
+                        ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold'
                         : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
                     }`}
                   >
-                    <m.icon className="w-3.5 h-3.5" />
+                    <m.icon className="w-3 h-3" />
                     <span>{m.label}</span>
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* 全片统一视觉风格选择（对齐豆包等专业生成工具 + 图2同款标杆） */}
+            {/* 全片统一视觉风格选择 */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                  <Palette className="w-3.5 h-3.5 text-rose-500" />
-                  <span>全片统一视觉风格与配色体系</span>
+                <label className="text-[11.5px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
+                  <Palette className="w-3 h-3 text-rose-500" />
+                  <span>全片统一视觉风格</span>
                 </label>
-                <span className="text-[10.5px] text-indigo-500 font-medium">信息图与场景图风格共享</span>
+                <span className="text-[9.5px] text-indigo-500 font-medium">全片风格严格统一</span>
               </div>
 
               <select
                 value={defaultStyle}
                 onChange={(e) => setDefaultStyle(e.target.value)}
-                className="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-800 dark:text-zinc-200 font-medium focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-[11.5px] text-zinc-800 dark:text-zinc-200 font-medium focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
               >
                 {STYLE_OPTIONS.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.label} ({s.desc})
+                    {s.label} · {s.desc}
                   </option>
                 ))}
               </select>
-
-              {/* 展开当前选定风格的统一调色板说明 */}
-              {(() => {
-                const cur = STYLE_OPTIONS.find((s) => s.id === defaultStyle) || STYLE_OPTIONS[0];
-                return (
-                  <div className="mt-1.5 p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200/60 dark:border-zinc-800/60 text-[10.5px] text-zinc-500 space-y-0.5">
-                    <div className="flex items-center gap-1.5 text-zinc-700 dark:text-zinc-300 font-medium">
-                      <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
-                      <span>全片锁定色系：{cur.paletteTitle}</span>
-                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 rounded">统一协调</span>
-                    </div>
-                    <p className="truncate text-zinc-400">基底：{cur.bgTone}</p>
-                    <p className="truncate text-zinc-400">主调：{cur.primaryColor} · 点缀：{cur.accentColor}</p>
-                  </div>
-                );
-              })()}
             </div>
 
             {/* 3 档配图密集度选择 */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                  <LayoutGrid className="w-3.5 h-3.5 text-amber-500" />
-                  <span>插图密集程度选择</span>
+                <label className="text-[11.5px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
+                  <LayoutGrid className="w-3 h-3 text-amber-500" />
+                  <span>配图密集程度</span>
                 </label>
-                <span className="text-[10px] text-zinc-400">动态控制出图数量与节奏</span>
+                <span className="text-[9.5px] text-zinc-400">控制出图节奏</span>
               </div>
-              <div className="grid grid-cols-3 gap-1.5 bg-zinc-100 dark:bg-zinc-900/80 p-1 rounded-xl border border-zinc-200/80 dark:border-zinc-800">
+              <div className="grid grid-cols-3 gap-1 bg-zinc-100 dark:bg-zinc-900/80 p-0.5 rounded-lg border border-zinc-200/80 dark:border-zinc-800">
                 {DENSITY_OPTIONS.map((d) => (
                   <button
                     key={d.id}
                     type="button"
                     onClick={() => {
                       setDensity(d.id);
-                      showToast(`已选择【${d.label}】配图节奏（${d.badge}）`, 'ok');
+                      showToast(`已选择【${d.label}】配图节奏`, 'ok');
                     }}
-                    className={`py-1.5 px-1 rounded-lg text-xs font-medium transition cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
+                    className={`py-1 px-0.5 rounded-md text-[11px] font-medium transition cursor-pointer flex flex-col items-center justify-center gap-0.2 ${
                       density === d.id
-                        ? 'border border-indigo-500 bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-sm font-bold'
+                        ? 'border border-indigo-500 bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold'
                         : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
                     }`}
                   >
                     <span>{d.label}</span>
-                    <span className="text-[9px] opacity-75">{d.badge}</span>
+                    <span className="text-[8.5px] opacity-75">{d.badge}</span>
                   </button>
                 ))}
               </div>
@@ -1690,24 +1779,24 @@ ${scriptText}
             </div>
 
             {/* 操作触发按钮组 */}
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex items-center gap-1.5 pt-0.5">
               <button
                 type="button"
                 onClick={handleAiPlanIllustrations}
                 disabled={isPlanning || !scriptText.trim()}
-                className="flex-1 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md transition cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                className="flex-1 py-1.5 px-2 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-[11.5px] font-bold shadow-sm transition cursor-pointer flex items-center justify-center gap-1 disabled:opacity-50"
               >
-                <Wand2 className="w-3.5 h-3.5" />
-                <span>AI 智能规划高价值插图 (去废话)</span>
+                <Wand2 className="w-3.5 h-3.5 shrink-0" />
+                <span>AI 智能规划高价值插图</span>
               </button>
 
               {illustrations.length > 0 && (
                 <button
                   type="button"
                   onClick={handleBatchGenerateAll}
-                  className="px-3.5 py-2 rounded-xl border border-indigo-500/50 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-400 text-xs font-semibold transition cursor-pointer shrink-0 flex items-center gap-1"
+                  className="px-2.5 py-1.5 rounded-lg border border-indigo-500/50 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-400 text-[11px] font-semibold transition cursor-pointer shrink-0 flex items-center gap-1"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <RefreshCw className="w-3 h-3" />
                   <span>全部生成 ({illustrations.filter((i) => i.status === 'success').length}/{illustrations.length})</span>
                 </button>
               )}

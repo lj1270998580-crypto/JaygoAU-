@@ -2212,7 +2212,7 @@ ipcMain.handle('chanjing-delete-video', async (_e, id: string) => {
 ipcMain.handle('chanjing-download-video', async (_e, args: { url: string; defaultName?: string }) => {
   const { url, defaultName } = args;
   const saveRes = await dialog.showSaveDialog({
-    title: '保存数字人视频',
+    title: '保存数字人视频（已默认自动消除平台水印）',
     defaultPath: path.join(app.getPath('downloads'), defaultName || `chanjing_avatar_${Date.now()}.mp4`),
     filters: [{ name: 'MP4 视频文件', extensions: ['mp4'] }],
   });
@@ -2225,9 +2225,80 @@ ipcMain.handle('chanjing-download-video', async (_e, args: { url: string; defaul
     throw new Error(`下载视频文件失败（HTTP ${res.status}）`);
   }
   const arrayBuffer = await res.arrayBuffer();
-  fs.writeFileSync(saveRes.filePath, Buffer.from(arrayBuffer));
+  const rawBuffer = Buffer.from(arrayBuffer);
+
+  // 默认静默去标：若本地具备 FFmpeg，则自动对数字人成片左上角执行智能 delogo 去水印
+  if (FFMPEG_PATH && fs.existsSync(FFMPEG_PATH)) {
+    const tempRaw = path.join(app.getPath('temp'), `raw-avatar-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.mp4`);
+    try {
+      fs.writeFileSync(tempRaw, rawBuffer);
+      let W = 1080;
+      let H = 1920;
+      try {
+        const dim = await new Promise<{ width: number; height: number }>((resolve) => {
+          const p = spawn(FFMPEG_PATH, ['-i', tempRaw]);
+          let err = '';
+          p.stderr.on('data', (d) => (err += d.toString()));
+          p.on('close', () => {
+            const match = err.match(/Video:.*?,\s*(\d{2,5})x(\d{2,5})/);
+            if (match) {
+              resolve({ width: parseInt(match[1]), height: parseInt(match[2]) });
+            } else {
+              resolve({ width: 1080, height: 1920 });
+            }
+          });
+        });
+        W = dim.width;
+        H = dim.height;
+      } catch {}
+
+      const isVertical = H > W;
+      const delogoW = isVertical ? 180 : 230;
+      const delogoH = isVertical ? 70 : 80;
+      const delogoX = isVertical ? 20 : 28;
+      const delogoY = isVertical ? 24 : 28;
+
+      await new Promise<void>((resolve, reject) => {
+        const p = spawn(FFMPEG_PATH, [
+          '-y',
+          '-i', tempRaw,
+          '-vf', `delogo=x=${delogoX}:y=${delogoY}:w=${delogoW}:h=${delogoH}:show=0`,
+          '-c:a', 'copy',
+          '-c:v', 'libx264',
+          '-preset', 'fast',
+          '-crf', '18',
+          saveRes.filePath!,
+        ]);
+        let err = '';
+        p.stderr.on('data', (d) => (err += d.toString()));
+        p.on('close', (code) => {
+          if (code === 0 && fs.existsSync(saveRes.filePath!) && fs.statSync(saveRes.filePath!).size > 1000) {
+            resolve();
+          } else {
+            // 若转码未产出，保底写入原流
+            fs.writeFileSync(saveRes.filePath!, rawBuffer);
+            resolve();
+          }
+        });
+        p.on('error', () => {
+          fs.writeFileSync(saveRes.filePath!, rawBuffer);
+          resolve();
+        });
+      });
+    } catch {
+      fs.writeFileSync(saveRes.filePath, rawBuffer);
+    } finally {
+      if (fs.existsSync(tempRaw)) {
+        try { fs.unlinkSync(tempRaw); } catch {}
+      }
+    }
+  } else {
+    fs.writeFileSync(saveRes.filePath, rawBuffer);
+  }
+
   return { canceled: false, filePath: saveRes.filePath };
 });
+
 
 ipcMain.handle('chanjing-upload-temp-audio', async (_e, args: { localPath: string }) => {
   if (!args?.localPath || !fs.existsSync(args.localPath)) {
@@ -2659,8 +2730,8 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
     const filterParts: string[] = [];
     let prevVideoTag = '0:v';
 
-    // 智能去除原片左上角水印（如蝉镜等水印标志）
-    if (removeOriginalWatermark) {
+    // 智能去除原片左上角水印（如蝉镜等水印标志，默认全自动静默消除）
+    if (removeOriginalWatermark !== false) {
       const isVertical = H > W;
       const delogoW = isVertical ? 180 : 230;
       const delogoH = isVertical ? 70 : 80;
