@@ -2659,8 +2659,8 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
       filterParts.push(`[${imgInputIndex}:v]scale=w=${targetW}:h=-2[${scaledTag}]`);
 
       const nextVideoTag = idx === overlays.length - 1 ? 'outv' : `v_${idx}`;
-      const posX = Math.round(W * ov.xPercent);
-      const posY = Math.round(H * ov.yPercent);
+      const posX = Math.max(0, Math.min(W - 20, Math.round(W * ov.xPercent)));
+      const posY = Math.max(0, Math.min(H - 20, Math.round(H * ov.yPercent)));
       const st = Math.max(0, ov.startTime).toFixed(2);
       const et = Math.max(ov.startTime + 0.5, ov.endTime).toFixed(2);
 
