@@ -528,3 +528,32 @@ html.dark .ai-input-streamer-inner {
   background: #14151c;
 }
 
+/* 视频插图预览进退场核心动效 */
+@keyframes illFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes illSlideInRight {
+  from { opacity: 0; transform: translateX(36px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes illZoomIn {
+  from { opacity: 0; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.anim-ill-fade {
+  animation: illFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.anim-ill-slide {
+  animation: illSlideInRight 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.anim-ill-zoom {
+  animation: illZoomIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+

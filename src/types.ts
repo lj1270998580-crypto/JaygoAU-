@@ -234,6 +234,8 @@ export interface VideoIllustrationItem {
   error?: string;
 }
 
+export type IllustrationDensity = 'sparse' | 'standard' | 'dense';
+
 export interface IllustrationLayout {
   xPercent: number;     // 0.0 - 1.0
   yPercent: number;     // 0.0 - 1.0

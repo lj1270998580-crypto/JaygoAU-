@@ -2649,11 +2649,10 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
     const H = dimensions.height;
     dbg(`[VideoOverlay] input=${actualVideoPath} W=${W} H=${H} overlaysCount=${overlays.length} removeWatermark=${Boolean(removeOriginalWatermark)}`);
 
-    // 构建 FFmpeg 输入参数
+    // 构建 FFmpeg 输入参数（使用 -loop 1 -i，杜绝 -t 过早耗尽后续分镜流）
     const ffmpegArgs = ['-y', '-i', actualVideoPath];
     for (const ov of overlays) {
-      const dur = Math.max(1, ov.endTime - ov.startTime + 1);
-      ffmpegArgs.push('-loop', '1', '-t', String(dur.toFixed(2)), '-i', ov.imagePath);
+      ffmpegArgs.push('-loop', '1', '-i', ov.imagePath);
     }
 
     // 滤镜处理各插图
@@ -2683,9 +2682,10 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
 
       const dur = Math.max(0.6, ov.endTime - ov.startTime);
       const fadeDur = Math.min(0.35, dur / 3);
-      const fadeOutSt = Math.max(0, dur - fadeDur).toFixed(2);
+      const fadeOutSt = Math.max(Number(st), Number(et) - fadeDur).toFixed(2);
 
-      let imgFilters = `[${imgInputIndex}:v]scale=w=${targetW}:h=-2,format=rgba`;
+      // 通过 setpts=PTS-STARTPTS+st/TB 精确将各图时间戳与主视频对齐
+      let imgFilters = `[${imgInputIndex}:v]scale=w=${targetW}:h=-2,format=rgba,setpts=PTS-STARTPTS+${st}/TB`;
 
       // 边框预设
       if (ov.borderStyle === 'clean_white') {
@@ -2699,7 +2699,7 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
       // 入场与出场动效
       const effect = ov.transitionEffect || 'fade';
       if (effect === 'fade' || effect === 'zoom') {
-        imgFilters += `,fade=t=in:st=0:d=${fadeDur.toFixed(2)}:alpha=1,fade=t=out:st=${fadeOutSt}:d=${fadeDur.toFixed(2)}:alpha=1`;
+        imgFilters += `,fade=t=in:st=${st}:d=${fadeDur.toFixed(2)}:alpha=1,fade=t=out:st=${fadeOutSt}:d=${fadeDur.toFixed(2)}:alpha=1`;
       }
       imgFilters += `[${scaledTag}]`;
       filterParts.push(imgFilters);
@@ -2710,7 +2710,7 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
       }
 
       filterParts.push(
-        `[${prevVideoTag}][${scaledTag}]overlay=x=${overlayX}:y=${posY}:enable='between(t,${st},${et})'[${nextVideoTag}]`
+        `[${prevVideoTag}][${scaledTag}]overlay=x=${overlayX}:y=${posY}:enable='between(t,${st},${et})':eof_action=pass[${nextVideoTag}]`
       );
       prevVideoTag = nextVideoTag;
     });
@@ -2723,6 +2723,7 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
       '-preset', 'fast',
       '-crf', '18',
       '-c:a', 'copy',
+      '-shortest',
       targetPath
     );
 
