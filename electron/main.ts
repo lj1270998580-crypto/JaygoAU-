@@ -354,6 +354,13 @@ function extractAsrResult(body: any): { text: string; utterances: any[]; duratio
     startTime: Number(u?.start_time) || 0,
     endTime: Number(u?.end_time) || 0,
     speaker: u?.additions?.speaker,
+    words: Array.isArray(u?.words)
+      ? u.words.map((w: any) => ({
+          text: typeof w?.text === 'string' ? w.text : '',
+          startTime: Number(w?.start_time) || 0,
+          endTime: Number(w?.end_time) || 0,
+        }))
+      : undefined,
   }));
 
   // 文本优先取 result.text；没有就用全部分句拼起来兜底
@@ -1565,13 +1572,27 @@ ipcMain.handle('showItemInFolder', (_e, filePath: string) => {
 ipcMain.handle('transcribe', async (e, args: { filePath: string; enableSpeakerInfo: boolean }) => {
   const key = getApiKey();
   const { filePath, enableSpeakerInfo } = args;
-  if (!fs.existsSync(filePath)) throw new Error('文件不存在：' + filePath);
 
-  const audio = await resolveAudioForAsr(filePath);
-  dbg(`[ASR prepare] src=${filePath} -> ${audio.localPath} format=${audio.format} codec=${audio.codec || '-'} size=${(fs.statSync(audio.localPath).size / 1024).toFixed(1)}KB`);
-  e.sender.send('transcribe-status', '正在上传到云端临时存储…');
-  const upload = await uploadAudioToOss(audio.localPath);
+  let actualFilePath = filePath;
+  let isTempDownloaded = false;
+  if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+    e.sender.send('transcribe-status', '正在缓存网络视频至本地…');
+    actualFilePath = path.join(app.getPath('temp'), `jaygo-remote-asr-${Date.now()}.mp4`);
+    await downloadMediaFile(filePath, actualFilePath);
+    isTempDownloaded = true;
+  } else if (!fs.existsSync(actualFilePath)) {
+    throw new Error('文件不存在：' + actualFilePath);
+  }
+
+  let audio: { localPath: string; format: string; codec?: string; isTemp: boolean } | null = null;
+  let uploadKey: string | null = null;
   try {
+    audio = await resolveAudioForAsr(actualFilePath);
+    dbg(`[ASR prepare] src=${actualFilePath} -> ${audio.localPath} format=${audio.format} codec=${audio.codec || '-'} size=${(fs.statSync(audio.localPath).size / 1024).toFixed(1)}KB`);
+    e.sender.send('transcribe-status', '正在上传到云端临时存储…');
+    const upload = await uploadAudioToOss(audio.localPath);
+    uploadKey = upload.key;
+
     const submitBody: any = {
       audio: { url: upload.url, format: audio.format },
       request: {
@@ -1628,9 +1649,14 @@ ipcMain.handle('transcribe', async (e, args: { filePath: string; enableSpeakerIn
     return { ...result, url: upload.url };
   } finally {
     // 无论成功失败，都清理 OSS 临时文件与本地临时音频
-    await deleteOssObject(upload.key);
-    if (audio.isTemp) {
+    if (uploadKey) {
+      await deleteOssObject(uploadKey);
+    }
+    if (audio?.isTemp) {
       try { fs.unlinkSync(audio.localPath); } catch { /* ignore */ }
+    }
+    if (isTempDownloaded) {
+      try { fs.unlinkSync(actualFilePath); } catch { /* ignore */ }
     }
   }
 });
@@ -2417,8 +2443,8 @@ ipcMain.handle('sensenova-test-key', async (_, args: { apiKey: string }) => {
     const key = (args.apiKey || '').trim();
     if (!key) return { ok: false, message: '请提供商汤日日新 TokenPlan API Key' };
     
-    // 调用 SenseNova models 端点探测密匙有效性
-    const res = await fetch('https://api.sensenova.cn/v1/models', {
+    // 调用 SenseNova TokenPlan models 端点探测密匙有效性
+    const res = await fetch('https://token.sensenova.cn/v1/models', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${key}`,
@@ -2432,7 +2458,14 @@ ipcMain.handle('sensenova-test-key', async (_, args: { apiKey: string }) => {
     if (res.status === 401 || res.status === 403) {
       return { ok: false, message: `鉴权失败（HTTP ${res.status}）：API Key 无效或未开通权限` };
     }
-    // 非 401 状态说明密匙鉴权已通过
+    const resText = await res.text().catch(() => '');
+    try {
+      const j = JSON.parse(resText);
+      if (j?.error?.message) {
+        return { ok: false, message: `商汤提示：${j.error.message}` };
+      }
+    } catch {}
+    // 非 401/403 状态说明连通正常
     return { ok: true, message: `✅ 商汤 TokenPlan 密匙连接正常（状态码 ${res.status}）` };
   } catch (err: any) {
     return { ok: false, message: `网络连接异常：${err?.message || '未知错误'}` };
@@ -2472,9 +2505,10 @@ ipcMain.handle('sensenova-generate-image', async (_, args: {
     }
 
     const isImg2Img = Boolean(args.imageBase64 && model === 'sensenova-u1.5-lite');
+    // TokenPlan 官方生图与图生图端点
     const endpoint = isImg2Img
-      ? 'https://api.sensenova.cn/v1/images/edits'
-      : 'https://api.sensenova.cn/v1/images/generations';
+      ? 'https://token.sensenova.cn/v1/images/edits'
+      : 'https://token.sensenova.cn/v1/images/generations';
 
     const reqBody: any = {
       model,
@@ -2509,8 +2543,8 @@ ipcMain.handle('sensenova-generate-image', async (_, args: {
       throw new Error(errMsg);
     }
 
-    const imgUrl = json?.data?.[0]?.url;
-    const b64 = json?.data?.[0]?.b64_json;
+    const imgUrl = json?.data?.[0]?.url || json?.data?.[0]?.image_url || json?.data?.url || json?.url || json?.image_url;
+    const b64 = json?.data?.[0]?.b64_json || json?.data?.b64_json || json?.b64_json;
     if (!imgUrl && !b64) {
       throw new Error('商汤接口未返回有效图片 URL 或 Base64 数据');
     }
@@ -2561,13 +2595,20 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
     heightPercent?: number;
   }>;
 }) => {
+  let isTempDownloaded = false;
+  let actualVideoPath = args.videoPath;
   try {
     if (!FFMPEG_PATH || !fs.existsSync(FFMPEG_PATH)) {
       throw new Error('未找到 FFmpeg 引擎，无法进行视频合成');
     }
     const { videoPath, overlays } = args;
-    if (!videoPath || !fs.existsSync(videoPath)) {
-      throw new Error(`原视频文件不存在：${videoPath}`);
+    if (videoPath && (videoPath.startsWith('http://') || videoPath.startsWith('https://'))) {
+      actualVideoPath = path.join(app.getPath('temp'), `jaygo-export-input-${Date.now()}.mp4`);
+      await downloadMediaFile(videoPath, actualVideoPath);
+      isTempDownloaded = true;
+    }
+    if (!actualVideoPath || !fs.existsSync(actualVideoPath)) {
+      throw new Error(`原视频文件不存在：${actualVideoPath}`);
     }
     if (!overlays || overlays.length === 0) {
       throw new Error('未指定任何要叠加的插图');
@@ -2577,13 +2618,13 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
     let targetPath = args.outputPath;
     if (!targetPath) {
       const outDir = settings.outputDir || path.join(os.homedir(), 'Desktop');
-      const baseName = path.basename(videoPath, path.extname(videoPath));
+      const baseName = path.basename(actualVideoPath, path.extname(actualVideoPath));
       targetPath = path.join(outDir, `${baseName}_智能配图_${Date.now()}.mp4`);
     }
 
     // 先用 ffmpeg 获取原视频尺寸
     const dimensions = await new Promise<{ width: number; height: number }>((resolve) => {
-      const p = spawn(FFMPEG_PATH, ['-i', videoPath]);
+      const p = spawn(FFMPEG_PATH, ['-i', actualVideoPath]);
       let err = '';
       p.stderr.on('data', (d) => err += d.toString());
       p.on('close', () => {
@@ -2599,10 +2640,10 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
 
     const W = dimensions.width;
     const H = dimensions.height;
-    dbg(`[VideoOverlay] input=${videoPath} W=${W} H=${H} overlaysCount=${overlays.length}`);
+    dbg(`[VideoOverlay] input=${actualVideoPath} W=${W} H=${H} overlaysCount=${overlays.length}`);
 
     // 构建 FFmpeg 输入参数与 filter_complex
-    const ffmpegArgs = ['-y', '-i', videoPath];
+    const ffmpegArgs = ['-y', '-i', actualVideoPath];
     for (const ov of overlays) {
       ffmpegArgs.push('-i', ov.imagePath);
     }
@@ -2674,6 +2715,10 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
       ok: false,
       error: err?.message || '视频导出失败',
     };
+  } finally {
+    if (isTempDownloaded) {
+      try { fs.unlinkSync(actualVideoPath); } catch {}
+    }
   }
 });
 

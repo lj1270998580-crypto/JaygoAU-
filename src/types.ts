@@ -132,7 +132,13 @@ export interface JaygoAPI {
   pickMediaFile(): Promise<string | null>;
   transcribe(a: { filePath: string; enableSpeakerInfo: boolean }): Promise<{
     text: string;
-    utterances: { text: string; startTime: number; endTime: number; speaker?: string }[];
+    utterances: {
+      text: string;
+      startTime: number;
+      endTime: number;
+      speaker?: string;
+      words?: { text: string; startTime: number; endTime: number }[];
+    }[];
     durationMs: number;
     url: string;
   }>;

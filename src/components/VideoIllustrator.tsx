@@ -28,6 +28,8 @@ import {
   Link,
   SplitSquareVertical,
   Maximize,
+  Mic,
+  CheckCircle2,
 } from 'lucide-react';
 
 // 官方主流风格预设
@@ -78,6 +80,15 @@ export default function VideoIllustrator() {
   const [videoTitle, setVideoTitle] = useState<string>('');
   const [scriptText, setScriptText] = useState<string>('');
   const [transcribing, setTranscribing] = useState<boolean>(false);
+  const [asrUtterances, setAsrUtterances] = useState<
+    Array<{
+      text: string;
+      startTime: number;
+      endTime: number;
+      speaker?: string;
+      words?: Array<{ text: string; startTime: number; endTime: number }>;
+    }>
+  >([]);
 
   // 2. 商汤 TokenPlan 密匙与参数
   const [snApiKey, setSnApiKey] = useState<string>(settings?.sensenovaApiKey || '');
@@ -188,19 +199,72 @@ export default function VideoIllustrator() {
     }
   };
 
-  // 智能语音识别 ASR 获取台词
+  // 将 ASR 提取到的真实发音时间轴吸附对齐到插图列表
+  const applyAsrAlignmentToIllustrations = (
+    items: VideoIllustrationItem[],
+    utts: Array<{ text: string; startTime: number; endTime: number }>
+  ) => {
+    if (!items.length || !utts.length) return items;
+    const dur = videoDuration > 0 ? videoDuration : 60;
+    const updated = items.map((item) => {
+      const query = (item.contextText || item.concept || '').replace(/[，。！？,.!?\s]/g, '');
+      let bestMatch: (typeof utts)[0] | null = null;
+      let maxOverlap = 0;
+
+      for (const u of utts) {
+        const uText = (u.text || '').replace(/[，。！？,.!?\s]/g, '');
+        if (query && uText && (query.includes(uText) || uText.includes(query))) {
+          bestMatch = u;
+          break;
+        }
+        let overlap = 0;
+        for (const ch of query) {
+          if (uText.includes(ch)) overlap++;
+        }
+        if (overlap > maxOverlap && overlap >= 2) {
+          maxOverlap = overlap;
+          bestMatch = u;
+        }
+      }
+
+      if (bestMatch) {
+        const st = Math.round((bestMatch.startTime / 1000) * 10) / 10;
+        let et = Math.round((bestMatch.endTime / 1000) * 10) / 10;
+        if (et - st < 2.5) et = Math.min(dur, Math.round((st + 3.5) * 10) / 10);
+        return {
+          ...item,
+          startTime: st,
+          endTime: et,
+        };
+      }
+      return item;
+    });
+    setIllustrations(updated);
+    return updated;
+  };
+
+  // 智能语音识别 ASR 获取台词与毫秒级时间戳
   const handleExtractSpeech = async () => {
-    if (!videoPath) {
-      showToast('当前视频为远程网络链接，请先下载或选择本地视频文件进行转录', 'err');
+    const targetSource = videoPath || (videoUrl?.startsWith('file:///') ? videoUrl.replace('file:///', '') : videoUrl);
+    if (!targetSource) {
+      showToast('请先载入或选择视频', 'err');
       return;
     }
     setTranscribing(true);
     try {
-      showToast('正在提取音轨并进行语音大模型识别…', 'info');
-      const res = await api.transcribe({ filePath: videoPath, enableSpeakerInfo: false });
+      showToast('正在提取视频音轨并进行大模型语音识别与毫秒级时间轴打标…', 'info');
+      const res = await api.transcribe({ filePath: targetSource, enableSpeakerInfo: false });
       if (res && res.text) {
         setScriptText(res.text);
-        showToast('台词提取成功！', 'ok');
+        const utts = res.utterances || [];
+        setAsrUtterances(utts);
+
+        if (illustrations.length > 0 && utts.length > 0) {
+          applyAsrAlignmentToIllustrations(illustrations, utts);
+          showToast(`台词提取成功，并根据 ${utts.length} 处语音时间轴精准对齐打轴！`, 'ok');
+        } else {
+          showToast(`台词与精准时间轴提取成功（共 ${utts.length} 处分句）！`, 'ok');
+        }
       } else {
         showToast('未识别到有效语音内容', 'info');
       }
@@ -208,6 +272,97 @@ export default function VideoIllustrator() {
       showToast(`语音识别失败: ${err?.message || '未知错误'}`, 'err');
     } finally {
       setTranscribing(false);
+    }
+  };
+
+  // 切换模型路由偏好（响应式即时同步所有插图）
+  const handleSwitchRoutingMode = (mode: 'smart' | 'standard' | 'infographic') => {
+    setRoutingMode(mode);
+    if (illustrations.length > 0) {
+      setIllustrations((prev) =>
+        prev.map((item) => {
+          let newModel = item.model;
+          let newType = item.type;
+          let newPrompt = item.prompt;
+          if (mode === 'infographic') {
+            newModel = 'sensenova-u1-fast';
+            newType = 'infographic';
+            if (newPrompt.startsWith('高质量写实场景画面')) {
+              newPrompt = `高质量专业信息图设计，围绕“${(item.contextText || item.concept).slice(0, 30)}”展开，现代结构化排版，清晰图表与数据卡片，高清信息视觉化`;
+            }
+          } else if (mode === 'standard') {
+            newModel = 'sensenova-u1.5-lite';
+            newType = 'standard';
+            if (newPrompt.startsWith('高质量信息图设计') || newPrompt.startsWith('高质量专业信息图设计')) {
+              newPrompt = `高质量写实场景画面，描绘“${(item.contextText || item.concept).slice(0, 30)}”意境，影视级光影质感，构图精美，细腻真实`;
+            }
+          } else {
+            // 智能动态路由：若为知识信息图风格则优先 u1-fast，否则按文案判定
+            const isInfo = defaultStyle === 'infographic_clean' || defaultStyle === 'flat_vector' || /[0-9%万千亿条步比图表清单规则对比分析点]/.test(item.contextText || '');
+            newModel = isInfo ? 'sensenova-u1-fast' : 'sensenova-u1.5-lite';
+            newType = isInfo ? 'infographic' : 'standard';
+          }
+          return {
+            ...item,
+            model: newModel,
+            type: newType,
+            prompt: newPrompt,
+          };
+        })
+      );
+      showToast(
+        mode === 'infographic'
+          ? '已同步切换全部插图为 sensenova-u1-fast（信息图模式）'
+          : mode === 'standard'
+          ? '已同步切换全部插图为 sensenova-u1.5-lite（标准图模式）'
+          : '已开启智能动态路由模式',
+        'ok'
+      );
+    }
+  };
+
+  // 切换官方风格预设（响应式即时同步所有插图与生图模型）
+  const handleChangeDefaultStyle = (newStyle: string) => {
+    setDefaultStyle(newStyle);
+    const isInfoStyle = newStyle === 'infographic_clean' || newStyle === 'flat_vector';
+    const targetModel = isInfoStyle ? 'sensenova-u1-fast' : 'sensenova-u1.5-lite';
+    const targetType = isInfoStyle ? 'infographic' : 'standard';
+
+    if (illustrations.length > 0) {
+      setIllustrations((prev) =>
+        prev.map((it) => {
+          let updatedModel = it.model;
+          let updatedType = it.type;
+          let updatedPrompt = it.prompt;
+          if (routingMode === 'smart') {
+            updatedModel = targetModel;
+            updatedType = targetType;
+            if (isInfoStyle && updatedPrompt.startsWith('高质量写实场景画面')) {
+              updatedPrompt = `高质量专业信息图设计，围绕“${(it.contextText || it.concept).slice(0, 30)}”展开，现代结构化排版，清晰图表与数据卡片，高清信息视觉化`;
+            } else if (!isInfoStyle && (updatedPrompt.startsWith('高质量信息图设计') || updatedPrompt.startsWith('高质量专业信息图设计'))) {
+              updatedPrompt = `高质量写实场景画面，描绘“${(it.contextText || it.concept).slice(0, 30)}”意境，影视级光影质感，构图精美，细腻真实`;
+            }
+          }
+          return {
+            ...it,
+            style: newStyle,
+            model: updatedModel,
+            type: updatedType,
+            prompt: updatedPrompt,
+          };
+        })
+      );
+      const styleName = STYLE_OPTIONS.find((s) => s.id === newStyle)?.label || newStyle;
+      showToast(`已切换风格为「${styleName}」，并同步匹配对应模型`, 'ok');
+    }
+  };
+
+  // 切换画幅比例（响应式即时同步所有插图）
+  const handleChangeDefaultRatio = (newRatio: string) => {
+    setDefaultRatio(newRatio);
+    if (illustrations.length > 0) {
+      setIllustrations((prev) => prev.map((it) => ({ ...it, ratio: newRatio })));
+      showToast(`已将所有插图画幅比例同步为 ${newRatio}`, 'ok');
     }
   };
 
@@ -269,6 +424,15 @@ export default function VideoIllustrator() {
     setPlanning(true);
     try {
       showToast('AI 正在深度分析视频节奏、知识点与场景，规划插图时机与提示词…', 'info');
+
+      const isInfoStyle = routingMode === 'infographic' || defaultStyle === 'infographic_clean' || defaultStyle === 'flat_vector';
+      const isStandardStyle = routingMode === 'standard' || defaultStyle === 'realistic' || defaultStyle === '3d_render' || defaultStyle === 'chinese_ink' || defaultStyle === 'cyberpunk' || defaultStyle === 'minimalist';
+
+      const styleInstruction = routingMode === 'infographic' || (routingMode === 'smart' && isInfoStyle)
+        ? '【特别注意】：当前指定了【知识信息图/图表排版】风格。所有插图必须规划为 type: "infographic", model: "sensenova-u1-fast"，提示词必须描述清晰的结构化排版、数据卡片、要点图解、流程图与视觉图表，绝不要生成写实场景摄影画面！'
+        : routingMode === 'standard' || (routingMode === 'smart' && isStandardStyle)
+        ? '【特别注意】：当前指定了【写实场景/影视质感】风格。所有插图规划为 type: "standard", model: "sensenova-u1.5-lite"，提示词描述具象画面、影视级光影质感与环境氛围！'
+        : '【模型路由标准】：知识数据/数字/步骤清单 -> type: "infographic", model: "sensenova-u1-fast"；画面场景/故事意象 -> type: "standard", model: "sensenova-u1.5-lite"';
       
       const systemPrompt = `你是一个顶尖的短视频视觉包装总监。你的任务是根据给出的视频总时长和口播台词，智能推演并在关键节点安排视觉插图（配图/画中画）。
 【关键铁律】
@@ -276,8 +440,7 @@ export default function VideoIllustrator() {
    - 寻找台词中的“核心论点、对比转折、数据事实、步骤清单、行业避坑、具象场景、情绪高潮”；
    - 每张插图展示 3~5 秒，前后保持适当呼吸留白，避免视觉疲劳或长时间画面枯燥。
 2. 商汤日日新双模型智能路由标准：
-   - 知识数据/数字百分比/操作步骤/思维导图/对比清单 -> type: "infographic", model: "sensenova-u1-fast"（专精信息图与海报排版）；
-   - 画面场景/人物故事情境/摄影质感/氛围概念/具象隐喻 -> type: "standard", model: "sensenova-u1.5-lite"（专精原生4K高质感与生图）；
+   ${styleInstruction}
 3. 必须输出严格合法的纯 JSON 数组，绝不要包含 markdown 围栏或其它对话寒暄，数组项格式如下：
 [
   {
@@ -291,7 +454,7 @@ export default function VideoIllustrator() {
   }
 ]`;
 
-      const userContent = `视频总时长约：${Math.round(dur)} 秒。\n视频口播完整台词：\n${scriptText}\n\n请按要求规划所有关键插图点位，输出 JSON 数组：`;
+      const userContent = `视频总时长约：${Math.round(dur)} 秒。\n官方选定风格：${STYLE_OPTIONS.find((s) => s.id === defaultStyle)?.label || defaultStyle}。\n路由偏好：${routingMode === 'infographic' ? '全量信息图(u1-fast)' : routingMode === 'standard' ? '全量标准图(u1.5-lite)' : '智能动态路由'}。\n视频口播完整台词：\n${scriptText}\n\n请按要求规划所有关键插图点位，输出 JSON 数组：`;
 
       let jsonStr = '';
       try {
@@ -321,14 +484,44 @@ export default function VideoIllustrator() {
 
       // 若未解析出，提供精准的本地智能分句兜底
       if (!parsedItems || parsedItems.length === 0) {
-        const sentences = scriptText.split(/[。！？!?；;\n]+/).map(s => s.trim()).filter(s => s.length > 6);
-        const count = Math.max(2, Math.min(12, Math.floor(dur / 8)));
-        const step = dur / count;
+        const sentences = scriptText
+          .split(/[。！？!?；;\n]+/)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 5);
+        const count = Math.max(2, Math.min(14, Math.floor(dur / 7.5)));
+        const totalChars = Math.max(1, scriptText.length);
+
         parsedItems = Array.from({ length: count }).map((_, idx) => {
-          const st = Math.round((idx * step + 1.5) * 10) / 10;
-          const et = Math.min(dur - 0.5, Math.round((st + 4.0) * 10) / 10);
-          const sent = sentences[idx % sentences.length] || `视频第 ${idx + 1} 核心观点`;
-          const isInfo = /[0-9%万千亿条步比图表清单规则]/.test(sent);
+          const sent = sentences[idx % sentences.length] || `视频核心论点 ${idx + 1}`;
+          let st = 1.0;
+          let et = 5.0;
+
+          // 若已通过 ASR 提取了精准分句时间轴，直接吸附
+          if (asrUtterances.length > 0) {
+            const uttIdx = Math.min(asrUtterances.length - 1, Math.floor((idx / count) * asrUtterances.length));
+            const matchedUtt = asrUtterances[uttIdx];
+            if (matchedUtt) {
+              st = Math.round((matchedUtt.startTime / 1000) * 10) / 10;
+              et = Math.round((matchedUtt.endTime / 1000) * 10) / 10;
+              if (et - st < 2.5) et = Math.min(dur, Math.round((st + 3.5) * 10) / 10);
+            }
+          } else {
+            // 纯文本：按字数偏移比例进行自适应插值估算打轴
+            const charPos = scriptText.indexOf(sent);
+            const progress = charPos >= 0 ? charPos / totalChars : idx / count;
+            st = Math.max(1.0, Math.min(dur - 3.5, Math.round(progress * dur * 10) / 10));
+            et = Math.min(dur, Math.round((st + 4.0) * 10) / 10);
+          }
+
+          let isInfo = false;
+          if (routingMode === 'infographic') isInfo = true;
+          else if (routingMode === 'standard') isInfo = false;
+          else {
+            if (isInfoStyle) isInfo = true;
+            else if (isStandardStyle) isInfo = false;
+            else isInfo = /[0-9%万千亿条步比图表清单规则对比分析点]/.test(sent);
+          }
+
           return {
             startTime: st,
             endTime: et,
@@ -337,15 +530,15 @@ export default function VideoIllustrator() {
             type: isInfo ? 'infographic' : 'standard',
             model: isInfo ? 'sensenova-u1-fast' : 'sensenova-u1.5-lite',
             prompt: isInfo
-              ? `高质量信息图设计，围绕“${sent.slice(0, 25)}”展开，现代结构化排版，清晰图表与数据卡片，高清信息视觉化`
-              : `高质量写实场景画面，描绘“${sent.slice(0, 25)}”意境，影视级光影质感，构图精美，细腻真实`,
+              ? `高质量专业信息图设计，围绕“${sent.slice(0, 30)}”展开，现代结构化排版，清晰逻辑图表、高质感数据卡片、关键要点图解，高清信息视觉化`
+              : `高质量写实场景画面，描绘“${sent.slice(0, 30)}”意境，影视级光影质感，构图精美，细腻真实`,
           };
         });
       }
 
       // 根据当前用户的全局路由策略做最终收敛调整
-      const formatted: VideoIllustrationItem[] = parsedItems.map((item, idx) => {
-        let finalModel = item.model || 'sensenova-u1-fast';
+      let formatted: VideoIllustrationItem[] = parsedItems.map((item, idx) => {
+        let finalModel = item.model || (isInfoStyle ? 'sensenova-u1-fast' : 'sensenova-u1.5-lite');
         let finalType: 'infographic' | 'standard' = item.type === 'standard' ? 'standard' : 'infographic';
 
         if (routingMode === 'standard') {
@@ -354,6 +547,16 @@ export default function VideoIllustrator() {
         } else if (routingMode === 'infographic') {
           finalModel = 'sensenova-u1-fast';
           finalType = 'infographic';
+        } else if (isInfoStyle) {
+          finalModel = 'sensenova-u1-fast';
+          finalType = 'infographic';
+        }
+
+        let finalPrompt = item.prompt || '';
+        if (finalType === 'infographic' && finalPrompt.startsWith('高质量写实场景画面')) {
+          finalPrompt = `高质量专业信息图设计，围绕“${(item.contextText || item.concept).slice(0, 30)}”展开，现代结构化排版，清晰图表与数据卡片，高清信息视觉化`;
+        } else if (finalType === 'standard' && (finalPrompt.startsWith('高质量信息图设计') || finalPrompt.startsWith('高质量专业信息图设计'))) {
+          finalPrompt = `高质量写实场景画面，描绘“${(item.contextText || item.concept).slice(0, 30)}”意境，影视级光影质感，构图精美，细腻真实`;
         }
 
         return {
@@ -361,8 +564,8 @@ export default function VideoIllustrator() {
           startTime: Number(item.startTime) || idx * 5,
           endTime: Number(item.endTime) || (idx * 5 + 4),
           contextText: item.contextText || '',
-          concept: item.concept || '插图设计',
-          prompt: item.prompt || '',
+          concept: item.concept || (finalType === 'infographic' ? '信息图排版' : '场景氛围图'),
+          prompt: finalPrompt,
           type: finalType,
           model: finalModel as any,
           style: defaultStyle,
@@ -370,6 +573,11 @@ export default function VideoIllustrator() {
           status: 'idle',
         };
       });
+
+      // 若已有 ASR 时间轴，再次吸附确保完全贴合真实说话
+      if (asrUtterances.length > 0) {
+        formatted = applyAsrAlignmentToIllustrations(formatted, asrUtterances);
+      }
 
       setIllustrations(formatted);
       if (formatted.length > 0) {
@@ -551,8 +759,9 @@ export default function VideoIllustrator() {
 
   // 导出合成带插图视频
   const handleExportVideo = async () => {
-    if (!videoPath) {
-      showToast('请先加载本地视频源文件', 'err');
+    const targetSource = videoPath || (videoUrl?.startsWith('file:///') ? videoUrl.replace('file:///', '') : videoUrl);
+    if (!targetSource) {
+      showToast('请先加载视频源文件', 'err');
       return;
     }
     const readyItems = illustrations.filter((it) => it.status === 'success' && it.localPath);
@@ -578,7 +787,7 @@ export default function VideoIllustrator() {
       }));
 
       const res = await api.exportVideoWithOverlays({
-        videoPath,
+        videoPath: targetSource,
         overlays,
       });
 
@@ -878,7 +1087,7 @@ export default function VideoIllustrator() {
               <div className="grid grid-cols-3 gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setRoutingMode('smart')}
+                  onClick={() => handleSwitchRoutingMode('smart')}
                   className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition cursor-pointer text-center ${
                     routingMode === 'smart'
                       ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400'
@@ -890,25 +1099,25 @@ export default function VideoIllustrator() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setRoutingMode('infographic')}
+                  onClick={() => handleSwitchRoutingMode('infographic')}
                   className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition cursor-pointer text-center ${
                     routingMode === 'infographic'
                       ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400'
                       : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800'
                   }`}
-                  title="全片专精知识图表、清单与海报排版"
+                  title="全片专精知识图表、清单与海报排版 (sensenova-u1-fast)"
                 >
                   📊 全量信息图
                 </button>
                 <button
                   type="button"
-                  onClick={() => setRoutingMode('standard')}
+                  onClick={() => handleSwitchRoutingMode('standard')}
                   className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition cursor-pointer text-center ${
                     routingMode === 'standard'
                       ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400'
                       : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800'
                   }`}
-                  title="全片专精原生4K高质感场景与图生图"
+                  title="全片专精原生4K高质感场景与图生图 (sensenova-u1.5-lite)"
                 >
                   🎨 全量标准图
                 </button>
@@ -921,7 +1130,7 @@ export default function VideoIllustrator() {
                 <label className="text-[11px] font-medium text-zinc-500 mb-1 block">官方风格预设</label>
                 <select
                   value={defaultStyle}
-                  onChange={(e) => setDefaultStyle(e.target.value)}
+                  onChange={(e) => handleChangeDefaultStyle(e.target.value)}
                   className="w-full px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-800 dark:text-zinc-200 outline-none"
                 >
                   {STYLE_OPTIONS.map((st) => (
@@ -936,7 +1145,7 @@ export default function VideoIllustrator() {
                 <label className="text-[11px] font-medium text-zinc-500 mb-1 block">画幅比例规格</label>
                 <select
                   value={defaultRatio}
-                  onChange={(e) => setDefaultRatio(e.target.value)}
+                  onChange={(e) => handleChangeDefaultRatio(e.target.value)}
                   className="w-full px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-800 dark:text-zinc-200 outline-none"
                 >
                   {RATIO_OPTIONS.map((r) => (
@@ -954,15 +1163,39 @@ export default function VideoIllustrator() {
                 <span className="text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">
                   视频口播台词 ({scriptText.length} 字)
                 </span>
-                {videoPath && !scriptText && (
-                  <button
-                    type="button"
-                    disabled={transcribing}
-                    onClick={handleExtractSpeech}
-                    className="text-[10.5px] text-indigo-500 hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    {transcribing ? '正在语音识别…' : '🎙️ 一键提取台词(ASR)'}
-                  </button>
+                {(videoUrl || videoPath) && (
+                  <div className="flex items-center gap-2">
+                    {asrUtterances.length > 0 && illustrations.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          applyAsrAlignmentToIllustrations(illustrations, asrUtterances);
+                          showToast(`已根据 ASR 时间轴对齐 ${illustrations.length} 处插图！`, 'ok');
+                        }}
+                        className="text-[10.5px] text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1 cursor-pointer font-medium"
+                        title="将已规划插图的时间轴精准对齐到 ASR 提取的真实发音分句"
+                      >
+                        <Wand2 className="w-3 h-3" />
+                        <span>🎯 声文打轴对齐</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={transcribing}
+                      onClick={handleExtractSpeech}
+                      className="text-[10.5px] text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer font-medium"
+                      title="调用火山大模型语音识别提取台词及毫秒级时间戳"
+                    >
+                      <Mic className={`w-3 h-3 ${transcribing ? 'animate-spin' : ''}`} />
+                      <span>
+                        {transcribing
+                          ? '正在语音识别…'
+                          : asrUtterances.length > 0
+                          ? '🎙️ 重新提取 ASR 时间轴'
+                          : '🎙️ 一键提取台词与精准时间轴(ASR)'}
+                      </span>
+                    </button>
+                  </div>
                 )}
               </div>
               <textarea
@@ -972,6 +1205,21 @@ export default function VideoIllustrator() {
                 rows={2}
                 className="w-full p-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-800 dark:text-zinc-200 outline-none focus:border-indigo-500 resize-none"
               />
+
+              {/* 时间轴对齐状态提示 */}
+              {asrUtterances.length > 0 ? (
+                <div className="flex items-center justify-between text-[10.5px] text-emerald-600 dark:text-emerald-400 bg-emerald-50/60 dark:bg-emerald-950/30 px-2 py-1 rounded-md border border-emerald-200/50 dark:border-emerald-800/40">
+                  <span className="flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span>已加载 ASR 毫秒级时间轴（共 {asrUtterances.length} 句），规划将自动精准吸附</span>
+                  </span>
+                  <span className="font-mono text-[10px]">高精度对齐</span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between text-[10.5px] text-zinc-400 bg-zinc-100/60 dark:bg-zinc-800/40 px-2 py-1 rounded-md">
+                  <span>💡 纯文本模式将按语速字数比例自适应估算打轴；点击右上角 ASR 可升级为毫秒级声文完全对齐</span>
+                </div>
+              )}
 
               <div className="flex items-center gap-2 pt-0.5">
                 <button
@@ -1024,15 +1272,25 @@ export default function VideoIllustrator() {
                     </div>
 
                     <div className="flex items-center gap-1.5">
-                      <span
-                        className={`text-[9px] px-1.5 py-0.2 rounded font-medium ${
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const nextModel = item.model === 'sensenova-u1-fast' ? 'sensenova-u1.5-lite' : 'sensenova-u1-fast';
+                          const nextType = nextModel === 'sensenova-u1-fast' ? 'infographic' : 'standard';
+                          setIllustrations((prev) =>
+                            prev.map((it) => (it.id === item.id ? { ...it, model: nextModel, type: nextType } : it))
+                          );
+                        }}
+                        className={`text-[9.5px] px-2 py-0.5 rounded font-medium transition cursor-pointer hover:opacity-80 border ${
                           item.type === 'infographic'
-                            ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
-                            : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+                            ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
+                            : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60'
                         }`}
+                        title="点击直接快速切换为标准图或信息图模型"
                       >
-                        {item.type === 'infographic' ? '📊 信息图' : '🎨 场景图'}
-                      </span>
+                        {item.type === 'infographic' ? '📊 信息图 (u1-fast)' : '🎨 标准图 (u1.5-lite)'}
+                      </button>
 
                       <button
                         type="button"
@@ -1094,14 +1352,15 @@ export default function VideoIllustrator() {
                         value={item.model}
                         onChange={(e) => {
                           const m = e.target.value as any;
+                          const newType = m === 'sensenova-u1-fast' ? 'infographic' : 'standard';
                           setIllustrations((prev) =>
-                            prev.map((it) => (it.id === item.id ? { ...it, model: m } : it))
+                            prev.map((it) => (it.id === item.id ? { ...it, model: m, type: newType } : it))
                           );
                         }}
                         className="px-1.5 py-0.5 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-[10.5px]"
                       >
-                        <option value="sensenova-u1-fast">sensenova-u1-fast (信息图加速)</option>
-                        <option value="sensenova-u1.5-lite">sensenova-u1.5-lite (标准图/编辑)</option>
+                        <option value="sensenova-u1-fast">sensenova-u1-fast (信息图/图表排版)</option>
+                        <option value="sensenova-u1.5-lite">sensenova-u1.5-lite (标准图/场景质感)</option>
                       </select>
                     </div>
 
