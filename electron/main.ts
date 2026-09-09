@@ -2098,7 +2098,7 @@ ipcMain.handle('chanjing-create-video', async (_e, params: any) => {
     screen_width,
     screen_height,
     model: Number(model) || 0,
-    add_compliance_watermark: true,
+    add_compliance_watermark: false,
   };
 
   // 定制数字人如果来自主站，传入 source: 1
@@ -2503,6 +2503,9 @@ ipcMain.handle('sensenova-generate-image', async (_, args: {
         prompt = `${prompt}，${stylePrompts[args.style]}`;
       }
     }
+    if (!prompt.includes('无水印')) {
+      prompt = `${prompt}，画面纯净，高分辨率，避免任何水印、签名、logo标志、边角文字与多余杂边`;
+    }
 
     const isImg2Img = Boolean(args.imageBase64 && model === 'sensenova-u1.5-lite');
     // TokenPlan 官方生图与图生图端点
@@ -2515,6 +2518,7 @@ ipcMain.handle('sensenova-generate-image', async (_, args: {
       prompt,
       size: args.size || '2048x2048',
       n: 1,
+      watermark: false,
     };
     if (isImg2Img) {
       reqBody.image = args.imageBase64;
@@ -2585,6 +2589,7 @@ ipcMain.handle('sensenova-generate-image', async (_, args: {
 ipcMain.handle('export-video-with-overlays', async (event, args: {
   videoPath: string;
   outputPath?: string;
+  removeOriginalWatermark?: boolean;
   overlays: Array<{
     imagePath: string;
     startTime: number;
@@ -2593,6 +2598,8 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
     yPercent: number;
     widthPercent: number;
     heightPercent?: number;
+    transitionEffect?: 'fade' | 'slide' | 'zoom' | 'none';
+    borderStyle?: 'none' | 'clean_white' | 'rounded_card' | 'star_badge' | 'cyber_glow';
   }>;
 }) => {
   let isTempDownloaded = false;
@@ -2601,7 +2608,7 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
     if (!FFMPEG_PATH || !fs.existsSync(FFMPEG_PATH)) {
       throw new Error('未找到 FFmpeg 引擎，无法进行视频合成');
     }
-    const { videoPath, overlays } = args;
+    const { videoPath, overlays, removeOriginalWatermark } = args;
     if (videoPath && (videoPath.startsWith('http://') || videoPath.startsWith('https://'))) {
       actualVideoPath = path.join(app.getPath('temp'), `jaygo-export-input-${Date.now()}.mp4`);
       await downloadMediaFile(videoPath, actualVideoPath);
@@ -2640,32 +2647,70 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
 
     const W = dimensions.width;
     const H = dimensions.height;
-    dbg(`[VideoOverlay] input=${actualVideoPath} W=${W} H=${H} overlaysCount=${overlays.length}`);
+    dbg(`[VideoOverlay] input=${actualVideoPath} W=${W} H=${H} overlaysCount=${overlays.length} removeWatermark=${Boolean(removeOriginalWatermark)}`);
 
-    // 构建 FFmpeg 输入参数与 filter_complex
+    // 构建 FFmpeg 输入参数
     const ffmpegArgs = ['-y', '-i', actualVideoPath];
     for (const ov of overlays) {
-      ffmpegArgs.push('-i', ov.imagePath);
+      const dur = Math.max(1, ov.endTime - ov.startTime + 1);
+      ffmpegArgs.push('-loop', '1', '-t', String(dur.toFixed(2)), '-i', ov.imagePath);
     }
 
     // 滤镜处理各插图
     const filterParts: string[] = [];
     let prevVideoTag = '0:v';
 
+    // 智能去除原片左上角水印（如蝉镜等水印标志）
+    if (removeOriginalWatermark) {
+      const isVertical = H > W;
+      const delogoW = isVertical ? 180 : 230;
+      const delogoH = isVertical ? 70 : 80;
+      const delogoX = isVertical ? 20 : 28;
+      const delogoY = isVertical ? 24 : 28;
+      filterParts.push(`[0:v]delogo=x=${delogoX}:y=${delogoY}:w=${delogoW}:h=${delogoH}:show=0[v_base]`);
+      prevVideoTag = 'v_base';
+    }
+
     overlays.forEach((ov, idx) => {
       const imgInputIndex = idx + 1;
       const targetW = Math.max(16, Math.round((W * ov.widthPercent) / 2) * 2);
       const scaledTag = `ov_${idx}`;
-      filterParts.push(`[${imgInputIndex}:v]scale=w=${targetW}:h=-2[${scaledTag}]`);
-
       const nextVideoTag = idx === overlays.length - 1 ? 'outv' : `v_${idx}`;
       const posX = Math.max(0, Math.min(W - 20, Math.round(W * ov.xPercent)));
       const posY = Math.max(0, Math.min(H - 20, Math.round(H * ov.yPercent)));
       const st = Math.max(0, ov.startTime).toFixed(2);
       const et = Math.max(ov.startTime + 0.5, ov.endTime).toFixed(2);
 
+      const dur = Math.max(0.6, ov.endTime - ov.startTime);
+      const fadeDur = Math.min(0.35, dur / 3);
+      const fadeOutSt = Math.max(0, dur - fadeDur).toFixed(2);
+
+      let imgFilters = `[${imgInputIndex}:v]scale=w=${targetW}:h=-2,format=rgba`;
+
+      // 边框预设
+      if (ov.borderStyle === 'clean_white') {
+        imgFilters += `,drawbox=x=0:y=0:w=iw:h=ih:color=white:t=4`;
+      } else if (ov.borderStyle === 'star_badge') {
+        imgFilters += `,drawbox=x=0:y=0:w=iw:h=ih:color=0xF59E0B:t=4`;
+      } else if (ov.borderStyle === 'cyber_glow') {
+        imgFilters += `,drawbox=x=0:y=0:w=iw:h=ih:color=0x6366F1:t=4`;
+      }
+
+      // 入场与出场动效
+      const effect = ov.transitionEffect || 'fade';
+      if (effect === 'fade' || effect === 'zoom') {
+        imgFilters += `,fade=t=in:st=0:d=${fadeDur.toFixed(2)}:alpha=1,fade=t=out:st=${fadeOutSt}:d=${fadeDur.toFixed(2)}:alpha=1`;
+      }
+      imgFilters += `[${scaledTag}]`;
+      filterParts.push(imgFilters);
+
+      let overlayX = `${posX}`;
+      if (effect === 'slide') {
+        overlayX = `'if(lt(t,${st}+${fadeDur.toFixed(2)}),${posX}+(1-(t-${st})/${fadeDur.toFixed(2)})*120,${posX})'`;
+      }
+
       filterParts.push(
-        `[${prevVideoTag}][${scaledTag}]overlay=x=${posX}:y=${posY}:enable='between(t,${st},${et})'[${nextVideoTag}]`
+        `[${prevVideoTag}][${scaledTag}]overlay=x=${overlayX}:y=${posY}:enable='between(t,${st},${et})'[${nextVideoTag}]`
       );
       prevVideoTag = nextVideoTag;
     });
