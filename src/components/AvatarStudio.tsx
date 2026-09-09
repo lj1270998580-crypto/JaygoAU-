@@ -845,7 +845,7 @@ export default function AvatarStudio() {
                         未找到匹配的数字人模特
                       </div>
                     ) : (
-                      <div key="grid-official" className="grid grid-cols-3 sm:grid-cols-4 gap-3 max-h-60 overflow-y-auto p-1">
+                      <div key="grid-official" className="grid grid-cols-3 sm:grid-cols-4 gap-3 min-h-[300px] max-h-[420px] xl:max-h-[500px] 2xl:max-h-[580px] overflow-y-auto p-1">
                         {filteredAvatars.map((item) => {
                           const isSelected = item.id === (currentAvatar?.id || selectedAvatarId);
                           const cover = item.figures?.[0]?.cover || '';
@@ -912,7 +912,7 @@ export default function AvatarStudio() {
                         </a>
                       </div>
                     ) : (
-                      <div key="grid-custom" className="grid grid-cols-3 sm:grid-cols-4 gap-3 max-h-60 overflow-y-auto p-1">
+                      <div key="grid-custom" className="grid grid-cols-3 sm:grid-cols-4 gap-3 min-h-[300px] max-h-[420px] xl:max-h-[500px] 2xl:max-h-[580px] overflow-y-auto p-1">
                         {filteredCustomAvatars.map((item) => {
                           const isSelected = item.id === (currentCustomAvatar?.id || selectedCustomId);
                           const ready = isAvatarReady(item);

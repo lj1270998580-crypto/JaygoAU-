@@ -41,6 +41,8 @@ import {
   LayoutGrid,
   Film,
   Edit3,
+  ChevronUp,
+  GripVertical,
 } from 'lucide-react';
 
 // =========================================================================
@@ -59,85 +61,97 @@ export const STYLE_OPTIONS: StyleConfig[] = [
     id: 'modern_business',
     label: '现代商务扁平',
     badge: '现代商务',
-    desc: '扁平矢量 · 几何线条 · 现代商务',
-    stylePrompt: '现代商业扁平矢量插画风格，精致几何矢量构图，利落线条，优雅现代留白，色彩高级沉稳，8k超清，无水印',
+    desc: '干净线条 · 莫兰迪商务配色 · 现代留白',
+    stylePrompt: '现代商业扁平插画风格，现代办公场景与写实商务元素，干净利落线条，高级克制莫兰迪商务配色，优雅留白，画面主体清晰生动',
   },
   {
     id: 'colored_pencil',
     label: '彩铅手绘插画',
     badge: '温馨手绘',
     desc: '细腻笔触 · 柔和叠色 · 温馨治愈',
-    stylePrompt: '细腻彩铅手绘插画风格，彩色铅笔质感排线与柔和颗粒叠色，笔触温润细腻，色调温馨，8k超清，无水印',
+    stylePrompt: '细腻彩铅手绘插画风格，彩色铅笔质感排线与柔和颗粒叠色，笔触温润细腻，色调温馨，画面主体轮廓生动',
   },
   {
     id: 'classical_oil',
     label: '古典艺术油画',
     badge: '油画典藏',
     desc: '厚涂肌理 · 伦勃朗光 · 庄重典雅',
-    stylePrompt: '欧洲古典油画风格，厚重笔触肌理，伦勃朗明暗对照光，庄重沉稳，古典艺术馆典藏油画质感，8k超清，无水印',
+    stylePrompt: '欧洲古典油画风格，厚重油画颜料笔触肌理，伦勃朗明暗对照光，庄重沉稳，古典艺术典雅质感',
   },
   {
     id: 'cinematic_real',
     label: '商业写实摄影',
     badge: '真实质感',
     desc: '真实光影 · 微距景深 · 电影质感',
-    stylePrompt: '电影级商业写实摄影，自然侧光，真实细腻质感，微景深虚化，8k超清画质，无水印',
+    stylePrompt: '电影级商业写实摄影，真实自然侧光，细腻材质质感，浅景深虚化背景，主体清晰锐利',
   },
   {
     id: 'chinese_ink',
     label: '中国风水墨',
     badge: '东方美学',
     desc: '写意水墨 · 宣纸留白 · 东方意境',
-    stylePrompt: '中国传统写意水墨画风格，宣纸肌理，气韵生动，淡墨晕染与浓墨勾勒，朱砂印章点缀，东方美学留白，意境悠远，无水印',
+    stylePrompt: '中国传统写意水墨画风格，宣纸微质感肌理，气韵生动，淡墨晕染与浓墨勾勒，东方美学留白，意境悠远',
   },
   {
     id: 'anime_cartoon',
     label: '现代动漫卡通',
     badge: '明快生动',
     desc: '清爽描线 · 赛璐璐平涂 · 鲜艳明快',
-    stylePrompt: '精美现代日漫插画风格，干净平滑的描线，明快通透的赛璐璐上色，丰富的情绪张力，治愈系现代卡通质感，8k超清，无水印',
+    stylePrompt: '精美现代日漫插画风格，干净平滑的描线，明快通透的赛璐璐上色，丰富生动的情绪张力，治愈系现代卡通质感',
   },
   {
     id: 'isometric_3d',
     label: '3D立体渲染',
     badge: '等距建模',
     desc: '等距建模 · 柔光材质 · 立体空间',
-    stylePrompt: '3D高精度建模渲染，柔和立体环境光照，细腻空间质感，精致立体细节，8k超清，无水印',
+    stylePrompt: '3D立体建模渲染，柔和立体环境光照，细腻材质与微光漫反射，空间景深真实生动',
   },
   {
     id: 'watercolor_book',
     label: '清新水彩绘本',
     badge: '通透自然',
     desc: '水色交融 · 纸质纹理 · 温润轻盈',
-    stylePrompt: '手绘清新水彩插画，水色自然渗透晕染，透明感十足，水彩纸质感纹理，温柔轻盈，8k超清，无水印',
+    stylePrompt: '手绘清新水彩插画，水色自然渗透晕染，通透纯净，水彩纸纹理质感，温柔轻盈',
   },
   {
     id: 'minimal_line',
     label: '极简线条插画',
     badge: '极简艺术',
     desc: '单线手绘 · 极简留白 · 现代艺术',
-    stylePrompt: '现代极简单线手绘艺术风格，优雅流畅的黑色轮廓线条，极简留白构图，局部轻微色块点缀，时尚艺术感，8k超清，无水印',
+    stylePrompt: '现代极简单线手绘艺术风格，优雅流畅的轮廓线条，极简留白构图，局部柔和纯色点缀，时尚艺术感',
   },
   {
     id: 'cyberpunk',
     label: '未来科技赛博',
     badge: '未来科技',
     desc: '暗黑冷调 · 霓虹流光 · 未来科幻',
-    stylePrompt: '未来赛博朋克科技概念艺术，深邃暗黑背景，电光蓝与霓虹紫流光，全息光影质感，未来科幻张力，8k超清，无水印',
+    stylePrompt: '未来赛博朋克科技概念艺术，深邃暗色背景，霓虹蓝紫氛围光晕，全息光影质感，未来科幻张力',
   },
 ];
 
-// 彻底清除 HEX 码、RGB 码与指令元词的净化器，防止大模型将色码印在图片卡片上
+// 彻底清除 HEX 码、RGB 码、排版/无水印元词与几何拼图词，防止大模型将指令直接画到画面上
 export function sanitizePromptForImageGen(p: string): string {
   if (!p) return '';
   return p
+    // 去除十六进制颜色码与 RGB
     .replace(/#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})/g, '')
     .replace(/rgba?\([^)]+\)/gi, '')
     .replace(/[（(]\s*#[^）)]*[）)]/g, '')
+    // 去除内部标杆交流词汇
     .replace(/[（(]\s*(图[0-9]|标杆|推荐)[^）)]*[）)]/g, '')
+    // 彻底清除导致 SenseNova 印出乱码汉字、水印字样与拼图的指令元词
+    .replace(/(8k超清|8k高清|8k|4k|超高清|超清画质|超高分辨率|无水印|无水平|0水印|去除水印|去水印)/gi, '')
+    .replace(/(排版整洁有序|排版整洁|排版整齐|整洁有序|排版规范|精致排版|版面整齐)/g, '')
+    .replace(/(精致几何矢量构图|几何矢量构图|几何色块|几何拼接|七巧板式构图|七巧板|色块拼接)/g, '')
+    .replace(/(指标卡片与数值对比|指标卡片|数值对比|指标卡|卡片看板)/g, '')
     .replace(/统一背景底色基调[：:]?/g, '')
     .replace(/统一核心主色调[：:]?/g, '')
     .replace(/统一辅助高亮\/警示色[：:]?/g, '')
+    // 清理标点残余
+    .replace(/([，,；;、]){2,}/g, '$1')
+    .replace(/[，,；;、]\s*[。！!]/g, '。')
+    .replace(/^[，,；;、\s]+/, '')
+    .replace(/[，,；;、\s]+$/, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
@@ -271,6 +285,52 @@ export const VideoIllustrator: React.FC = () => {
   const [transitionEffect, setTransitionEffect] = useState<'fade' | 'slide' | 'zoom' | 'none'>('fade');
   const [borderStyle, setBorderStyle] = useState<'none' | 'clean_white' | 'rounded_card' | 'star_badge' | 'cyber_glow'>('none');
   const [isEditingOverlay, setIsEditingOverlay] = useState<boolean>(false);
+
+  // 三栏工作台栏宽与排版折叠控制 (支持左右无级拖拽调节栏宽)
+  const [leftWidth, setLeftWidth] = useState<number>(330);
+  const [rightWidth, setRightWidth] = useState<number>(370);
+  const [isPackagingExpanded, setIsPackagingExpanded] = useState<boolean>(false);
+  const resizeDividerRef = useRef<{
+    side: 'left' | 'right';
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+
+  const handleStartResizeLeft = (e: React.MouseEvent) => {
+    e.preventDefault();
+    resizeDividerRef.current = { side: 'left', startX: e.clientX, startWidth: leftWidth };
+    const handleMouseMove = (moveEvt: MouseEvent) => {
+      if (!resizeDividerRef.current || resizeDividerRef.current.side !== 'left') return;
+      const delta = moveEvt.clientX - resizeDividerRef.current.startX;
+      const newW = Math.max(260, Math.min(460, resizeDividerRef.current.startWidth + delta));
+      setLeftWidth(newW);
+    };
+    const handleMouseUp = () => {
+      resizeDividerRef.current = null;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleStartResizeRight = (e: React.MouseEvent) => {
+    e.preventDefault();
+    resizeDividerRef.current = { side: 'right', startX: e.clientX, startWidth: rightWidth };
+    const handleMouseMove = (moveEvt: MouseEvent) => {
+      if (!resizeDividerRef.current || resizeDividerRef.current.side !== 'right') return;
+      const delta = resizeDividerRef.current.startX - moveEvt.clientX;
+      const newW = Math.max(300, Math.min(560, resizeDividerRef.current.startWidth + delta));
+      setRightWidth(newW);
+    };
+    const handleMouseUp = () => {
+      resizeDividerRef.current = null;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
 
   // 拖拽居中辅助参考线对齐状态
   const [isSnappingV, setIsSnappingV] = useState<boolean>(false);
@@ -691,6 +751,14 @@ export const VideoIllustrator: React.FC = () => {
 - 艺术画风描述：${currentStyleObj.stylePrompt}
 - 视觉一致性要求：请你根据本视频的主旨调性（如商业合规、职场思辨、情感哲理、生活科普等），自主统一设计整套插图的色彩基调、光影情绪与核心视觉符号，让全片所有插图具有高度连贯的艺术整体感。
 
+【生图提示词（prompt）绝对核心原则：物理具象实体化】
+1. 绝对严禁生成抽象色块拼图、七巧板式碎片、碎块集合或任何无意义伪汉字乱码！
+2. 提示词必须以【具体的商业与生活物理实体道具与人物场景】构建画面：
+   - 商业/法律/财务类：红木或现代简约办公桌、带红色印章与签字笔的正式借款合同/股权协议书、带清晰折线图与条形图的纸质财务报表、金融计算器、金属天平秤、银行存折、公文包、落地窗外城市天际线、商务人士严谨专注的工作神态等实体道具；
+   - 生活/哲理类：清晨咖啡杯、写满思考要点的笔记本手账、钥匙开启门扉、通往远方的延伸道路、人物沉思与坚毅目光等具体物理情境；
+   - 信息图类：必须依托真实的实体展板、纸质规整图纸或实体桌面工作台布局来呈现模块与箭头，杜绝凭空漂浮的色块拼图。
+3. 严禁在 prompt 中出现“8k”、“超高清”、“无水印”、“排版整洁有序”、“指标卡片”、“几何矢量构图”等指令元词！大模型会把这些词直接印在画面上成为乱码错字。
+
 【路由模式与图种规则（必须严格遵守）】
 当前路由模式：【${routingMode === 'standard' ? '标准图 (standard)' : routingMode === 'infographic' ? '信息图 (infographic)' : '智能路由 (smart)'}】
 1. 若当前路由模式为【标准图 (standard)】：
@@ -699,7 +767,7 @@ export const VideoIllustrator: React.FC = () => {
    - type 必须为 "standard"，model 必须为 "sensenova-u1.5-lite"，category 可以是 "scene_narrative"（场景叙事）或 "concept_metaphor"（概念隐喻）；
    - prompt 必须重点描写具象画面、主体人物/事物、构图、光影氛围，并深度融合指定的【图片风格】。
 2. 若当前路由模式为【信息图 (infographic)】：
-   - 所有分镜必须规划为结构化信息图解（如数据看板、流程框架、正反对比、关键法则卡片）；
+   - 所有分镜必须规划为结构化信息图解（如实体展板数据看板、流程框架、正反对比、关键法则卡片）；
    - type 必须为 "infographic"，model 必须为 "sensenova-u1-fast"，category 可以是 "data_stat"、"step_framework"、"vs_comparison" 等；
    - prompt 必须包含提炼的主标题（6-12字）、结构化卡片模块与导向箭头，并以指定的【图片风格】来渲染排版。
 3. 若当前路由模式为【智能路由 (smart)】：
@@ -731,7 +799,7 @@ export const VideoIllustrator: React.FC = () => {
     "category": "scene_narrative",
     "type": "standard",
     "model": "sensenova-u1.5-lite",
-    "prompt": "基于选定画风与台词内容生动构图的纯净提示词 (0色码0指令泄露)"
+    "prompt": "基于选定画风与台词内容生动构图的纯净提示词 (以具体物理实体道具为主，0色码0指令泄露)"
   }
 ]`;
 
@@ -832,36 +900,36 @@ ${scriptText}
           let cat: 'data_stat' | 'step_framework' | 'vs_comparison' | 'concept_metaphor' | 'scene_narrative' = 'scene_narrative';
           let cpt = '生活选择与人生转折意境';
           let pmt = sanitizePromptForImageGen(
-            `${currentStyleObj.stylePrompt}。画面生动展现与【${titleEntity}】契合的情景：主体人物在晨曦微风中昂首前行，神态坚定充满希望，画面层次丰富，光影通透自然，富有视觉感染力，8k超清，无水印`
+            `${currentStyleObj.stylePrompt}。画面生动展现与【${titleEntity}】契合的真实情景：办公室内采光通透，主角人物专注商讨方案，神态坚定充满信心，桌上摆放相关文书资料与笔记本电脑，画面层次丰富，光影自然细腻`
           );
 
           if (!isStandardMode && isFinancialOrStatData) {
             score += 45;
             cat = 'data_stat';
-            cpt = '核心数据指标与对比图解';
+            cpt = '核心数据指标与财务分析';
             pmt = sanitizePromptForImageGen(
-              `${currentStyleObj.stylePrompt}。画面以该艺术画风呈现结构化数据对比看板：正中清晰展示【${titleEntity}】指标卡片与数值对比，排版整洁有序，8k超清，无水印`
+              `${currentStyleObj.stylePrompt}。画面生动展现围绕【${titleEntity}】的商务工作场景：办公桌上整齐平铺着带清晰图表曲线的纸质财务报表、计算器与签字笔，光线柔和明亮，核心财务细节清晰可见，主体鲜明生动`
             );
           } else if (!isStandardMode && isStepOrFramework) {
             score += 40;
             cat = 'step_framework';
-            cpt = '进阶步骤与架构图解';
+            cpt = '进阶步骤与执行手册';
             pmt = sanitizePromptForImageGen(
-              `${currentStyleObj.stylePrompt}。画面以该艺术画风呈现模块化架构图解：清晰展现【${titleEntity}】的核心流向分支与逻辑阶梯，各节点标注明确，8k超清，无水印`
+              `${currentStyleObj.stylePrompt}。画面生动展现关于【${titleEntity}】的条理化规划场景：桌面上按阶段陈列的工作路线手册、流程节点备忘手账与执行方案实体，空间层次分明，逻辑秩序感强`
             );
           } else if (!isStandardMode && isComparisonOrPitfall) {
             score += 35;
             cat = 'vs_comparison';
-            cpt = '正反对比与避坑指南';
+            cpt = '正反对比与合规指引';
             pmt = sanitizePromptForImageGen(
-              `${currentStyleObj.stylePrompt}。画面以该艺术画风呈现左右对比图解：对比呈现【${titleEntity}】的正反两面，左侧警示风险，右侧合规路径，8k超清，无水印`
+              `${currentStyleObj.stylePrompt}。画面生动呈现【${titleEntity}】的左右双重对比意象：左侧展现杂乱草稿与红色醒目警示符，右侧展现规整盖章的正式合同与绿叶生机，光影层次对比鲜明，寓意深刻`
             );
           } else if (/(核心|本质|真相|关键|痛点|破局|爆发|重构|底层|永续)/.test(cleanSent)) {
             score += 25;
             cat = 'concept_metaphor';
             cpt = '核心认知与视觉隐喻';
             pmt = sanitizePromptForImageGen(
-              `${currentStyleObj.stylePrompt}。画面核心生动呈现围绕【${titleEntity}】的视觉隐喻意象，光影饱满，富有张力与深意，8k超清，无水印`
+              `${currentStyleObj.stylePrompt}。画面核心生动呈现围绕【${titleEntity}】的具象实体隐喻：如桌面金属天平衡量轻重、或是握紧钥匙开启明亮大门，光影质感饱满，富有视觉张力与深刻哲思`
             );
           } else {
             score += 20;
@@ -918,7 +986,7 @@ ${scriptText}
         const modelName = isInfo ? 'sensenova-u1-fast' : 'sensenova-u1.5-lite';
         const ratioToUse = defaultRatio || '16:9';
 
-        let finalPrompt = it.prompt || `${currentStyleObj.stylePrompt}，画面清晰，细节丰富，无水印`;
+        let finalPrompt = it.prompt || `${currentStyleObj.stylePrompt}，画面清晰自然，实体细节丰富`;
         if (routingMode === 'standard') {
           finalPrompt = finalPrompt
             .replace(/(趣味漫画科普信息图卡片|信息图卡片|信息图|数据图表|数据看板|流程分支|步骤图解|柱状图|饼图|看板)/g, '视觉画面')
@@ -1045,8 +1113,8 @@ ${scriptText}
       concept: isInfo ? '结构化信息图解' : '重点视觉插画',
       prompt: sanitizePromptForImageGen(
         isInfo
-          ? `${currentStyleObj.stylePrompt}。画面以该艺术画风呈现结构化图解看板，包含核心主题要点与导向指引箭头，排版整洁有序，8k超清，无水印`
-          : `${currentStyleObj.stylePrompt}。画面生动展现主体视觉意象，构图富有张力，光影自然细腻，层次生动丰富，8k超清，无水印`
+          ? `${currentStyleObj.stylePrompt}。画面呈现实体展板风格的清晰图解：包含核心主题要点与导向指引箭头，光影清晰自然`
+          : `${currentStyleObj.stylePrompt}。画面生动展现主体视觉意象与真实场景细节，构图富有张力，光影自然细腻，层次生动丰富`
       ),
       type: isInfo ? 'infographic' : 'standard',
       model: isInfo ? 'sensenova-u1-fast' : 'sensenova-u1.5-lite',
@@ -1197,9 +1265,13 @@ ${scriptText}
   const isNearExit = activeIllustration && activeIllustration.endTime - currentTime <= 0.35;
   const exitFadeClass = isNearExit && transitionEffect === 'fade' ? 'opacity-0 transition-opacity duration-300' : '';
 
+  // 动态生成状态监控
+  const generatingIndex = illustrations.findIndex((it) => it.status === 'generating');
+  const generatingItem = generatingIndex >= 0 ? illustrations[generatingIndex] : null;
+
   return (
     <div className="flex-1 h-full flex flex-col bg-zinc-50 dark:bg-[#0c0d11] text-zinc-800 dark:text-zinc-200 overflow-hidden select-none">
-      {/* 顶部标题栏：呼吸感良好，展示 v0.7.0 特性 */}
+      {/* 顶部标题栏：呼吸感良好，展示 v0.7.3 特性 */}
       <div className="py-3 px-5 border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between bg-white dark:bg-[#111217] shrink-0 min-h-[58px]">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-rose-500 via-purple-500 to-indigo-500 flex items-center justify-center text-white shadow-md shrink-0">
@@ -1209,14 +1281,14 @@ ${scriptText}
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">智能视频配插图</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/60">
-                v0.7.1 · 紧凑排版与智能去标
+                v0.7.3 · 三栏专业工作台
               </span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 font-semibold border border-emerald-200/60 dark:border-emerald-800/60">
-                多图无损导出
+                物理实体生图
               </span>
             </div>
             <p className="text-[11.5px] text-zinc-400 mt-0.5">
-              深度上下文提炼 · 全片统一调色板 · 3档密集度 · 视频放大预览 · 0遗漏导出
+              三栏可调节布局 · 深度上下文物理实体规划 · 实时动态看板 · 提示词自由编辑 · 0乱码去标导出
             </p>
           </div>
         </div>
@@ -1281,22 +1353,358 @@ ${scriptText}
         </div>
       )}
 
-      {/* 主创作工作区：左侧视频舞台与导演台，右侧分镜策划与生成清单 */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* 左侧：专业视频导演舞台（Video Stage） */}
+      {/* ========================================================================= */}
+      {/* 主创作工作区：全新三栏布局（左栏配置文案 + 中栏视频预览 + 右栏分镜详情，支持拖拽调节宽度） */}
+      {/* ========================================================================= */}
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        {/* ========================================================================= */}
+        {/* 左栏：常规设置、文案大输入框与排版包装 (宽度支持左右拖拽调节) */}
+        {/* ========================================================================= */}
+        <div
+          style={{ width: `${leftWidth}px` }}
+          className="flex flex-col bg-white dark:bg-[#111217] shrink-0 border-r border-zinc-200 dark:border-zinc-800/80 min-w-[260px] max-w-[460px] overflow-y-auto p-3 space-y-3"
+        >
+          {/* 路由模式切换 */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
+                <SplitSquareVertical className="w-3 h-3 text-indigo-500" />
+                <span>路由模式</span>
+              </label>
+              <span className="text-[9.5px] text-zinc-400">专精模型分流</span>
+            </div>
+            <div className="grid grid-cols-3 gap-1 bg-zinc-100 dark:bg-zinc-900/80 p-0.5 rounded-lg border border-zinc-200/80 dark:border-zinc-800">
+              {[
+                { id: 'smart', label: '智能路由', icon: Sparkles },
+                { id: 'infographic', label: '信息图', icon: BarChart2 },
+                { id: 'standard', label: '标准图', icon: ImageIcon },
+              ].map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setRoutingMode(m.id as any)}
+                  className={`py-1 rounded-md text-[11px] font-medium transition cursor-pointer flex items-center justify-center gap-1 ${
+                    routingMode === m.id
+                      ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+                  }`}
+                >
+                  <m.icon className="w-3 h-3" />
+                  <span>{m.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 图片风格与配图密度同行并列 */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
+                  <Palette className="w-3 h-3 text-rose-500" />
+                  <span>图片风格</span>
+                </label>
+              </div>
+              <select
+                value={defaultStyle}
+                onChange={(e) => setDefaultStyle(e.target.value)}
+                className="w-full px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-[11px] text-zinc-800 dark:text-zinc-200 font-medium focus:ring-1 focus:ring-indigo-500 outline-none cursor-pointer truncate"
+              >
+                {STYLE_OPTIONS.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
+                  <LayoutGrid className="w-3 h-3 text-amber-500" />
+                  <span>配图密度</span>
+                </label>
+              </div>
+              <div className="grid grid-cols-3 gap-0.5 bg-zinc-100 dark:bg-zinc-900/80 p-0.5 rounded-lg border border-zinc-200/80 dark:border-zinc-800">
+                {DENSITY_OPTIONS.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => {
+                      setDensity(d.id);
+                      showToast(`已选择【${d.label}】配图`, 'ok');
+                    }}
+                    title={`${d.label}：${d.desc}`}
+                    className={`py-1 rounded-md text-[10.5px] font-medium transition cursor-pointer text-center ${
+                      density === d.id
+                        ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+                    }`}
+                  >
+                    {d.label.slice(0, 2)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* 口播文案输入与 ASR 毫秒级时间戳对齐 (显著提升高度至 140px，支持垂直自由拖动拉伸) */}
+          <div className="flex flex-col flex-1 min-h-[180px]">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
+                <span>视频口播文案</span>
+                <span className="text-[10px] font-normal text-zinc-400">({scriptText.length} 字)</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cleaned = scriptText.replace(/[*＊]/g, '');
+                    setScriptText(cleaned);
+                    showToast('已净洗文案中的星号 * 字符', 'ok');
+                  }}
+                  className="text-[10.5px] text-zinc-400 hover:text-indigo-500 flex items-center gap-0.5 cursor-pointer"
+                  title="彻底消除星号，避免语音朗读被污染"
+                >
+                  <Wand2 className="w-3 h-3 text-purple-500" />
+                  <span>去星号</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExtractAsr}
+                  disabled={isAsrExtracting}
+                  className="text-[10.5px] text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer disabled:opacity-50"
+                  title="从视频中精准提取毫秒级句子与发音时间戳"
+                >
+                  <Mic className="w-3 h-3 text-indigo-500" />
+                  <span>{isAsrExtracting ? '提取中…' : 'ASR 打轴'}</span>
+                </button>
+              </div>
+            </div>
+
+            <textarea
+              placeholder="粘贴口播台词或点击 ASR 打轴，AI 将深入研判上下文并规划插图…"
+              value={scriptText}
+              onChange={(e) => setScriptText(e.target.value)}
+              className="w-full h-36 min-h-[140px] px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-800 dark:text-zinc-200 focus:ring-2 focus:ring-indigo-500 outline-none resize-y leading-relaxed"
+            />
+
+            {asrUtterances.length > 0 && (
+              <div className="mt-1.5 flex items-center justify-between text-[10.5px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-1 rounded border border-emerald-200/50 dark:border-emerald-900/30">
+                <span className="flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" />
+                  <span>已加载 ASR 毫秒级时间轴 ({asrUtterances.length} 句)</span>
+                </span>
+                <span className="font-mono text-[9.5px]">高精度对齐</span>
+              </div>
+            )}
+          </div>
+
+          {/* AI 智能规划触发大按钮 (带规划中动态波纹与光斑) */}
+          <button
+            type="button"
+            onClick={handleAiPlanIllustrations}
+            disabled={isPlanning || !scriptText.trim()}
+            className={`w-full py-2.5 px-3 rounded-xl font-bold text-xs shadow-md transition cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50 ${
+              isPlanning
+                ? 'bg-gradient-to-r from-purple-700 via-indigo-600 to-purple-700 animate-pulse text-white ring-2 ring-indigo-400/50'
+                : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white'
+            }`}
+          >
+            <Wand2 className={`w-4 h-4 shrink-0 ${isPlanning ? 'animate-spin' : ''}`} />
+            <span>{isPlanning ? 'AI 智能规划中…' : 'AI 智能规划'}</span>
+          </button>
+
+          {/* 折叠式“插图包装与排版设置”卡片 */}
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 p-2.5 space-y-2">
+            <div
+              onClick={() => setIsPackagingExpanded((v) => !v)}
+              className="flex items-center justify-between cursor-pointer select-none"
+            >
+              <div className="flex items-center gap-1.5">
+                <Sliders className="w-3.5 h-3.5 text-indigo-500" />
+                <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                  插图包装与排版设置
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-500 font-medium">
+                  {TRANSITION_OPTIONS.find((t) => t.id === transitionEffect)?.label.slice(0, 4)}
+                </span>
+                {isPackagingExpanded ? (
+                  <ChevronUp className="w-3.5 h-3.5 text-zinc-400" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
+                )}
+              </div>
+            </div>
+
+            {/* 展开的包装排版设置 */}
+            {isPackagingExpanded && (
+              <div className="pt-2 border-t border-zinc-200/80 dark:border-zinc-800 space-y-2.5 text-xs animate-in fade-in">
+                {/* 顶层开关：全片联动与静默去水印 */}
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-1 text-[11px] cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={linkAllPositions}
+                      onChange={(e) => setLinkAllPositions(e.target.checked)}
+                      className="rounded accent-indigo-600 cursor-pointer"
+                    />
+                    <span className="text-indigo-600 dark:text-indigo-400 font-semibold">
+                      全片联动
+                    </span>
+                  </label>
+
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-900/40 text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                    <Check className="w-2.5 h-2.5 text-emerald-500" />
+                    <span>静默去水印</span>
+                  </span>
+                </div>
+
+                {/* 进退动效 */}
+                <div>
+                  <label className="text-[10.5px] font-semibold text-zinc-500 mb-1 flex items-center gap-1">
+                    <Zap className="w-3 h-3 text-amber-500" />
+                    <span>插图进退主动效</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-1">
+                    {TRANSITION_OPTIONS.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => {
+                          setTransitionEffect(t.id as any);
+                          setGlobalLayout((prev) => ({ ...prev, transitionEffect: t.id as any }));
+                          showToast(`已应用【${t.label}】动效`, 'ok');
+                        }}
+                        className={`px-1.5 py-1 rounded-md text-[10px] font-medium border transition cursor-pointer text-center truncate ${
+                          transitionEffect === t.id
+                            ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold'
+                            : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                        }`}
+                        title={t.desc}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 边框容器预设 */}
+                <div>
+                  <label className="text-[10.5px] font-semibold text-zinc-500 mb-1 flex items-center gap-1">
+                    <Sparkle className="w-3 h-3 text-indigo-500" />
+                    <span>边框容器预设 (选无边框为直角)</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-1">
+                    {BORDER_OPTIONS.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => {
+                          setBorderStyle(b.id as any);
+                          setGlobalLayout((prev) => ({ ...prev, borderStyle: b.id as any }));
+                          showToast(`已应用【${b.label}】边框`, 'ok');
+                        }}
+                        className={`px-1.5 py-1 rounded-md text-[10px] font-medium border transition cursor-pointer text-center truncate ${
+                          borderStyle === b.id
+                            ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold'
+                            : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                        }`}
+                        title={b.desc}
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 画幅规格 */}
+                <div>
+                  <label className="text-[10.5px] font-semibold text-zinc-500 mb-1 block">
+                    画幅比例
+                  </label>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {RATIO_OPTIONS.map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => handleChangeDefaultRatio(r.id)}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-medium border transition cursor-pointer ${
+                          (activeIllustration?.ratio || defaultRatio) === r.id
+                            ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold'
+                            : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                        }`}
+                        title={r.desc}
+                      >
+                        {r.label.split(' ')[0]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 智能吸附方位 (7 点安全停靠矩阵) */}
+                <div>
+                  <label className="text-[10.5px] font-semibold text-zinc-500 mb-1 block">
+                    智能吸附方位 (7点矩阵)
+                  </label>
+                  <div className="grid grid-cols-4 gap-1">
+                    {[
+                      { id: 'top-left', label: '左上' },
+                      { id: 'top', label: '上中' },
+                      { id: 'top-right', label: '右上' },
+                      { id: 'center', label: '正中' },
+                      { id: 'bottom-left', label: '左下' },
+                      { id: 'bottom', label: '下中' },
+                      { id: 'bottom-right', label: '右下' },
+                    ].map((pos) => (
+                      <button
+                        key={pos.id}
+                        type="button"
+                        onClick={() => applyPositionPreset(pos.id as any)}
+                        className={`py-0.5 rounded-md text-[10px] font-medium border transition cursor-pointer text-center ${
+                          globalLayout.positionPreset === pos.id
+                            ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold'
+                            : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                        }`}
+                      >
+                        {pos.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 左栏与中栏调节把手 (按住左右拖拽调节左栏宽度) */}
+        <div
+          onMouseDown={handleStartResizeLeft}
+          title="按住左右拖拽调节左栏宽度"
+          className="w-1.5 hover:w-2 bg-zinc-200/80 dark:bg-zinc-800/80 hover:bg-indigo-500 active:bg-indigo-600 cursor-col-resize transition-all shrink-0 flex items-center justify-center group relative z-10 select-none"
+        >
+          <div className="w-0.5 h-6 rounded-full bg-zinc-400 dark:bg-zinc-600 group-hover:bg-white transition-colors" />
+        </div>
+
+        {/* ========================================================================= */}
+        {/* 中栏：视频预览舞台 (居中大视窗、真实画幅、无多余遮挡、纯图标控制) */}
+        {/* ========================================================================= */}
         <div
           onClick={() => setIsEditingOverlay(false)} // 点击背景区域退出编辑模式，返回纯净无边框预览
-          className="flex-1 flex flex-col p-3 border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-100/50 dark:bg-[#090a0f] overflow-y-auto min-w-0"
+          className="flex-1 flex flex-col p-3 bg-zinc-100/50 dark:bg-[#090a0f] overflow-y-auto min-w-[320px] items-center justify-center select-none"
         >
           {videoUrl ? (
-            <div className="flex-1 flex flex-col items-center justify-start max-w-2xl mx-auto w-full">
+            <div className="flex-1 flex flex-col items-center justify-center max-w-3xl w-full mx-auto my-auto">
               {/* 舞台顶栏信息：分辨率、画幅、坐标提示 */}
-              <div className="w-full flex items-center justify-between mb-2 px-1 text-[11px] text-zinc-400">
+              <div className="w-full flex items-center justify-between mb-2 px-1 text-[11px] text-zinc-400 shrink-0">
                 <div className="flex items-center gap-2">
                   <span className="px-2 py-0.5 rounded-md bg-zinc-200 dark:bg-zinc-800 font-mono text-zinc-700 dark:text-zinc-300 font-medium">
                     {videoDimensions.width}×{videoDimensions.height} · {videoDimensions.width >= videoDimensions.height ? '横屏视频' : '竖屏视频'}
                   </span>
-                  <span className="truncate max-w-[150px] text-zinc-500">{videoTitle}</span>
+                  <span className="truncate max-w-[200px] text-zinc-500">{videoTitle}</span>
                 </div>
 
                 <div className="font-mono text-[10.5px] text-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-200/50 dark:border-indigo-900/40">
@@ -1304,16 +1712,16 @@ ${scriptText}
                 </div>
               </div>
 
-              {/* 核心视频舞台 (Video Stage)：宽高比 100% 等同于视频原生尺寸，彻底消灭黑边偏移 */}
+              {/* 核心视频舞台 (Video Stage)：宽高比 100% 等同于视频原生尺寸，垂直居中 */}
               <div className="relative w-full flex items-center justify-center bg-zinc-950/40 rounded-2xl p-2 border border-zinc-200 dark:border-zinc-800 shadow-inner">
                 <div
                   ref={videoContainerRef}
                   className="relative rounded-xl overflow-hidden shadow-2xl bg-black select-none max-w-full"
                   style={{
                     aspectRatio: `${videoDimensions.width} / ${videoDimensions.height}`,
-                    maxHeight: '52vh',
+                    maxHeight: '66vh',
                     width: videoDimensions.width >= videoDimensions.height ? '100%' : 'auto',
-                    height: videoDimensions.width >= videoDimensions.height ? 'auto' : '52vh',
+                    height: videoDimensions.width >= videoDimensions.height ? 'auto' : '66vh',
                   }}
                 >
                   <video
@@ -1405,7 +1813,7 @@ ${scriptText}
                     </div>
                   )}
 
-                  {/* 播放器内置双行自适应控制条：彻底杜绝 9:16 窄屏下的横向溢出，并新增放大预览 */}
+                  {/* 播放器内置双行自适应控制条：彻底杜绝 9:16 窄屏下的横向溢出，并提供纯图标按钮 */}
                   <div className="absolute bottom-0 inset-x-0 p-2.5 bg-gradient-to-t from-black/90 via-black/45 to-transparent flex flex-col gap-1.5 text-white">
                     {/* 第一行：全宽独立的播放进度滑动条（彻底防挤压溢出） */}
                     <div className="w-full flex items-center min-w-0">
@@ -1424,7 +1832,7 @@ ${scriptText}
                       />
                     </div>
 
-                    {/* 第二行：操作控制与时间戳、放大预览按钮 */}
+                    {/* 第二行：操作控制与时间戳、图标化按钮 */}
                     <div className="w-full flex items-center justify-between min-w-0 gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <button
@@ -1469,155 +1877,6 @@ ${scriptText}
                   </div>
                 </div>
               </div>
-
-              {/* 舞台下方：插图包装与全片位置联动控制台 */}
-              <div
-                onClick={(e) => e.stopPropagation()}
-                className="w-full mt-2.5 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#111217] shadow-sm space-y-2.5"
-              >
-                {/* 顶层开关：全片联动与静默去水印状态 */}
-                <div className="flex items-center justify-between pb-1.5 border-b border-zinc-100 dark:border-zinc-800/80">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                      <Sliders className="w-3.5 h-3.5 text-indigo-500" />
-                      <span>插图包装与排版</span>
-                    </span>
-
-                    <label className="flex items-center gap-1 text-[11px] cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={linkAllPositions}
-                        onChange={(e) => setLinkAllPositions(e.target.checked)}
-                        className="rounded accent-indigo-600 cursor-pointer"
-                      />
-                      <span className="text-indigo-600 dark:text-indigo-400 font-semibold">
-                        全片联动
-                      </span>
-                    </label>
-                  </div>
-
-                  {/* 默认全自动静默消除原片水印标签 */}
-                  <span className="text-[10.5px] px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-900/40 text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                    <Check className="w-3 h-3 text-emerald-500" />
-                    <span>静默去水印</span>
-                  </span>
-                </div>
-
-                {/* 动效选择与边框样式 */}
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="text-[10.5px] font-semibold text-zinc-500 mb-1 flex items-center gap-1">
-                      <Zap className="w-3 h-3 text-amber-500" />
-                      <span>插图进退主动效</span>
-                    </label>
-                    <div className="flex items-center gap-1 flex-wrap">
-                      {TRANSITION_OPTIONS.map((t) => (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => {
-                            setTransitionEffect(t.id as any);
-                            setGlobalLayout((prev) => ({ ...prev, transitionEffect: t.id as any }));
-                            showToast(`已应用【${t.label}】视觉动效`, 'ok');
-                          }}
-                          className={`px-2 py-0.5 rounded-md text-[10.5px] font-medium border transition cursor-pointer ${
-                            transitionEffect === t.id
-                              ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
-                              : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                          }`}
-                          title={t.desc}
-                        >
-                          {t.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-[10.5px] font-semibold text-zinc-500 mb-1 flex items-center gap-1">
-                      <Sparkle className="w-3 h-3 text-indigo-500" />
-                      <span>图片边框容器预设 (选无边框为直角)</span>
-                    </label>
-                    <div className="flex items-center gap-1 flex-wrap">
-                      {BORDER_OPTIONS.map((b) => (
-                        <button
-                          key={b.id}
-                          type="button"
-                          onClick={() => {
-                            setBorderStyle(b.id as any);
-                            setGlobalLayout((prev) => ({ ...prev, borderStyle: b.id as any }));
-                            showToast(`已应用【${b.label}】边框样式`, 'ok');
-                          }}
-                          className={`px-2 py-0.5 rounded-md text-[10.5px] font-medium border transition cursor-pointer ${
-                            borderStyle === b.id
-                              ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
-                              : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                          }`}
-                          title={b.desc}
-                        >
-                          {b.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* 画幅规格与 7 方位精准吸附 */}
-                <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-zinc-100 dark:border-zinc-800/80">
-                  <div>
-                    <label className="text-[10.5px] font-semibold text-zinc-500 mb-1 block">
-                      画幅比例（选什么预览呈现什么）
-                    </label>
-                    <div className="flex items-center gap-1 flex-wrap">
-                      {RATIO_OPTIONS.map((r) => (
-                        <button
-                          key={r.id}
-                          type="button"
-                          onClick={() => handleChangeDefaultRatio(r.id)}
-                          className={`px-2 py-0.5 rounded-md text-[10.5px] font-medium border transition cursor-pointer ${
-                            (activeIllustration?.ratio || defaultRatio) === r.id
-                              ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
-                              : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                          }`}
-                          title={r.desc}
-                        >
-                          {r.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-[10.5px] font-semibold text-zinc-500 mb-1 block">
-                      智能吸附方位 (7 点安全矩阵)
-                    </label>
-                    <div className="flex items-center gap-1 flex-wrap">
-                      {[
-                        { id: 'top-left', label: '左上' },
-                        { id: 'top', label: '上中' },
-                        { id: 'top-right', label: '右上' },
-                        { id: 'center', label: '正中' },
-                        { id: 'bottom-left', label: '左下' },
-                        { id: 'bottom', label: '下中' },
-                        { id: 'bottom-right', label: '右下' },
-                      ].map((pos) => (
-                        <button
-                          key={pos.id}
-                          type="button"
-                          onClick={() => applyPositionPreset(pos.id as any)}
-                          className={`px-1.5 py-0.5 rounded-md text-[10px] font-medium border transition cursor-pointer ${
-                            globalLayout.positionPreset === pos.id
-                              ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
-                              : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                          }`}
-                        >
-                          {pos.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl p-8 text-center max-w-lg mx-auto w-full my-auto">
@@ -1640,183 +1899,101 @@ ${scriptText}
           )}
         </div>
 
-        {/* 右侧：分镜策划、统一风格库、3档密集度与插图清单 (紧凑自适应排版 w-[340px] xl:w-[380px]) */}
-        <div className="w-[340px] xl:w-[380px] flex flex-col bg-white dark:bg-[#111217] shrink-0 border-l border-zinc-200 dark:border-zinc-800/80 min-w-0">
-          {/* 策划配置区 */}
-          <div className="p-3 border-b border-zinc-200 dark:border-zinc-800/80 space-y-2 shrink-0">
-            {/* 路由模式切换 */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
-                  <SplitSquareVertical className="w-3 h-3 text-indigo-500" />
-                  <span>路由模式</span>
-                </label>
-                <span className="text-[9.5px] text-zinc-400">专精模型分流</span>
-              </div>
-              <div className="grid grid-cols-3 gap-1 bg-zinc-100 dark:bg-zinc-900/80 p-0.5 rounded-lg border border-zinc-200/80 dark:border-zinc-800">
-                {[
-                  { id: 'smart', label: '智能路由', icon: Sparkles },
-                  { id: 'infographic', label: '信息图', icon: BarChart2 },
-                  { id: 'standard', label: '标准图', icon: ImageIcon },
-                ].map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setRoutingMode(m.id as any)}
-                    className={`py-1 rounded-md text-[11px] font-medium transition cursor-pointer flex items-center justify-center gap-1 ${
-                      routingMode === m.id
-                        ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold'
-                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
-                    }`}
-                  >
-                    <m.icon className="w-3 h-3" />
-                    <span>{m.label}</span>
-                  </button>
-                ))}
-              </div>
+        {/* 中栏与右栏调节把手 (按住左右拖拽调节右栏宽度) */}
+        <div
+          onMouseDown={handleStartResizeRight}
+          title="按住左右拖拽调节右栏宽度"
+          className="w-1.5 hover:w-2 bg-zinc-200/80 dark:bg-zinc-800/80 hover:bg-indigo-500 active:bg-indigo-600 cursor-col-resize transition-all shrink-0 flex items-center justify-center group relative z-10 select-none"
+        >
+          <div className="w-0.5 h-6 rounded-full bg-zinc-400 dark:bg-zinc-600 group-hover:bg-white transition-colors" />
+        </div>
+
+        {/* ========================================================================= */}
+        {/* 右栏：插图分镜清单、实时动态状态看板与导出区域 (宽度支持拖拽调节) */}
+        {/* ========================================================================= */}
+        <div
+          style={{ width: `${rightWidth}px` }}
+          className="flex flex-col bg-white dark:bg-[#111217] shrink-0 border-l border-zinc-200 dark:border-zinc-800/80 min-w-[300px] max-w-[560px] overflow-hidden"
+        >
+          {/* 顶栏：分镜数量与全部生成按钮 */}
+          <div className="p-3 border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-2">
+              <Layers className="w-4 h-4 text-indigo-500" />
+              <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                插图分镜清单
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 font-mono">
+                {illustrations.length} 个分镜
+              </span>
             </div>
 
-            {/* 图片风格与配图密度同行并列 */}
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
-                    <Palette className="w-3 h-3 text-rose-500" />
-                    <span>图片风格</span>
-                  </label>
-                </div>
-                <select
-                  value={defaultStyle}
-                  onChange={(e) => setDefaultStyle(e.target.value)}
-                  className="w-full px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-[11px] text-zinc-800 dark:text-zinc-200 font-medium focus:ring-1 focus:ring-indigo-500 outline-none cursor-pointer truncate"
-                >
-                  {STYLE_OPTIONS.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
-                    <LayoutGrid className="w-3 h-3 text-amber-500" />
-                    <span>配图密度</span>
-                  </label>
-                </div>
-                <div className="grid grid-cols-3 gap-0.5 bg-zinc-100 dark:bg-zinc-900/80 p-0.5 rounded-lg border border-zinc-200/80 dark:border-zinc-800">
-                  {DENSITY_OPTIONS.map((d) => (
-                    <button
-                      key={d.id}
-                      type="button"
-                      onClick={() => {
-                        setDensity(d.id);
-                        showToast(`已选择【${d.label}】配图`, 'ok');
-                      }}
-                      title={`${d.label}：${d.desc}`}
-                      className={`py-1 rounded-md text-[10.5px] font-medium transition cursor-pointer text-center ${
-                        density === d.id
-                          ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
-                          : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
-                      }`}
-                    >
-                      {d.label.slice(0, 2)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* 口播文案输入与 ASR 毫秒级时间戳对齐 */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
-                  <span>视频口播文案</span>
-                  <span className="text-[10px] font-normal text-zinc-400">({scriptText.length} 字)</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const cleaned = scriptText.replace(/[*＊]/g, '');
-                      setScriptText(cleaned);
-                      showToast('已净洗文案中的星号 * 字符', 'ok');
-                    }}
-                    className="text-[10.5px] text-zinc-400 hover:text-indigo-500 flex items-center gap-0.5 cursor-pointer"
-                    title="彻底消除星号，避免语音朗读被污染"
-                  >
-                    <Wand2 className="w-3 h-3 text-purple-500" />
-                    <span>去星号</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleExtractAsr}
-                    disabled={isAsrExtracting}
-                    className="text-[10.5px] text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer disabled:opacity-50"
-                    title="从视频中精准提取毫秒级句子与发音时间戳"
-                  >
-                    <Mic className="w-3 h-3 text-indigo-500" />
-                    <span>{isAsrExtracting ? '提取中…' : 'ASR 打轴'}</span>
-                  </button>
-                </div>
-              </div>
-
-              <textarea
-                rows={3}
-                placeholder="粘贴口播台词或点击 ASR 打轴，AI 将深入研判上下文并规划插图…"
-                value={scriptText}
-                onChange={(e) => setScriptText(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-800 dark:text-zinc-200 focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
-              />
-
-              {asrUtterances.length > 0 && (
-                <div className="mt-1 flex items-center justify-between text-[10.5px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded border border-emerald-200/50 dark:border-emerald-900/30">
-                  <span className="flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" />
-                    <span>已加载 ASR 毫秒级时间轴 (共 {asrUtterances.length} 句)</span>
-                  </span>
-                  <span className="font-mono text-[9.5px]">高精度对齐</span>
-                </div>
-              )}
-            </div>
-
-            {/* 操作触发按钮组 */}
-            <div className="flex items-center gap-1.5 pt-0.5">
+            {illustrations.length > 0 && (
               <button
                 type="button"
-                onClick={handleAiPlanIllustrations}
-                disabled={isPlanning || !scriptText.trim()}
-                className="flex-1 py-1.5 px-2 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-[11.5px] font-bold shadow-sm transition cursor-pointer flex items-center justify-center gap-1 disabled:opacity-50"
+                onClick={handleBatchGenerateAll}
+                disabled={illustrations.some((i) => i.status === 'generating')}
+                className="px-2.5 py-1 rounded-lg border border-indigo-500/50 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 text-[11px] font-semibold transition cursor-pointer flex items-center gap-1 disabled:opacity-50"
               >
-                <Wand2 className="w-3.5 h-3.5 shrink-0" />
-                <span>AI 智能规划</span>
+                <RefreshCw className={`w-3 h-3 ${illustrations.some((i) => i.status === 'generating') ? 'animate-spin' : ''}`} />
+                <span>
+                  全部生成 ({illustrations.filter((i) => i.status === 'success').length}/{illustrations.length})
+                </span>
               </button>
-
-              {illustrations.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleBatchGenerateAll}
-                  className="px-2.5 py-1.5 rounded-lg border border-indigo-500/50 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-400 text-[11px] font-semibold transition cursor-pointer shrink-0 flex items-center gap-1"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  <span>全部生成 ({illustrations.filter((i) => i.status === 'success').length}/{illustrations.length})</span>
-                </button>
-              )}
-            </div>
+            )}
           </div>
+
+          {/* AI 规划中或图片生成中动态状态看板 */}
+          {isPlanning && (
+            <div className="mx-3 mt-3 p-3 rounded-xl border border-indigo-200 dark:border-indigo-800/80 bg-gradient-to-r from-indigo-50/80 to-purple-50/80 dark:from-indigo-950/40 dark:to-purple-950/40 animate-pulse flex items-center gap-2.5 shadow-sm">
+              <div className="w-7 h-7 rounded-lg bg-indigo-500 text-white flex items-center justify-center shrink-0 shadow">
+                <Wand2 className="w-3.5 h-3.5 animate-spin" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[11.5px] font-bold text-indigo-700 dark:text-indigo-300 truncate">
+                  AI 正在深度研读口播台词并规划分镜…
+                </div>
+                <div className="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 mt-0.5 truncate">
+                  锁定【{STYLE_OPTIONS.find((s) => s.id === defaultStyle)?.label}】画风 · 构思实体场景
+                </div>
+              </div>
+            </div>
+          )}
+
+          {generatingItem && !isPlanning && (
+            <div className="mx-3 mt-3 p-3 rounded-xl border border-indigo-400 dark:border-indigo-600/80 bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-indigo-500/10 shadow-sm space-y-1.5 animate-in fade-in">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5 font-bold text-indigo-600 dark:text-indigo-400">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>正在绘制第 {generatingIndex + 1}/{illustrations.length} 张插图</span>
+                </div>
+                <span className="text-[10.5px] font-mono text-zinc-500 dark:text-zinc-400">
+                  {generatingItem.ratio} · {generatingItem.model === 'sensenova-u1-fast' ? 'u1-fast' : 'u1.5-lite'}
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-700 dark:text-zinc-300 truncate font-medium">
+                正在绘制：【{generatingItem.concept}】
+              </p>
+              <div className="w-full h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full animate-pulse transition-all duration-300"
+                  style={{
+                    width: `${Math.max(10, Math.round(((generatingIndex + 0.5) / Math.max(1, illustrations.length)) * 100))}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
 
           {/* 分镜清单列表 */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
-            {illustrations.length === 0 ? (
+            {illustrations.length === 0 && !isPlanning ? (
               <div className="h-full flex flex-col items-center justify-center text-center p-6 text-zinc-400">
                 <Layers className="w-8 h-8 mb-2 opacity-40 text-indigo-500" />
                 <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
                   暂无规划插图
                 </p>
                 <p className="text-[11px] mt-1 max-w-[200px]">
-                  输入口播文案后点击【AI 智能规划高价值插图】，即可体验三级上下文与统一色系视觉体系
+                  在左栏输入口播文案后点击【AI 智能规划】，即可生成具象实体插图分镜
                 </p>
               </div>
             ) : (
@@ -1825,6 +2002,7 @@ ${scriptText}
                 const CatIcon = categoryObj.icon;
                 const isSelected = selectedIllustrationId === item.id;
                 const isHovered = hoveredIllustrationId === item.id;
+                const isItemGenerating = item.status === 'generating';
 
                 return (
                   <div
@@ -1837,14 +2015,16 @@ ${scriptText}
                       setCurrentTime(item.startTime);
                     }}
                     className={`p-3 rounded-xl border transition-all cursor-pointer relative ${
-                      isSelected
+                      isItemGenerating
+                        ? 'border-indigo-500 ring-2 ring-indigo-500/80 ring-offset-2 dark:ring-offset-zinc-900 bg-indigo-50/50 dark:bg-indigo-950/40 shadow-md animate-pulse'
+                        : isSelected
                         ? 'border-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/30 ring-1 ring-indigo-500 shadow-sm'
                         : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#14151c] hover:border-zinc-300 dark:hover:border-zinc-700'
                     }`}
                   >
                     {/* 分镜头部：序号、起止时段、分类标签与删除 */}
                     <div className="flex items-center justify-between text-[11px] mb-2">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-mono text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-[10px] font-bold">
                           #{idx + 1}
                         </span>
@@ -1934,8 +2114,9 @@ ${scriptText}
                             比例: {item.ratio}
                           </span>
                           {item.status === 'generating' && (
-                            <span className="text-[9.5px] text-indigo-500 font-medium animate-pulse">
-                              绘制中…
+                            <span className="text-[9.5px] text-indigo-500 font-medium animate-pulse flex items-center gap-1">
+                              <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                              <span>绘制中…</span>
                             </span>
                           )}
                           {item.status === 'failed' && (
