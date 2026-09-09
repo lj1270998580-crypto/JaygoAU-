@@ -224,7 +224,7 @@ export interface VideoIllustrationItem {
   prompt: string;
   type: 'infographic' | 'standard'; // 信息图 (知识数据) vs 标准图 (画面场景)
   model: 'sensenova-u1-fast' | 'sensenova-u1.5-lite';
-  category?: 'data_stat' | 'step_framework' | 'vs_comparison' | 'concept_metaphor'; // 四维视觉价值类型
+  category?: 'data_stat' | 'step_framework' | 'vs_comparison' | 'concept_metaphor' | 'scene_narrative'; // 视觉价值类型
   style: string;
   ratio: string;
   status: 'idle' | 'generating' | 'success' | 'failed';
