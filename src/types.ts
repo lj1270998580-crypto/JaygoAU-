@@ -176,6 +176,8 @@ export interface JaygoAPI {
   showNotification(a: { title: string; body: string; tab?: string }): Promise<void>;
   appQuit(): Promise<void>;
   onNavigateTab(cb: (tab: string) => void): () => void;
+  // ---- 打点后上传自己的图片（v0.7.8） ----
+  pickImageFile(): Promise<string | null>;
   // ---- 多平台媒体/短视频无水印提取 ----
   extractMedia(input: string): Promise<ParsedMediaInfo>;
   downloadExtractedMedia(a: { mediaInfo: ParsedMediaInfo; type: 'video' | 'audio' }): Promise<{ path: string; size: number } | null>;
@@ -228,6 +230,10 @@ export interface VideoIllustrationItem {
   style: string;
   ratio: string;
   status: 'idle' | 'generating' | 'success' | 'failed';
+  /** v0.7.8：区分模型生成图与用户上传图 */
+  source?: 'generated' | 'upload';
+  /** v0.7.8：上传图的原始宽高比（w/h）。存在时优先于 ratio，实现「不与模型生成图共用画幅比例」 */
+  customAspect?: number;
   imageUrl?: string;
   localPath?: string;
   referenceImage?: string; // 图生图参考图 (Base64 或路径)

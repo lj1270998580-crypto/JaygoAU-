@@ -205,6 +205,8 @@ const api = {
     ipcRenderer.on('navigate-tab', listener);
     return () => ipcRenderer.removeListener('navigate-tab', listener);
   },
+  // ---- 打点后上传自己的图片（v0.7.8） ----
+  pickImageFile: (): Promise<string | null> => ipcRenderer.invoke('pick-image-file'),
   // ---- 多平台媒体/短视频无水印提取 ----
   extractMedia: (input: string) => ipcRenderer.invoke('extract-media', input),
   downloadExtractedMedia: (args: {

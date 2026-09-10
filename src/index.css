@@ -555,6 +555,39 @@ html.dark .ai-input-streamer-inner {
 .anim-ill-zoom {
   animation: illZoomIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* ---------------------------------------------------------------------
+   插图退场动效（v0.7.8 新增）
+   必须放在入场规则之后：两者都设置 animation 属性，同优先级下后定义者生效，
+   因此进入退场阶段时退场动画会接管入场动画（入场用了 forwards 保留终态，
+   这也是此前 fade 退场被压制、完全失效的原因）。
+   --------------------------------------------------------------------- */
+@keyframes illFadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes illSlideOutRight {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(36px); }
+}
+
+@keyframes illZoomOut {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.85); }
+}
+
+.anim-ill-exit-fade {
+  animation: illFadeOut 0.3s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.anim-ill-exit-slide {
+  animation: illSlideOutRight 0.3s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.anim-ill-exit-zoom {
+  animation: illZoomOut 0.3s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
 /* 视频插图舞台拖拽对齐参考线 */
 .snap-line-v {
   position: absolute;

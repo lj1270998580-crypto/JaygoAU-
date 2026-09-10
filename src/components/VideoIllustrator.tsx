@@ -160,9 +160,10 @@ export function sanitizePromptForImageGen(p: string): string {
     .trim();
 }
 
-// 课程带货与推销类内容绝对禁配正则
-export const SALES_PITCH_REGEX =
-  /(购买课程|点击下方|小黄车|拍下|去买|下单|橱窗|私信我|粉丝群|粉丝团|福利价|限时特惠|限时秒杀|原价.*现价|左下角|购物车|链接在|领资料|扣[0-9]|评论区回复|关注直播间|赶紧抢)/;
+// 课程带货与推销类内容禁配正则
+// v0.7.8：此前这里是第二份独立定义（且更窄、从未被使用），会与 semanticParser
+// 里的那一份各自漂移。现统一从 semanticParser 复用，保证全链路一套规则。
+export { SALES_PITCH_REGEX, isSalesPitch } from '../lib/illustrator/semanticParser';
 
 
 // 比例尺寸预设（对齐商汤 SenseNova 官方推荐规格）
@@ -387,26 +388,41 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   const [isPackagingExpanded, setIsPackagingExpanded] = useState<boolean>(true);
 
   // 舞台容器高度自适应（替代写死的 66vh，避免大屏浪费 / 小窗溢出）
+  // v0.7.8 修复：ref 之前挂在带 p-3 的外层容器上，而计算只减了 16px，
+  // 导致横向高估 26px、纵向高估约 51px（还漏算了顶部信息栏），
+  // 使视频容器大于真实可用空间 —— 中窗口被 flex 压缩变形、大窗口溢出被裁切。
+  // 现改为直接测量「视频槽位」这一层（p-2 + 1px 边框），只扣它自己的内边距。
   const stageBoxRef = useRef<HTMLDivElement>(null);
   const [stageBox, setStageBox] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   useEffect(() => {
     const el = stageBoxRef.current;
     if (!el) return;
-    const update = () => setStageBox({ w: el.clientWidth, h: el.clientHeight });
+    const update = () => {
+      // clientWidth/Height 含 padding 不含 border；槽位内边距为 p-2 = 8px × 2
+      const cs = window.getComputedStyle(el);
+      const padX = parseFloat(cs.paddingLeft || '0') + parseFloat(cs.paddingRight || '0');
+      const padY = parseFloat(cs.paddingTop || '0') + parseFloat(cs.paddingBottom || '0');
+      setStageBox({
+        w: Math.max(0, el.clientWidth - padX),
+        h: Math.max(0, el.clientHeight - padY),
+      });
+    };
     update();
-    if (typeof ResizeObserver === 'undefined') return;
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update);
+      return () => window.removeEventListener('resize', update);
+    }
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
   }, [effectiveMode, videoUrl]);
 
-  // 依据容器实测尺寸计算视频舞台尺寸（横屏撑满宽度、竖屏贴合高度，均不溢出）
-  // 关键：高度必须由「取整后的宽度」按画幅推导，且不能再用 maxWidth/maxHeight 单独钳制 ——
-  // 否则窗口或栏宽变化时，某一维被钳制而另一维不变，视频就会被拉伸变形。
+  // 依据槽位实测尺寸计算视频尺寸（横屏撑满宽度、竖屏贴合高度，均不溢出）
+  // 高度严格由取整后的宽度按画幅推导，保证宽高比精确；外层再用 object-contain 兜底，
+  // 即使有 ±1px 误差也只会留边，绝不会拉伸变形。
   const stageSize = useMemo(() => {
-    const pad = 16;
-    const availW = Math.max(0, stageBox.w - pad);
-    const availH = Math.max(0, stageBox.h - pad);
+    const availW = stageBox.w;
+    const availH = stageBox.h;
     if (availW <= 0 || availH <= 0) return null;
     const ratio = videoDimensions.width / videoDimensions.height;
     if (!Number.isFinite(ratio) || ratio <= 0) return null;
@@ -564,10 +580,24 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   }, [illustrations, currentTime]);
 
   // 当前选定插图的画幅比例对象
+  // v0.7.8：用户上传的图片优先使用其**原始宽高比**（customAspect），
+  // 与模型生成图共用的 RATIO_OPTIONS 彻底解耦 —— 比例挂在 item 上，
+  // defaultRatio 只对生成图生效。
   const activeRatioObj = useMemo(() => {
+    const custom = activeIllustration?.customAspect;
+    if (typeof custom === 'number' && Number.isFinite(custom) && custom > 0) {
+      return {
+        id: 'custom',
+        label: '原始比例',
+        size: '',
+        desc: '跟随上传图片的原始比例',
+        ratioNum: custom,
+        cssRatio: `${custom}`,
+      };
+    }
     const ratioId = activeIllustration?.ratio || defaultRatio || '16:9';
     return RATIO_OPTIONS.find((r) => r.id === ratioId) || RATIO_OPTIONS[0];
-  }, [activeIllustration?.ratio, defaultRatio]);
+  }, [activeIllustration?.ratio, activeIllustration?.customAspect, defaultRatio]);
 
   // 将 ASR 提取到的真实发音时间轴吸附对齐到插图列表
   const applyAsrAlignmentToIllustrations = (
@@ -1012,6 +1042,70 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     showToast('已在当前时间点增加一个插图打点分镜', 'ok');
   };
 
+  /**
+   * 上传自己的图片（v0.7.8）
+   * 读取图片原始宽高比写入 customAspect，使其按自身比例显示，
+   * 不与模型生成图共用「画幅比例」设置。
+   */
+  const handleUploadOwnImage = async (targetId?: string) => {
+    try {
+      const filePath = await api.pickImageFile();
+      if (!filePath) return;
+
+      const fileUrl = `file:///${filePath.replace(/\\/g, '/')}`;
+
+      // 必须等图片真正解码完成才能读到 naturalWidth/Height
+      const aspect = await new Promise<number>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const w = img.naturalWidth || 0;
+          const h = img.naturalHeight || 0;
+          resolve(w > 0 && h > 0 ? w / h : 16 / 9);
+        };
+        img.onerror = () => resolve(16 / 9);
+        img.src = fileUrl;
+      });
+
+      const applyTo = (item: VideoIllustrationItem): VideoIllustrationItem => ({
+        ...item,
+        imageUrl: fileUrl,
+        localPath: filePath,
+        status: 'success',
+        source: 'upload',
+        customAspect: aspect,
+        error: undefined,
+      });
+
+      if (targetId) {
+        setIllustrations((prev) => prev.map((it) => (it.id === targetId ? applyTo(it) : it)));
+        showToast('已为该分镜替换为你的图片（按原图比例显示）', 'ok');
+      } else {
+        const dur = videoDuration > 0 ? videoDuration : 60;
+        const st = Math.max(0, Math.round(currentTime * 10) / 10);
+        const et = Math.min(dur, Math.round((st + 4.0) * 10) / 10);
+        const newItem: VideoIllustrationItem = applyTo({
+          id: `ill_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          startTime: st,
+          endTime: et,
+          contextText: '手动上传图片',
+          concept: '我的图片',
+          prompt: '',
+          type: 'standard',
+          model: 'sensenova-u1.5-lite',
+          category: 'scene_narrative',
+          style: defaultStyle,
+          ratio: defaultRatio,
+          status: 'success',
+        });
+        setIllustrations((prev) => [...prev, newItem].sort((a, b) => a.startTime - b.startTime));
+        setSelectedIllustrationId(newItem.id);
+        showToast('已插入你的图片（按原图比例显示，不影响模型生图比例）', 'ok');
+      }
+    } catch (err: any) {
+      showToast(err?.message || '上传图片失败', 'err');
+    }
+  };
+
   // 删除单张插图分镜
   const handleDeleteIllustration = (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -1087,6 +1181,9 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         yPercent: globalLayout.yPercent,
         widthPercent: globalLayout.widthPercent,
         heightPercent: globalLayout.heightPercent,
+        // v0.7.8：上传图带上原始宽高比，主进程据此做高度钳制，
+        // 避免竖图只按宽度缩放后高度超出画面（9:16 在 0.78 宽度下会算出 1.39 倍画面高）
+        aspect: it.source === 'upload' ? it.customAspect : undefined,
         transitionEffect,
         borderStyle,
       }));
@@ -1141,9 +1238,32 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     }
   };
 
+  // 退场动效 class（v0.7.8：四种动效都有对应退场，不再只有 fade）
+  const getExitAnimClass = (nearExit: boolean | undefined) => {
+    if (!nearExit) return '';
+    switch (transitionEffect) {
+      case 'fade':
+        return 'anim-ill-exit-fade';
+      case 'slide':
+        return 'anim-ill-exit-slide';
+      case 'zoom':
+        return 'anim-ill-exit-zoom';
+      default:
+        return '';
+    }
+  };
+
   // 当前激活插图是否处于末尾 0.35s 退场阶段
   const isNearExit = activeIllustration && activeIllustration.endTime - currentTime <= 0.35;
-  const exitFadeClass = isNearExit && transitionEffect === 'fade' ? 'opacity-0 transition-opacity duration-300' : '';
+  // v0.7.8：退场动效不再限定 fade；改由 getExitAnimClass 按当前动效给出对应退场类
+  const exitFadeClass = getExitAnimClass(isNearExit);
+
+  // 播放到新的插图时自动退出编辑态，避免编辑态长期吞掉动效预览
+  useEffect(() => {
+    if (isEditingOverlay) setIsEditingOverlay(false);
+    // 仅在切换到不同插图时复位
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIllustration?.id]);
 
   // 动态生成状态监控
   const generatingIndex = illustrations.findIndex((it) => it.status === 'generating');
@@ -1684,7 +1804,6 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         {/* 中栏：视频预览舞台 (居中大视窗、真实画幅、无多余遮挡、纯图标控制) */}
         {/* ========================================================================= */}
         <div
-          ref={stageBoxRef}
           onClick={() => setIsEditingOverlay(false)} // 点击背景区域退出编辑模式，返回纯净无边框预览
           className="flex-1 flex flex-col p-3 bg-zinc-100/50 dark:bg-[#090a0f] overflow-hidden min-w-0 items-center justify-center select-none"
         >
@@ -1704,11 +1823,14 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                 </div>
               </div>
 
-              {/* 核心视频舞台：尺寸由实测容器宽高计算，横竖屏均自适应且永不溢出 */}
-              <div className="relative flex-1 min-h-0 w-full flex items-center justify-center bg-zinc-950/40 rounded-2xl p-2 border border-zinc-200 dark:border-zinc-800 shadow-inner">
+              {/* 核心视频舞台：尺寸由本层实测内容盒计算（ref 挂在这里，避免层级猜测） */}
+              <div
+                ref={stageBoxRef}
+                className="relative flex-1 min-h-0 w-full flex items-center justify-center bg-zinc-950/40 rounded-2xl p-2 border border-zinc-200 dark:border-zinc-800 shadow-inner overflow-hidden"
+              >
                 <div
                   ref={videoContainerRef}
-                  className="relative rounded-xl overflow-hidden shadow-2xl bg-black select-none"
+                  className="relative rounded-xl overflow-hidden shadow-2xl bg-black select-none shrink-0"
                   style={{
                     width: stageSize ? `${stageSize.width}px` : undefined,
                     height: stageSize ? `${stageSize.height}px` : undefined,
@@ -1730,7 +1852,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                     }}
                     onPlay={() => setIsPlaying(true)}
                     onPause={() => setIsPlaying(false)}
-                    className="w-full h-full object-fill block pointer-events-auto"
+                    className="w-full h-full object-contain block pointer-events-auto"
                   />
 
                   {/* 拖拽居中吸附辅助对齐参考线 */}
@@ -1757,10 +1879,10 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                           handleMouseDown(e, false);
                         }
                       }}
-                      className={`absolute select-none overflow-hidden transition-all duration-200 z-20 flex items-center justify-center ${
+                      className={`absolute select-none overflow-hidden z-20 flex items-center justify-center transition-all duration-200 ${getTransitionAnimClass()} ${exitFadeClass} ${
                         isEditingOverlay
                           ? `cursor-move ring-2 ring-indigo-500 border-2 border-indigo-400 bg-zinc-900/95 shadow-2xl ${borderStyle === 'none' ? 'rounded-none' : 'rounded-xl'}`
-                          : `cursor-pointer ${getContainerBorderClass()} ${getTransitionAnimClass()} ${exitFadeClass}`
+                          : `cursor-pointer ${getContainerBorderClass()}`
                       }`}
                       title={isEditingOverlay ? '拖拽调整位置' : '点击激活编辑控柄调整位置与尺寸'}
                     >
@@ -1768,7 +1890,9 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                         <img
                           src={activeIllustration.imageUrl}
                           alt={activeIllustration.concept}
-                          className="w-full h-full object-cover pointer-events-none block"
+                          className={`w-full h-full pointer-events-none block ${
+                            activeIllustration.source === 'upload' ? 'object-contain bg-black/40' : 'object-cover'
+                          }`}
                         />
                       ) : (
                         <div className="w-full h-full p-2 bg-zinc-900/85 backdrop-blur-md flex flex-col items-center justify-center text-center">
@@ -1852,6 +1976,15 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                           title="打点插图 (在当前时间点增加插图)"
                         >
                           <Plus className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleUploadOwnImage()}
+                          className="p-1.5 rounded-md bg-white/20 hover:bg-white/30 text-emerald-200 hover:text-white transition cursor-pointer shrink-0"
+                          title="上传你自己的图片 (按原图比例显示，不占用模型生图比例)"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
                         </button>
 
                         <button

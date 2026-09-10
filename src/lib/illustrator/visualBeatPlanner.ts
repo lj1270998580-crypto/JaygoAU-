@@ -8,6 +8,7 @@
 // =========================================================================
 
 import type { SemanticUnit, VisualBeat, VisualScoreBreakdown, VisualType } from './types';
+import { isSalesPitch } from './semanticParser';
 import type { IllustrationDensity } from '../../types';
 
 export interface BeatPlannerOptions {
@@ -220,6 +221,14 @@ export function planVisualBeats(
   options: BeatPlannerOptions
 ): VisualBeat[] {
   if (!units || units.length === 0) return [];
+
+  // 节拍级第二道闸门（v0.7.8 新增）
+  // 此前全链路只有片段级一层过滤，节拍规划阶段没有任何准入判断；
+  // 且片段=一个句子，命中即整句丢弃、未命中则整句放行，
+  // 加上「低分同类型单元合并」会把推销句并进干货节拍 —— 推销内容于是仍会出图。
+  // 这里在进入导演阶段前再兜一道。
+  units = units.filter((u) => !isSalesPitch(u.rawText));
+  if (units.length === 0) return [];
 
   const budget = DENSITY_BUDGETS[options.density] || DENSITY_BUDGETS.standard;
 

@@ -1398,6 +1398,21 @@ ipcMain.handle('extract-media', async (_e, input: string) => {
   return await extractMedia(input);
 });
 
+/**
+ * 选择本地图片文件（v0.7.8 新增）
+ * 用于「打点后上传自己的图片」：返回绝对路径，渲染层据此读取原始宽高比
+ * 并直接以 file:// 显示（与模型生图同一套显示通道）。
+ */
+ipcMain.handle('pick-image-file', async () => {
+  const r = await dialog.showOpenDialog({
+    title: '选择要插入的图片',
+    properties: ['openFile'],
+    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'] }],
+  });
+  if (r.canceled || r.filePaths.length === 0) return null;
+  return r.filePaths[0];
+});
+
 ipcMain.handle(
   'download-extracted-media',
   async (
@@ -2694,6 +2709,8 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
     yPercent: number;
     widthPercent: number;
     heightPercent?: number;
+    /** v0.7.8：上传图的原始宽高比（w/h），用于高度钳制 */
+    aspect?: number;
     transitionEffect?: 'fade' | 'slide' | 'zoom' | 'none';
     borderStyle?: 'none' | 'clean_white' | 'rounded_card' | 'star_badge' | 'cyber_glow';
   }>;
@@ -2768,7 +2785,21 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
 
     overlays.forEach((ov, idx) => {
       const imgInputIndex = idx + 1;
-      const targetW = Math.max(16, Math.round((W * ov.widthPercent) / 2) * 2);
+      let targetW = Math.max(16, Math.round((W * ov.widthPercent) / 2) * 2);
+
+      // v0.7.8 高度钳制：叠加层按宽度缩放后高度由图片自身比例决定（h=-2），
+      // 一张 9:16 竖图在 widthPercent=0.78 下会算出 1.39 倍画面高度而溢出。
+      // 这里在上传图带有 aspect 时，按画面高度上限反推最大宽度。
+      if (typeof ov.aspect === 'number' && Number.isFinite(ov.aspect) && ov.aspect > 0) {
+        const maxHPercent = typeof ov.heightPercent === 'number' && ov.heightPercent > 0
+          ? ov.heightPercent
+          : 0.92;
+        const maxH = H * maxHPercent;
+        const widthLimitedByHeight = Math.floor((maxH * ov.aspect) / 2) * 2;
+        if (widthLimitedByHeight > 0) {
+          targetW = Math.max(16, Math.min(targetW, widthLimitedByHeight));
+        }
+      }
       const scaledTag = `ov_${idx}`;
       const nextVideoTag = idx === overlays.length - 1 ? 'outv' : `v_${idx}`;
       const posX = Math.max(0, Math.min(W - 20, Math.round(W * ov.xPercent)));

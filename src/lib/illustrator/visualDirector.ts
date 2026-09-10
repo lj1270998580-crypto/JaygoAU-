@@ -10,6 +10,7 @@
 import type { VisualBeat, ScenePlan, ShotType, VisualType } from './types';
 import { chatCompletion } from '../modelHubService';
 import { extractJsonArrayLoose, chunkArray } from './jsonExtract';
+import { mapWithConcurrency } from './concurrency';
 
 /**
  * 为全片所有选定的视觉节拍规划具体镜头画面
@@ -86,40 +87,63 @@ export async function directVisualScenes(
  * 此前把全部分镜塞进一个请求，长文案（20+ 节拍）必然超出 max_tokens 被截断，
  * 导致 JSON 解析失败并静默退回关键词模板 —— 这就是「AI 规划提示大模型未参与」的根因。
  */
-const LLM_BATCH_SIZE = 6;
+const LLM_BATCH_SIZE = 10;
+/** 并发上限：商汤 Token Plan 约 1 QPS，裸并发会连环 429，因此限制为 3 */
+const LLM_CONCURRENCY = 3;
 /** 因截断而二分重试的最大深度 */
 const MAX_SPLIT_DEPTH = 4;
 
 /**
- * LLM 导演规划器 - v4 分片批处理版
- * 把节拍切成小批分别请求，任一批次被截断时自动二分重试，最后按顺序合并。
+ * LLM 导演规划器 - v5 并发分片版
+ * v0.7.8：批次改为受限并发（墙钟时间明显下降）。
+ * 原先用于场景去重的共享 Map 在并发下会产生竞态（同一原型可能被两个批次
+ * 同时判为「首次出现」而失去差异化），因此改为合并后统一做一次去重补偿。
  */
 async function directWithLLM(
   beats: VisualBeat[],
   modelHubSettings: any,
   diag: DirectorDiagnostics
 ): Promise<ScenePlan[] | null> {
-  const usedSubjects = new Map<string, number>();
-  const collected: ScenePlan[] = [];
   const batches = chunkArray(beats, LLM_BATCH_SIZE);
 
   diag.batches = batches.length;
   diag.truncatedBatches = 0;
   diag.splits = 0;
 
-  for (let bi = 0; bi < batches.length; bi++) {
-    const batch = batches[bi];
-    const globalOffset = bi * LLM_BATCH_SIZE;
-    const plans = await directBatchWithSplit(
-      batch, globalOffset, modelHubSettings, usedSubjects, diag, 0
-    );
-    if (!plans || plans.length !== batch.length) {
+  const results = await mapWithConcurrency(batches, LLM_CONCURRENCY, (batch, bi) =>
+    directBatchWithSplit(batch, bi * LLM_BATCH_SIZE, modelHubSettings, diag, 0)
+  );
+
+  const collected: ScenePlan[] = [];
+  for (let i = 0; i < results.length; i++) {
+    const plans = results[i];
+    if (!plans || plans.length !== batches[i].length) {
       return null;
     }
     collected.push(...plans);
   }
 
+  // 合并后统一做场景去重补偿（并发下不能在批次内共享可变状态）
+  differentiateDuplicateSubjects(collected);
+
   return collected;
+}
+
+/**
+ * 场景去重补偿：同一 primarySubject 重复出现时，按出现次序施加视角/背景差异，
+ * 避免多个分镜产出雷同画面。规则与 deriveSceneFromText 内部保持一致。
+ */
+function differentiateDuplicateSubjects(plans: ScenePlan[]): void {
+  const seen = new Map<string, number>();
+  for (const p of plans) {
+    const key = p.scene?.primarySubject || '';
+    if (!key) continue;
+    const occ = seen.get(key) || 0;
+    seen.set(key, occ + 1);
+    if (occ === 0) continue;
+    p.scene.primarySubject = `${SUBJECT_LEAD[occ % SUBJECT_LEAD.length]}${p.scene.primarySubject}`;
+    p.scene.background = `${p.scene.background || ''}${BG_SUFFIX[occ % BG_SUFFIX.length]}`;
+  }
 }
 
 /**
@@ -130,12 +154,11 @@ async function directBatchWithSplit(
   batch: VisualBeat[],
   globalOffset: number,
   modelHubSettings: any,
-  usedSubjects: Map<string, number>,
   diag: DirectorDiagnostics,
   depth: number
 ): Promise<ScenePlan[] | null> {
   try {
-    return await directChunkWithLLM(batch, globalOffset, modelHubSettings, usedSubjects);
+    return await directChunkWithLLM(batch, globalOffset, modelHubSettings);
   } catch (err: any) {
     const isTruncation = err?.name === 'LlmTruncationError';
     if (!isTruncation) throw err;
@@ -146,11 +169,11 @@ async function directBatchWithSplit(
       diag.splits = (diag.splits || 0) + 1;
       const mid = Math.ceil(batch.length / 2);
       const head = await directBatchWithSplit(
-        batch.slice(0, mid), globalOffset, modelHubSettings, usedSubjects, diag, depth + 1
+        batch.slice(0, mid), globalOffset, modelHubSettings, diag, depth + 1
       );
       if (!head) throw err;
       const tail = await directBatchWithSplit(
-        batch.slice(mid), globalOffset + mid, modelHubSettings, usedSubjects, diag, depth + 1
+        batch.slice(mid), globalOffset + mid, modelHubSettings, diag, depth + 1
       );
       if (!tail) throw err;
       return [...head, ...tail];
@@ -165,8 +188,7 @@ async function directBatchWithSplit(
 async function directChunkWithLLM(
   beats: VisualBeat[],
   globalOffset: number,
-  modelHubSettings: any,
-  usedSubjects: Map<string, number>
+  modelHubSettings: any
 ): Promise<ScenePlan[] | null> {
   const promptList = beats.map((b, i) => ({
     beat_id: b.beatId,
@@ -255,7 +277,7 @@ async function directChunkWithLLM(
       {};
     // 修复同质化：缺失字段不再填统一模板，改为从「该节拍自己的旁白原文」派生，
     // 否则每个漏答字段都会变成同一句"核心角色与主体 / 采光通透的现代室内空间"。
-    const derived = deriveSceneFromText(b.sourceText, b.visualType, usedSubjects);
+    const derived = deriveSceneFromText(b.sourceText, b.visualType);
     const llmShot = item.composition?.shot;
     const shot: ShotType = isShotType(llmShot) ? llmShot : getAlternatingShot(idx);
     return {

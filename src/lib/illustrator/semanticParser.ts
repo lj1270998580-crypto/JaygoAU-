@@ -13,14 +13,54 @@ import type { SemanticUnit } from './types';
 import type { TimelineSegment } from './timelineAligner';
 import { chatCompletion } from '../modelHubService';
 import { extractJsonArrayLoose, chunkArray } from './jsonExtract';
+import { mapWithConcurrency } from './concurrency';
 
-// 绝对禁配的营销推销话术正则（含课程招募/带货段落）
-export const SALES_PITCH_REGEX =
-  /(购买课程|点击下方|小黄车|拍下[0-9]|去买|下单|橱窗|私信我|粉丝群|粉丝团|福利价|限时特惠|限时秒杀|原价.*现价|左下角|购物车|链接在|领资料|扣[0-9]|评论区回复|关注直播间|赶紧抢|优惠券|我在.*等你|扫码|加.*群|入群|三晚直播|纯干货.*名额|限额.*招募|还加赠|报名|内部课|私房课.*元|股权.*元|合规.*元|[0-9]+元.*课程|今天拍下|拍下.*元)/;
+// -------------------------------------------------------------------------
+// 营销推销话术过滤（v0.7.8 重构）
+//
+// 此前只有一条正则，对 27 条真实带货话术的拦截率仅 22%，主要缺口：
+//   「扣个1」（原 `扣[0-9]` 被"个"断开）、「评论区扣666」、「领取资料」
+//   （原只有"领资料"）、「名额有限/先到先得/仅限前50名」、「原价…现在…」、
+//   「买它」「三连」「感谢大家观看」「需要的朋友」等。
+//
+// 同时改为**两级判定**，避免像「关注我」这类软标记误杀整句干货：
+//   · 硬标记（明确带货/引流）→ 直接判定为推销
+//   · 软标记（招呼/互动引导）→ 仅当该句本身很短（≤20 字）时才判定为推销
+// -------------------------------------------------------------------------
+
+/** 硬性推销标记：出现即判定该句为推销/带货内容 */
+export const SALES_PITCH_HARD_REGEX =
+  /(购买课程|点击下方|小黄车|购物车|下单|拍下|去买|买它|橱窗|私信|粉丝群|粉丝团|福利价|秒杀|原价.{0,12}(现价|现在|只要)|打折|左下角|下方链接|链接在|领\s*取?\s*资料|扣\s*个?\s*[0-9]|评论区.{0,6}(扣|回复|留言)|关注直播间|赶紧抢|优惠券|扫码|加.{0,6}(微信|群)|入群|三晚直播|纯干货.*名额|限额|名额有限|仅限.{0,8}名|先到先得|还加赠|报名|内部课|私房课|股权.*元|合规.*元|[0-9]+元.{0,8}课程|课程.{0,8}[0-9]+元|今天拍下|只要\s*[0-9]+|最后\s*[0-9]+\s*个名额|我在.*等你)/;
+
+/** 软性标记：招呼/互动引导，单独出现不足以判定整句是推销 */
+export const SALES_PITCH_SOFT_REGEX =
+  /(关注我|点赞|收藏|转发|三连|家人们|感谢大家观看|感谢观看|需要的朋友|不迷路|限时|福利)/;
+
+/** 兼容旧引用名 */
+export const SALES_PITCH_REGEX = SALES_PITCH_HARD_REGEX;
+
+/** 软标记判定时允许的最大句子长度（去标点后） */
+const SOFT_SALES_MAX_CHARS = 20;
+
+/**
+ * 判断一段文案是否属于营销推销/带货内容
+ */
+export function isSalesPitch(text: string): boolean {
+  const t = (text || '').trim();
+  if (!t) return false;
+  if (SALES_PITCH_HARD_REGEX.test(t)) return true;
+  if (SALES_PITCH_SOFT_REGEX.test(t)) {
+    const bare = t.replace(/[\s，。！？、；：""''（）《》【】…—\-]/g, '');
+    return bare.length <= SOFT_SALES_MAX_CHARS;
+  }
+  return false;
+}
 
 // 寒暄客套过滤正则
+// v0.7.8 修复：原正则用 ^...$ 全匹配，导致「关注我，带你了解更多」这类
+// 「招呼语 + 正文」的句子完全不命中。改为前缀匹配。
 export const GREETING_REGEX =
-  /^(大家好|欢迎大家|点赞关注|欢迎点赞|关注我|哈喽|感谢大家|我是[^\s，。]+)[，。！？!\s]*$/;
+  /^(大家好|欢迎大家|点赞关注|欢迎点赞|关注我|哈喽|感谢大家|感谢观看|我是[^\s，。]{0,4})([，。！？!\s]|$)/;
 
 /**
  * 将时间对齐的文案切片解析为原子语义单元
@@ -32,10 +72,11 @@ export async function parseSemanticUnits(
   if (!segments || segments.length === 0) return [];
 
   // 1. 初步预过滤：剔除纯营销推销与纯寒暄
+  // v0.7.8：改用 isSalesPitch（硬标记直接丢 / 软标记仅短句丢），避免误杀整句干货
   const candidateSegments = segments.filter((seg) => {
     const t = seg.text.trim();
     if (t.length < 4) return false;
-    if (SALES_PITCH_REGEX.test(t)) return false;
+    if (isSalesPitch(t)) return false;
     if (GREETING_REGEX.test(t) || (t.length < 12 && /(大家好|欢迎大家|记得点赞|点个关注)/.test(t))) return false;
     return true;
   });
@@ -63,9 +104,14 @@ export async function parseSemanticUnits(
  */
 /**
  * 单次请求处理的片段数量。
- * 与 visualDirector 同理：一次性请求全部片段在长文案上必然超 token 被截断。
+ * v0.7.8：由 6 提升到 10 —— 截断风险已由 rejectTruncation + 二分重试兜住，
+ * 增大批量可直接减少请求轮数。
  */
-const LLM_BATCH_SIZE = 6;
+const LLM_BATCH_SIZE = 10;
+/**
+ * 并发上限。商汤 Token Plan 约 1 QPS，裸并发会连环 429，因此限制为 3。
+ */
+const LLM_CONCURRENCY = 3;
 const MAX_SPLIT_DEPTH = 4;
 
 async function parseWithLLM(
@@ -73,13 +119,16 @@ async function parseWithLLM(
   modelHubSettings: any
 ): Promise<SemanticUnit[] | null> {
   const batches = chunkArray(segments, LLM_BATCH_SIZE);
-  const collected: SemanticUnit[] = [];
 
-  for (let bi = 0; bi < batches.length; bi++) {
-    const batch = batches[bi];
-    const globalOffset = bi * LLM_BATCH_SIZE;
-    const units = await parseBatchWithSplit(batch, globalOffset, modelHubSettings, 0);
-    if (!units || units.length !== batch.length) return null;
+  // v0.7.8：由串行 for-await 改为受限并发，批次数不变但墙钟时间大幅下降
+  const results = await mapWithConcurrency(batches, LLM_CONCURRENCY, (batch, bi) =>
+    parseBatchWithSplit(batch, bi * LLM_BATCH_SIZE, modelHubSettings, 0)
+  );
+
+  const collected: SemanticUnit[] = [];
+  for (let i = 0; i < results.length; i++) {
+    const units = results[i];
+    if (!units || units.length !== batches[i].length) return null;
     collected.push(...units);
   }
 
