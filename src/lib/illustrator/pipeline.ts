@@ -16,9 +16,8 @@ import type {
 import type { RawAsrUtterance } from './timelineAligner';
 import type { IllustrationDensity } from '../../types';
 import { alignScriptTimeline } from './timelineAligner';
-import { parseSemanticUnits } from './semanticParser';
-import { planVisualBeats } from './visualBeatPlanner';
-import { directVisualScenes, createDirectorDiagnostics, type DirectorDiagnostics } from './visualDirector';
+import { planIllustrationsUnified } from './unifiedPlanner';
+import { createDirectorDiagnostics, type DirectorDiagnostics } from './visualDirector';
 import { getStyleBible } from './styleBible';
 import { compileScenePrompt } from './promptCompiler';
 
@@ -103,19 +102,21 @@ export async function runIllustrationPipeline(
     throw new Error('文案内容为空或无法识别有效段落');
   }
 
-  // 2. 语义切块与实体提取阶段
+  // 2+3+4. 合并规划阶段（v0.7.15）
+  //
+  // 此前是「语义解析(LLM) → 本地打分挑选 → 分镜导演(LLM)」三段，
+  // 同一段旁白被大模型读了两遍，第二轮还只拿到第一轮压缩后的产物，
+  // 信息在传递中被削掉，耗时与 TPM 消耗也都是双份。
+  // 现在合并为**一次调用**：模型直接输出「要不要配图 + 配什么图 + 怎么构图」。
   onProgress?.({
-    stage: 'parsing',
+    stage: 'directing',
     stepNumber: 2,
-    totalSteps: 5,
-    stageName: '语义事件解析',
-    message: '正在切分原子语义事件并过滤推销话术…',
-    percent: 35,
+    totalSteps: 4,
+    stageName: 'AI 分镜规划',
+    message: '大模型正在逐句理解旁白，并决定要不要配图、配什么图…',
+    percent: 30,
   });
 
-  // v0.7.11：分片进度透出。此前整条流水线只在 5 个固定节点上报百分比，
-  // 「分镜导演构图」在开始时报一次 80% 后就再无更新，而该阶段可能串行跑多轮
-  // LLM 请求（含限流退避）长达数分钟 —— 用户看到的就是「一直卡在 80%」。
   const batchReporter = (
     stage: PipelineProgress['stage'],
     stepNumber: number,
@@ -127,75 +128,45 @@ export async function runIllustrationPipeline(
     onProgress?.({
       stage,
       stepNumber,
-      totalSteps: 5,
+      totalSteps: 4,
       stageName,
       message: `${stageName}：第 ${done}/${total} 批…`,
       percent: Math.min(94, pct),
     });
   };
 
-  const semanticUnits: SemanticUnit[] = await parseSemanticUnits(
-    timelineSegments,
-    modelHubSettings,
-    batchReporter('parsing', 2, '语义事件解析', 35, 15)
-  );
-  if (semanticUnits.length === 0) {
-    throw new Error('未在文案中解析到可视觉化的有效正文内容');
-  }
-
-  // 3. 视觉节拍规划与打分阶段 (Visual Need Score V)
-  onProgress?.({
-    stage: 'planning',
-    stepNumber: 3,
-    totalSteps: 5,
-    stageName: '视觉节拍规划',
-    message: `正在基于 V 评分算法与【${density === 'dense' ? '紧凑密集' : density === 'sparse' ? '精炼聚焦' : '标准均衡'}】预算求解插图节点…`,
-    percent: 60,
-  });
-
-  const visualBeats: VisualBeat[] = planVisualBeats(semanticUnits, {
+  const plannedItems = await planIllustrationsUnified(timelineSegments, {
     density,
-    routingMode,
-    totalDuration: videoDuration,
+    videoDuration,
+    modelHubSettings,
+    onBatch: batchReporter('directing', 2, 'AI 分镜规划', 30, 55),
   });
 
-  if (visualBeats.length === 0) {
-    throw new Error('视觉节拍规划未产生入选分镜');
+  if (plannedItems.length === 0) {
+    throw new Error('大模型判定这段文案没有值得配图的句子，请检查文案内容或改用更密集的配图密度。');
   }
-
-  // 4. 视觉导演分镜规划阶段
-  onProgress?.({
-    stage: 'directing',
-    stepNumber: 4,
-    totalSteps: 5,
-    stageName: '分镜导演构图',
-    message: '视觉导演正在规划实体道具、环境空间与景别节奏…',
-    percent: 80,
-  });
 
   const directorDiag = createDirectorDiagnostics();
-  const scenePlans: ScenePlan[] = await directVisualScenes(
-    visualBeats,
-    modelHubSettings,
-    directorDiag,
-    batchReporter('directing', 4, '分镜导演构图', 80, 12)
-  );
+  directorDiag.usedLLM = true;
+  directorDiag.batches = Math.ceil(timelineSegments.length / 6);
+  directorDiag.degradedBatches = 0;
 
-  // 5. 风格圣经与提示词编译阶段
+  // 4. 风格圣经与提示词编译阶段
   onProgress?.({
     stage: 'compiling',
-    stepNumber: 5,
-    totalSteps: 5,
+    stepNumber: 3,
+    totalSteps: 4,
     stageName: '提示词编译',
     message: '正在基于 Style Bible 编译中文实体生图提示词…',
-    percent: 95,
+    percent: 92,
   });
 
   const styleBible: StyleBible = getStyleBible(styleId);
 
   // 整合并装配输出结果
-  const results: PlannedIllustrationResult[] = visualBeats.map((beat, idx) => {
-    const plan = scenePlans[idx] || scenePlans.find((p) => p.beatId === beat.beatId)!;
+  const results: PlannedIllustrationResult[] = plannedItems.map((item) => {
+    const beat = { visualType: item.visualType };
+    const plan = item.plan;
 
     // 先判定图种与模型（信息图需要走独立编译分支）
     let isInfo = false;
@@ -223,10 +194,10 @@ export async function runIllustrationPipeline(
     if (concept.length > 16) concept = concept.slice(0, 16);
 
     return {
-      beatId: beat.beatId,
-      startTime: beat.timeline.recommendedStart,
-      endTime: beat.timeline.recommendedEnd,
-      contextText: beat.sourceText,
+      beatId: item.beatId,
+      startTime: item.startTime,
+      endTime: item.endTime,
+      contextText: item.sourceText,
       concept,
       communicationGoal: plan.communicationGoal,
       visualType: beat.visualType,
@@ -239,7 +210,7 @@ export async function runIllustrationPipeline(
       negativePrompt: promptBlocks.negativePrompt,
       promptBlocks,
       scenePlan: plan,
-      visualScore: beat.score.total,
+      visualScore: item.score,
       shot: plan.composition.shot,
     };
   });
@@ -260,8 +231,8 @@ export async function runIllustrationPipeline(
 
   onProgress?.({
     stage: 'completed',
-    stepNumber: 5,
-    totalSteps: 5,
+    stepNumber: 4,
+    totalSteps: 4,
     stageName: '规划完成',
     message: `成功完成 ${results.length} 个镜头分镜规划！`,
     percent: 100,

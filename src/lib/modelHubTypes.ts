@@ -174,8 +174,11 @@ export const PRESET_PROVIDERS: Record<ModelProviderType, ProviderPreset> = {
     type: 'mimo',
     name: '小米 · MiMo (大模型开放平台)',
     icon: '📱',
+    // v0.7.15：MiMo 的 Token Plan 套餐与按量付费是**不同域名**，Key 也互不通用
+    // （tp- / sk-）。填好 Key 后由 normalizeBaseUrl 自动切到正确域名，
+    // 这里保持按量付费地址作为默认展示值。
     defaultBaseUrl: 'https://api.xiaomimimo.com/v1',
-    keyPlaceholder: '请输入小米 MiMo API Key (tp-... / sk-...)',
+    keyPlaceholder: '按量付费填 sk-… ；Token Plan 套餐填 tp-…（域名自动切换）',
     docUrl: 'https://platform.xiaomimimo.com/',
     models: [
       { id: 'mimo-v2.5-pro', name: 'MiMo-V2.5-Pro (小米旗舰多模态大模型)', description: '小米多模态推理与创作旗舰，综合指令遵循与口播创作拔尖', badge: '2026旗舰' },

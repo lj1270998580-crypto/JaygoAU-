@@ -55,7 +55,7 @@ export function resolveModelInfo(settings: ModelHubSettings, options?: ChatCompl
     providerType: provider.type,
     providerLabel: preset?.name || provider.type,
     model,
-    baseUrl: provider.baseUrl || '',
+    baseUrl: normalizeBaseUrl(provider),
   };
 }
 
@@ -137,6 +137,31 @@ function resolveProviderAndModel(
       : provider.selectedModel);
 
   return { provider, model };
+}
+
+/**
+ * v0.7.15：小米 MiMo 的 Token Plan（套餐）与按量付费走的是**不同域名**。
+ *
+ * 官方文档：
+ *   按量付费 API Key（sk-…）→ https://api.xiaomimimo.com/v1
+ *   Token Plan 套餐 Key（tp-…）→ https://token-plan-cn.xiaomimimo.com/v1
+ *
+ * 两者互不通用：拿 tp- 开头的 Key 去请求按量付费域名会直接 401。此前预设里
+ * 只写了按量付费域名，套餐用户填完 Key 只会看到「未授权」而无从判断原因。
+ * 这里按 Key 前缀自动切换到正确的域名。
+ */
+const MIMO_PAYG_BASE_URL = 'https://api.xiaomimimo.com/v1';
+const MIMO_TOKEN_PLAN_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/v1';
+
+export function normalizeBaseUrl(provider: { type: string; baseUrl?: string; apiKey?: string }): string {
+  const raw = (provider.baseUrl || '').trim().replace(/\/+$/, '');
+  if (provider.type !== 'mimo') return raw;
+  const key = (provider.apiKey || '').trim();
+  const isTokenPlan = key.startsWith('tp-');
+  // 用户没改过默认值（或留空）时才自动切换，避免覆盖用户手填的自定义域名
+  const isDefault = !raw || raw === MIMO_PAYG_BASE_URL || raw === MIMO_TOKEN_PLAN_BASE_URL;
+  if (!isDefault) return raw;
+  return isTokenPlan ? MIMO_TOKEN_PLAN_BASE_URL : MIMO_PAYG_BASE_URL;
 }
 
 /**
@@ -244,7 +269,7 @@ async function chatCompletionImpl(
     throw new Error(`【${provider.type.toUpperCase()}】尚未配置 API Key，请先前往 [模型中心] 填写`);
   }
 
-  let baseUrl = (provider.baseUrl || '').trim().replace(/\/+$/, '');
+  let baseUrl = normalizeBaseUrl(provider);
   if (!baseUrl) {
     throw new Error(`【${provider.type.toUpperCase()}】未配置 Base URL`);
   }
@@ -616,7 +641,7 @@ export async function testConnection(provider: ConfiguredProvider): Promise<Conn
     return { ok: false, pingMs: 0, error: '请先填写 API Key' };
   }
 
-  let baseUrl = (provider.baseUrl || '').trim().replace(/\/+$/, '');
+  let baseUrl = normalizeBaseUrl(provider);
   if (!baseUrl) {
     return { ok: false, pingMs: 0, error: 'Base URL 不能为空' };
   }

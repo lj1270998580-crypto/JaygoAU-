@@ -24,6 +24,10 @@ const TPM_BY_MODEL: Record<string, number> = {
   // DeepSeek 官方：额度充足，是目前唯一值得开并发的常见选择
   'deepseek-chat': 5_000_000,
   'deepseek-reasoner': 5_000_000,
+  // 小米 MiMo：Token Plan 是包月套餐，额度充足且不计单次费用；
+  // 实测单批（6 句）耗时 60~106 秒，串行跑 12 批要十几分钟，必须开并发。
+  'mimo-v2.5-pro': 3_000_000,
+  'mimo-v2.5-flash': 3_000_000,
   // 通义千问 / 智谱：中等额度
   'qwen-max': 1_200_000,
   'qwen-plus': 1_200_000,

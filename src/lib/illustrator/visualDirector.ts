@@ -832,7 +832,7 @@ function pickShotForBeat(beat: VisualBeat, index: number): ShotType {
  * 消除相邻分镜在景别 / 机位 / 主体占比上的重复堆叠。
  * @returns 被调整的分镜数量
  */
-function enforceVisualDiversity(plans: ScenePlan[]): number {
+export function enforceVisualDiversity(plans: ScenePlan[]): number {
   if (plans.length < 2) return 0;
 
   const ALL_SHOTS: ShotType[] = ['wide', 'medium', 'close', 'extreme_close', 'overhead'];
