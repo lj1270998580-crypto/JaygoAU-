@@ -104,14 +104,19 @@ export async function parseSemanticUnits(
  */
 /**
  * 单次请求处理的片段数量。
- * v0.7.8：由 6 提升到 10 —— 截断风险已由 rejectTruncation + 二分重试兜住，
- * 增大批量可直接减少请求轮数。
+ * v0.7.10：由 10 回调到 5 —— 服务商限制的是【每分钟 Token 数 (TPM)】，
+ * 批量越大单次消耗的 token 越多，越容易直接撞上限。小批量 + 串行才稳。
  */
-const LLM_BATCH_SIZE = 10;
+const LLM_BATCH_SIZE = 5;
 /**
- * 并发上限。商汤 Token Plan 约 1 QPS，裸并发会连环 429，因此限制为 3。
+ * 并发上限。
+ * v0.7.10：由 3 改回 1（串行）。
+ * 上一版为了提速改成 3 并发 + 批量 10，结果 3 个大请求同时发出，
+ * 瞬间打满每分钟 Token 额度并连续 429 —— 语义解析整体失败后
+ * 全量退回关键词模板，用户看到的就是「切换什么模型都提示大模型未参与」。
+ * TPM 是分钟级配额，并发只会更快撞墙；串行 + 小批量才是正确解。
  */
-const LLM_CONCURRENCY = 3;
+const LLM_CONCURRENCY = 1;
 const MAX_SPLIT_DEPTH = 4;
 
 async function parseWithLLM(
@@ -119,20 +124,27 @@ async function parseWithLLM(
   modelHubSettings: any
 ): Promise<SemanticUnit[] | null> {
   const batches = chunkArray(segments, LLM_BATCH_SIZE);
+  let degradedBatches = 0;
 
-  // v0.7.8：由串行 for-await 改为受限并发，批次数不变但墙钟时间大幅下降
-  const results = await mapWithConcurrency(batches, LLM_CONCURRENCY, (batch, bi) =>
-    parseBatchWithSplit(batch, bi * LLM_BATCH_SIZE, modelHubSettings, 0)
-  );
+  // v0.7.10：单批失败不再让整条流水线失败。
+  // 此前任何一批返回空/数量不匹配就 return null，导致全部退回关键词模板；
+  // 现在改为「该批用本地规则引擎兜底」，其余批次仍走大模型。
+  const results = await mapWithConcurrency(batches, LLM_CONCURRENCY, async (batch, bi) => {
+    try {
+      const units = await parseBatchWithSplit(batch, bi * LLM_BATCH_SIZE, modelHubSettings, 0);
+      if (units && units.length === batch.length) return units;
+    } catch (err: any) {
+      console.warn(`[SemanticParser] 第 ${bi + 1}/${batches.length} 批大模型解析失败，本批改用本地规则引擎:`, err?.message || err);
+    }
+    degradedBatches++;
+    return parseWithLocalRules(batch);
+  });
 
-  const collected: SemanticUnit[] = [];
-  for (let i = 0; i < results.length; i++) {
-    const units = results[i];
-    if (!units || units.length !== batches[i].length) return null;
-    collected.push(...units);
+  if (degradedBatches > 0) {
+    console.warn(`[SemanticParser] 共 ${degradedBatches}/${batches.length} 批降级为本地规则引擎`);
   }
 
-  return collected;
+  return results.flat();
 }
 
 /**

@@ -1,7 +1,7 @@
 {
   "name": "jaygo-au",
-  "version": "0.7.9",
-  "description": "Jaygo AU 鈥?鍏ㄨ兘 AI 鑷獟浣撳垱浣滃伐浣滃彴 (璇煶鍚堟垚 路 澹伴煶澶嶅埢 路 铦夐暅鏁板瓧浜?路 濯掍綋鎻愬彇 路 鏅鸿兘杞綍)",
+  "version": "0.7.10",
+  "description": "Jaygo AU — 全能 AI 自媒体创作工作台 (语音合成 · 声音复刻 · 蝉镜数字人 · 媒体提取 · 智能转录)",
   "private": true,
   "author": "Jaygo",
   "main": "dist-electron/main.js",

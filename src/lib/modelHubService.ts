@@ -224,41 +224,58 @@ export async function chatCompletion(
       options.signal.removeEventListener('abort', onAbort);
     }
 
-    // 针对 429 (Too Many Requests / 1 QPS 限制) 自动进行指数退避重试
+    // 针对 429 自动退避重试
+    // v0.7.10：区分 QPS 限流与 TPM（每分钟 Token）限流 —— 两者的正确等待时间差一个数量级。
+    // 服务端返回形如 "inference exceeds tpm limit" 时属于 TPM，必须等到分钟窗口滚过，
+    // 此前统一次等待 1.5/3/6 秒（共约 10 秒）远不够，必然连续失败 3 次后整体放弃。
     if (res.status === 429) {
       attempt++;
+
+      // 先读取错误体，用于判定限流类型（读取后本响应即作废，正好重试）
+      let errText = '';
+      try {
+        const errJson = await res.json();
+        errText = errJson.error?.message || errJson.message || JSON.stringify(errJson);
+      } catch (_) {
+        try { errText = await res.text(); } catch (_) { /* ignore */ }
+      }
+      const isTpm = /tpm|tokens?\s*per\s*minute|exceeds.*limit/i.test(errText || '');
+
       if (attempt > MAX_429_RETRIES) {
-        let errText = '';
-        try {
-          const errJson = await res.json();
-          errText = errJson.error?.message || errJson.message || JSON.stringify(errJson);
-        } catch (_) {
-          errText = await res.text();
-        }
         throw new Error(
           `触发服务商调用频次限制 (HTTP 429: Too Many Requests)。\n\n` +
-          `已为您自动智能排队重试 3 次，但服务商仍限制访问。\n` +
+          `已自动排队重试 ${MAX_429_RETRIES} 次，但服务商仍限制访问。\n` +
           `💡 建议排查与解决：\n` +
-          `1. 商汤 Token Plan、部分免费/公测模型限制为 1 QPS (每秒仅限 1 次调用)，请等待 5~10 秒后再试；\n` +
-          `2. 可直接在对话框顶部快捷切换为其他已配置的供应商或模型（如 DeepSeek、豆包、通义千问等）；\n` +
+          (isTpm
+            ? `1. 这是【每分钟 Token 数 (TPM)】超限，不是每秒请求数限制。本软件已按最小批量、串行方式调用；\n` +
+              `   若仍超限，说明当前套餐的 TPM 额度较小，请等待约 1 分钟后再试，或在【统一大模型中心】换用额度更大的套餐/供应商；\n`
+            : `1. 商汤 Token Plan、部分免费/公测模型限制为 1 QPS（每秒仅限 1 次调用），请等待 5~10 秒后再试；\n`) +
+          `2. 可在顶栏「AI 规划」胶囊处快捷切换其他已配置的供应商或模型；\n` +
           `3. 详情反馈: ${errText || 'Rate limit exceeded'}`
         );
       }
 
-      // 读取服务端 Retry-After 头，无则按 1.5s -> 3s -> 6s 退避并加上抖动
-      let delayMs = 1500 * Math.pow(2, attempt - 1);
+      // TPM 需要等到分钟窗口滚过；QPS 只需短退避
+      const tpmDelays = [20000, 45000, 60000];
+      let delayMs = isTpm
+        ? tpmDelays[Math.min(attempt - 1, tpmDelays.length - 1)]
+        : 1500 * Math.pow(2, attempt - 1);
+
+      // 服务端 Retry-After 优先，并且不再截断到 10 秒（TPM 场景常给出 30~60 秒）
       const retryAfter = res.headers.get('retry-after');
       if (retryAfter) {
         const sec = parseFloat(retryAfter);
         if (!isNaN(sec) && sec > 0) {
-          delayMs = Math.min(sec * 1000, 10000);
+          delayMs = Math.max(delayMs, Math.min(sec * 1000, 65000));
         }
       }
-      delayMs += Math.floor(Math.random() * 350) + 200;
+      delayMs += Math.floor(Math.random() * 500) + 200;
 
-      // 友好通知前端用户正在排队
       const provName = PRESET_PROVIDERS[provider.type]?.name || provider.type;
-      options.onDelta?.(`\n⏳ 当前服务商（${provName}）触发 1 QPS 频次保护 (429)，系统正在自动智能排队重试中（第 ${attempt}/${MAX_429_RETRIES} 次，等待 ${(delayMs / 1000).toFixed(1)} 秒）...\n`);
+      options.onDelta?.(
+        `\n⏳ 当前服务商（${provName}）触发${isTpm ? '每分钟 Token 额度 (TPM)' : '频次 (QPS)'}限制，` +
+        `正在自动排队重试（第 ${attempt}/${MAX_429_RETRIES} 次，等待 ${(delayMs / 1000).toFixed(1)} 秒）...\n`
+      );
 
       await new Promise(resolve => setTimeout(resolve, delayMs));
       continue;

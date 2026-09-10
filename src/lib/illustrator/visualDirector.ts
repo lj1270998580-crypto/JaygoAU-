@@ -31,6 +31,8 @@ export interface DirectorDiagnostics {
   truncatedBatches?: number;
   /** 因截断而触发二分重试的次数 */
   splits?: number;
+  /** 因限流/失败而降级为本地规则引擎的批次数（v0.7.10） */
+  degradedBatches?: number;
 }
 
 export function createDirectorDiagnostics(): DirectorDiagnostics {
@@ -61,7 +63,18 @@ export async function directVisualScenes(
           : '大模型未返回可解析的 JSON 分镜结果';
         plans = null;
       } else {
-        d.usedLLM = true;
+        // v0.7.10：即便整体返回成功，也要如实反映有多少批次其实降级到了本地规则
+        const total = d.batches || 1;
+        const degraded = d.degradedBatches || 0;
+        if (degraded >= total) {
+          d.usedLLM = false;
+          d.fallbackReason = '全部批次均因服务商限流或调用失败而降级为关键词规则模板';
+        } else {
+          d.usedLLM = true;
+          if (degraded > 0) {
+            d.fallbackReason = `${degraded}/${total} 个批次因限流或调用失败降级为关键词规则模板，其余批次由大模型完成`;
+          }
+        }
       }
     } catch (err: any) {
       d.usedLLM = false;
@@ -84,20 +97,24 @@ export async function directVisualScenes(
 
 /**
  * 单次请求处理的节拍数量。
- * 此前把全部分镜塞进一个请求，长文案（20+ 节拍）必然超出 max_tokens 被截断，
- * 导致 JSON 解析失败并静默退回关键词模板 —— 这就是「AI 规划提示大模型未参与」的根因。
+ * v0.7.10：由 10 回调到 5 —— 服务商限制的是每分钟 Token 数 (TPM)，
+ * 批量越大单次 token 消耗越高，越容易直接撞上限。
  */
-const LLM_BATCH_SIZE = 10;
-/** 并发上限：商汤 Token Plan 约 1 QPS，裸并发会连环 429，因此限制为 3 */
-const LLM_CONCURRENCY = 3;
+const LLM_BATCH_SIZE = 5;
+/**
+ * 并发上限。
+ * v0.7.10：由 3 改回 1（串行）。上一版的 3 并发 + 批量 10 会瞬间打满
+ * 每分钟 Token 额度并连续 429，反而导致整条规划失败。TPM 是分钟级配额，
+ * 并发只会更快撞墙。
+ */
+const LLM_CONCURRENCY = 1;
 /** 因截断而二分重试的最大深度 */
 const MAX_SPLIT_DEPTH = 4;
 
 /**
- * LLM 导演规划器 - v5 并发分片版
- * v0.7.8：批次改为受限并发（墙钟时间明显下降）。
- * 原先用于场景去重的共享 Map 在并发下会产生竞态（同一原型可能被两个批次
- * 同时判为「首次出现」而失去差异化），因此改为合并后统一做一次去重补偿。
+ * LLM 导演规划器 - v6 串行分片 + 单批降级版
+ * v0.7.10：单批失败不再让整条规划失败，该批改用本地规则引擎，
+ * 其余批次仍使用大模型；诊断信息会记录降级批次数。
  */
 async function directWithLLM(
   beats: VisualBeat[],
@@ -110,20 +127,26 @@ async function directWithLLM(
   diag.truncatedBatches = 0;
   diag.splits = 0;
 
-  const results = await mapWithConcurrency(batches, LLM_CONCURRENCY, (batch, bi) =>
-    directBatchWithSplit(batch, bi * LLM_BATCH_SIZE, modelHubSettings, diag, 0)
-  );
-
-  const collected: ScenePlan[] = [];
-  for (let i = 0; i < results.length; i++) {
-    const plans = results[i];
-    if (!plans || plans.length !== batches[i].length) {
-      return null;
+  let degraded = 0;
+  const results = await mapWithConcurrency(batches, LLM_CONCURRENCY, async (batch, bi) => {
+    try {
+      const plans = await directBatchWithSplit(batch, bi * LLM_BATCH_SIZE, modelHubSettings, diag, 0);
+      if (plans && plans.length === batch.length) return plans;
+    } catch (err: any) {
+      console.warn(`[VisualDirector] 第 ${bi + 1}/${batches.length} 批导演规划失败，本批改用本地规则引擎:`, err?.message || err);
     }
-    collected.push(...plans);
-  }
+    degraded++;
+    return directWithLocalRules(batch);
+  });
 
-  // 合并后统一做场景去重补偿（并发下不能在批次内共享可变状态）
+  if (degraded > 0) {
+    console.warn(`[VisualDirector] 共 ${degraded}/${batches.length} 批降级为本地规则引擎`);
+  }
+  diag.degradedBatches = degraded;
+
+  const collected: ScenePlan[] = results.flat();
+
+  // 合并后统一做场景去重补偿
   differentiateDuplicateSubjects(collected);
 
   return collected;

@@ -2110,10 +2110,15 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
               }`}
             >
               <div className="flex items-center gap-1.5 font-bold">
-                {planDiagnostics.usedLLM ? (
+                {planDiagnostics.usedLLM && !planDiagnostics.fallbackReason ? (
                   <>
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                     <span className="text-emerald-700 dark:text-emerald-300">大模型视觉导演已参与规划</span>
+                  </>
+                ) : planDiagnostics.usedLLM ? (
+                  <>
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    <span className="text-amber-700 dark:text-amber-300">大模型已参与，但部分批次降级</span>
                   </>
                 ) : (
                   <>
@@ -2122,9 +2127,9 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                   </>
                 )}
               </div>
-              {!planDiagnostics.usedLLM && planDiagnostics.fallbackReason && (
-                <div className="text-amber-700/90 dark:text-amber-400/90 leading-relaxed">
-                  原因：{planDiagnostics.fallbackReason}
+              {planDiagnostics.fallbackReason && (
+                <div className="text-amber-700/90 dark:text-amber-400/90 leading-relaxed whitespace-pre-wrap">
+                  {planDiagnostics.usedLLM ? '' : '原因：'}{planDiagnostics.fallbackReason}
                 </div>
               )}
               <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-zinc-600 dark:text-zinc-400 font-mono">
