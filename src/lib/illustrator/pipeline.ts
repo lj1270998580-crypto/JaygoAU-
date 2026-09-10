@@ -17,7 +17,7 @@ import type { IllustrationDensity } from '../../types';
 import { alignScriptTimeline } from './timelineAligner';
 import { parseSemanticUnits } from './semanticParser';
 import { planVisualBeats } from './visualBeatPlanner';
-import { directVisualScenes } from './visualDirector';
+import { directVisualScenes, createDirectorDiagnostics, type DirectorDiagnostics } from './visualDirector';
 import { getStyleBible } from './styleBible';
 import { compileScenePrompt } from './promptCompiler';
 
@@ -31,6 +31,7 @@ export interface PipelineOptions {
   asrUtterances?: RawAsrUtterance[];
   modelHubSettings?: any;
   onProgress?: (progress: PipelineProgress) => void;
+  onDiagnostics?: (diag: PipelineDiagnostics) => void;
 }
 
 export interface PlannedIllustrationResult {
@@ -54,6 +55,16 @@ export interface PlannedIllustrationResult {
 }
 
 /**
+ * 整条流水线的运行诊断（透出到 UI，避免 LLM 静默降级无人知晓）
+ */
+export interface PipelineDiagnostics extends DirectorDiagnostics {
+  totalBeats: number;
+  infographicCount: number;
+  standardCount: number;
+  averageCoverage: number;
+}
+
+/**
  * 运行完整的 AI 视觉导演分镜规划流水线
  */
 export async function runIllustrationPipeline(
@@ -69,6 +80,7 @@ export async function runIllustrationPipeline(
     asrUtterances,
     modelHubSettings,
     onProgress,
+    onDiagnostics,
   } = options;
 
   // 1. 时间轴对齐阶段
@@ -133,7 +145,12 @@ export async function runIllustrationPipeline(
     percent: 80,
   });
 
-  const scenePlans: ScenePlan[] = await directVisualScenes(visualBeats, modelHubSettings);
+  const directorDiag = createDirectorDiagnostics();
+  const scenePlans: ScenePlan[] = await directVisualScenes(
+    visualBeats,
+    modelHubSettings,
+    directorDiag
+  );
 
   // 5. 风格圣经与提示词编译阶段
   onProgress?.({
@@ -141,7 +158,7 @@ export async function runIllustrationPipeline(
     stepNumber: 5,
     totalSteps: 5,
     stageName: '提示词编译',
-    message: '正在基于 Style Bible 编译纯净实体生图提示词…',
+    message: '正在基于 Style Bible 编译中文实体生图提示词…',
     percent: 95,
   });
 
@@ -150,9 +167,8 @@ export async function runIllustrationPipeline(
   // 整合并装配输出结果
   const results: PlannedIllustrationResult[] = visualBeats.map((beat, idx) => {
     const plan = scenePlans[idx] || scenePlans.find((p) => p.beatId === beat.beatId)!;
-    const promptBlocks = compileScenePrompt(plan, styleBible);
 
-    // 映射图种与模型
+    // 先判定图种与模型（信息图需要走独立编译分支）
     let isInfo = false;
     if (routingMode === 'infographic') {
       isInfo = true;
@@ -165,6 +181,9 @@ export async function runIllustrationPipeline(
 
     const model = isInfo ? 'sensenova-u1-fast' : 'sensenova-u1.5-lite';
     const type: 'infographic' | 'standard' = isInfo ? 'infographic' : 'standard';
+
+    // 关键修复：把图种传入编译器，信息图使用独立的图表化编译分支
+    const promptBlocks = compileScenePrompt(plan, styleBible, { type });
 
     // 映射 category
     let cat: 'data_stat' | 'step_framework' | 'vs_comparison' | 'concept_metaphor' | 'scene_narrative' = 'scene_narrative';
@@ -198,6 +217,20 @@ export async function runIllustrationPipeline(
       shot: plan.composition.shot,
     };
   });
+
+  const infographicCount = results.filter((r) => r.type === 'infographic').length;
+  const avgCoverage = results.length > 0
+    ? results.reduce((sum, r) => sum + (r.promptBlocks.coverageScore || 0), 0) / results.length
+    : 0;
+
+  const diagnostics: PipelineDiagnostics = {
+    ...directorDiag,
+    totalBeats: results.length,
+    infographicCount,
+    standardCount: results.length - infographicCount,
+    averageCoverage: Math.round(avgCoverage * 100) / 100,
+  };
+  onDiagnostics?.(diagnostics);
 
   onProgress?.({
     stage: 'completed',

@@ -29,17 +29,38 @@ const buildDir = (pkg.build && pkg.build.directories && pkg.build.directories.ou
   ? path.resolve(ROOT, pkg.build.directories.output)
   : path.join(ROOT, 'release-pkg');
 
+/**
+ * 部署目标配置
+ *
+ * ⚠️ 安全说明（v0.7.5 修复）：
+ * 本文件此前把生产服务器 root 密码以字面量形式硬编码在此处作为兜底值，
+ * 而该文件是被 git 跟踪并推送到公开仓库的 —— 等同于公开了生产服务器的 root 凭据。
+ * 现已彻底移除硬编码，密码必须通过环境变量 SSH_PASS 提供。
+ *
+ * 用法：
+ *   SSH_PASS='<服务器root密码>' node scripts/deploy-ssh.js
+ * 建议：尽快改用 SSH 密钥登录并禁用密码登录：
+ *   SSH_KEY_PATH=~/.ssh/id_ed25519 node scripts/deploy-ssh.js
+ */
 const SSH = {
   host: process.env.SSH_HOST || '47.115.58.109',
   port: Number(process.env.SSH_PORT || 22),
   username: process.env.SSH_USER || 'root',
-  password: process.env.SSH_PASS,
   readyTimeout: 20000,
 };
+
+if (process.env.SSH_KEY_PATH) {
+  SSH.privateKey = fs.readFileSync(process.env.SSH_KEY_PATH);
+  if (process.env.SSH_PASSPHRASE) SSH.passphrase = process.env.SSH_PASSPHRASE;
+} else if (process.env.SSH_PASS) {
+  SSH.password = process.env.SSH_PASS;
+}
+
 const REMOTE = process.env.REMOTE_ROOT || '/www/wwwroot/ailabing.cn/jaygo-au';
 
-if (!SSH.password) {
-  console.error('缺少环境变量 SSH_PASS（服务器 root 密码）');
+if (!SSH.password && !SSH.privateKey) {
+  console.error('缺少凭据：请设置环境变量 SSH_PASS（服务器密码）或 SSH_KEY_PATH（私钥路径）。');
+  console.error('出于安全考虑，本脚本不再内置任何默认密码。');
   process.exit(1);
 }
 

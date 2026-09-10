@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../store';
 import { api } from '../lib/ipc';
 import { chatCompletion } from '../lib/modelHubService';
-import { runIllustrationPipeline, type PipelineProgress } from '../lib/illustrator';
+import { runIllustrationPipeline, type PipelineProgress, type PipelineDiagnostics } from '../lib/illustrator';
 import type { VideoIllustrationItem, IllustrationLayout, IllustrationDensity } from '../types';
 import {
   Sparkles,
@@ -281,6 +281,8 @@ export const VideoIllustrator: React.FC = () => {
   const [isAsrExtracting, setIsAsrExtracting] = useState<boolean>(false);
   const [illustrations, setIllustrations] = useState<VideoIllustrationItem[]>([]);
   const [selectedIllustrationId, setSelectedIllustrationId] = useState<string | null>(null);
+  // 规划诊断：让「大模型是否真的参与」可见（v0.7.5 起不再静默降级）
+  const [planDiagnostics, setPlanDiagnostics] = useState<PipelineDiagnostics | null>(null);
 
   // 全局排版、动效、边框与交互控制
   const [linkAllPositions, setLinkAllPositions] = useState<boolean>(true);
@@ -741,6 +743,7 @@ export const VideoIllustrator: React.FC = () => {
     const currentStyleObj = STYLE_OPTIONS.find((s) => s.id === defaultStyle) || STYLE_OPTIONS[0];
 
     setIsPlanning(true);
+    setPlanDiagnostics(null);
     setPipelineProgress({
       stage: 'aligning',
       stepNumber: 1,
@@ -751,6 +754,7 @@ export const VideoIllustrator: React.FC = () => {
     });
 
     try {
+      const diagBox: { value: PipelineDiagnostics | null } = { value: null };
       const planResults = await runIllustrationPipeline({
         scriptText,
         videoDuration: dur,
@@ -762,6 +766,10 @@ export const VideoIllustrator: React.FC = () => {
         modelHubSettings,
         onProgress: (prog) => {
           setPipelineProgress(prog);
+        },
+        onDiagnostics: (diag) => {
+          diagBox.value = diag;
+          setPlanDiagnostics(diag);
         },
       });
 
@@ -795,7 +803,19 @@ export const VideoIllustrator: React.FC = () => {
       if (formatted.length > 0) {
         setSelectedIllustrationId(formatted[0].id);
       }
-      showToast(`成功由 AI 导演规划 ${formatted.length} 个镜头分镜！已锁定【${currentStyleObj.label}】画风`, 'ok');
+      const d = diagBox.value;
+      if (d && !d.usedLLM) {
+        // 不再静默降级：明确告知用户本次规划未经过大模型
+        showToast(
+          `已规划 ${formatted.length} 个分镜，但大模型未参与（${d.fallbackReason || '未知原因'}），本次使用关键词规则兜底`,
+          'info'
+        );
+      } else {
+        showToast(
+          `AI 导演已规划 ${formatted.length} 个镜头分镜！已锁定【${currentStyleObj.label}】画风`,
+          'ok'
+        );
+      }
     } catch (err: any) {
       showToast(err?.message || '规划分镜失败', 'err');
     } finally {
@@ -1742,6 +1762,47 @@ export const VideoIllustrator: React.FC = () => {
                   className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-300"
                   style={{ width: `${pipelineProgress?.percent || 25}%` }}
                 />
+              </div>
+            </div>
+          )}
+
+          {/* 规划诊断看板：明确区分「大模型参与」与「关键词规则兜底」，避免静默降级 */}
+          {!isPlanning && planDiagnostics && (
+            <div
+              className={`mx-3 mt-3 p-2.5 rounded-xl border text-[10.5px] space-y-1 ${
+                planDiagnostics.usedLLM
+                  ? 'border-emerald-200 dark:border-emerald-900/70 bg-emerald-50/70 dark:bg-emerald-950/30'
+                  : 'border-amber-300 dark:border-amber-800/80 bg-amber-50/80 dark:bg-amber-950/30'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 font-bold">
+                {planDiagnostics.usedLLM ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span className="text-emerald-700 dark:text-emerald-300">大模型视觉导演已参与规划</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    <span className="text-amber-700 dark:text-amber-300">大模型未参与，本次为关键词规则兜底</span>
+                  </>
+                )}
+              </div>
+              {!planDiagnostics.usedLLM && planDiagnostics.fallbackReason && (
+                <div className="text-amber-700/90 dark:text-amber-400/90 leading-relaxed">
+                  原因：{planDiagnostics.fallbackReason}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-zinc-600 dark:text-zinc-400 font-mono">
+                <span>分镜 {planDiagnostics.totalBeats}</span>
+                <span>信息图 {planDiagnostics.infographicCount}</span>
+                <span>标准图 {planDiagnostics.standardCount}</span>
+                <span>锚点覆盖 {Math.round(planDiagnostics.averageCoverage * 100)}%</span>
+                {planDiagnostics.diversityAdjusted > 0 && (
+                  <span className="text-indigo-600 dark:text-indigo-400">
+                    多样性校正 {planDiagnostics.diversityAdjusted} 处
+                  </span>
+                )}
               </div>
             </div>
           )}

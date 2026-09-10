@@ -2544,6 +2544,21 @@ ipcMain.handle('sensenova-test-key', async (_, args: { apiKey: string }) => {
 });
 
 // 2. 调用商汤日日新生成插图 (文生图 & 图生图)
+/**
+ * 判断提示词中是否已经包含该风格的描述，避免同一段风格被重复注入两次。
+ * 渲染层可能已通过 STYLE_OPTIONS.stylePrompt 或 StyleBible.visualMedium 写入风格文本。
+ */
+function isStyleAlreadyPresent(prompt: string, styleId: string, stylePhrase: string): boolean {
+  if (prompt.includes(styleId)) return true;
+  const head = stylePhrase.slice(0, 12);
+  if (head && prompt.includes(head)) return true;
+  // 以 4 字步长做 8 字片段比对，覆盖风格短语被改写或插入标点的情况
+  for (let i = 0; i + 8 <= stylePhrase.length; i += 4) {
+    if (prompt.includes(stylePhrase.slice(i, i + 8))) return true;
+  }
+  return false;
+}
+
 ipcMain.handle('sensenova-generate-image', async (_, args: {
   apiKey: string;
   model: string;
@@ -2560,23 +2575,33 @@ ipcMain.handle('sensenova-generate-image', async (_, args: {
     if (!prompt) throw new Error('提示词 prompt 不能为空');
 
     // 风格修饰词增强
-    if (args.style && !prompt.includes(args.style)) {
+    // v0.7.5 修复：原映射表的键（realistic / flat_vector / 3d_render / infographic_clean /
+    // minimalist）与应用真实风格 ID 只有 2 个交集，导致 8/10 种风格的注入静默失效。
+    // 现改为与渲染层 STYLE_OPTIONS 完全一致的 10 个真实 ID 与中文描述。
+    if (args.style) {
       const stylePrompts: Record<string, string> = {
-        realistic: '写实摄影风格，真实细腻细节，8k超清，商业摄影光影，真实质感',
-        chinese_ink: '中国水墨国风，意境悠远，墨色晕染，东方美学，传统水墨笔触',
-        flat_vector: '现代扁平矢量插画风格，清晰排版，利落几何线条，设计感强，明快配色',
-        '3d_render': '3D卡通渲染风格，皮克斯质感，柔和立体光照，细腻材质，高精度建模',
-        cyberpunk: '赛博朋克风格，霓虹炫光，未来科技感，暗色调高对比，科幻光晕',
-        infographic_clean: '高清信息图设计，结构化清晰排版，现代极简，数据图解，核心要点视觉化',
-        minimalist: '商业极简风格，高级留白构图，克制优雅，高级杂志质感',
+        modern_business: '现代商业扁平插画风格，现代办公场景与写实商务元素，干净利落线条，高级克制莫兰迪商务配色，优雅留白，画面主体清晰生动',
+        colored_pencil: '细腻彩铅手绘插画风格，彩色铅笔质感排线与柔和颗粒叠色，笔触温润细腻，色调温馨，画面主体轮廓生动',
+        classical_oil: '欧洲古典油画风格，厚重油画颜料笔触肌理，伦勃朗明暗对照光，庄重沉稳，古典艺术典雅质感',
+        cinematic_real: '电影级商业写实摄影，真实自然侧光，细腻材质质感，浅景深虚化背景，主体清晰锐利',
+        chinese_ink: '中国传统写意水墨画风格，宣纸微质感肌理，气韵生动，淡墨晕染与浓墨勾勒，东方美学留白，意境悠远',
+        anime_cartoon: '精美现代日漫插画风格，干净平滑的描线，明快通透的赛璐璐上色，丰富生动的情绪张力，治愈系现代卡通质感',
+        isometric_3d: '3D立体建模渲染，柔和立体环境光照，细腻材质与微光漫反射，空间景深真实生动',
+        watercolor_book: '手绘清新水彩插画，水色自然渗透晕染，通透纯净，水彩纸纹理质感，温柔轻盈',
+        minimal_line: '现代极简单线手绘艺术风格，优雅流畅的轮廓线条，极简留白构图，局部柔和纯色点缀，时尚艺术感',
+        cyberpunk: '未来赛博朋克科技概念艺术，深邃暗色背景，霓虹蓝紫氛围光晕，全息光影质感，未来科幻张力',
       };
-      if (stylePrompts[args.style]) {
-        prompt = `${prompt}，${stylePrompts[args.style]}`;
+      const stylePhrase = stylePrompts[args.style];
+      // 重复注入防护：渲染层可能已把风格描述写进 prompt，避免同一段风格出现两次
+      if (stylePhrase && !isStyleAlreadyPresent(prompt, args.style, stylePhrase)) {
+        prompt = `${prompt}。${stylePhrase}`;
       }
     }
-    if (!prompt.includes('无水印')) {
-      prompt = `${prompt}，画面纯净，高分辨率，避免任何水印、签名、logo标志、边角文字与多余杂边`;
-    }
+
+    // v0.7.5 修复：此处不再追加任何含「水印」字样的负向词。
+    // 渲染层净化器（promptCompiler.sanitizePromptStrict）会主动剔除「无水印 / 去水印」等
+    // 中文元词，因为生图模型会把这类词直接绘制成画面上的水印状伪影与乱码字；
+    // 主进程若在净化之后再把「避免任何水印」追加回去，等于反向抵消，且几乎每张图都会中招。
 
     const isImg2Img = Boolean(args.imageBase64 && model === 'sensenova-u1.5-lite');
     // TokenPlan 官方生图与图生图端点
