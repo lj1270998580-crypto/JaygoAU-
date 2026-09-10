@@ -2672,6 +2672,8 @@ ipcMain.handle('sensenova-generate-image', async (_, args: {
         watercolor_book: '手绘清新水彩插画，水色自然渗透晕染，通透纯净，水彩纸纹理质感，温柔轻盈',
         minimal_line: '现代极简单线手绘艺术风格，优雅流畅的轮廓线条，极简留白构图，局部柔和纯色点缀，时尚艺术感',
         cyberpunk: '未来赛博朋克科技概念艺术，深邃暗色背景，霓虹蓝紫氛围光晕，全息光影质感，未来科幻张力',
+        // v0.7.18 新增：信息图表风（专供信息图分支）
+        infographic_clean: '现代专业信息图表设计，干净的网格对齐与清晰的视觉层级，克制的强调色，图形化表达取代写实描绘，平滑纯色块与精准几何描边',
       };
       const stylePhrase = stylePrompts[args.style];
       // 重复注入防护：渲染层可能已把风格描述写进 prompt，避免同一段风格出现两次

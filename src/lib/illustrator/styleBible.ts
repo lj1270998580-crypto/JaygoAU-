@@ -5,6 +5,77 @@
 
 import type { StyleBible } from './types';
 
+/**
+ * v0.7.18：给**规划大模型**看的风格适配提示。
+ *
+ * 此前风格只在出图阶段被注入（promptCompiler），规划阶段完全不知道用户选了什么
+ * 风格 —— 结果就是「画风对了、内容违和」：实测选水墨风去讲房产税，规划模型照样
+ * 输出「现代办公室白板上的对比表格」，出图变成一张水墨质感的现代白板。
+ *
+ * 有了这份提示，规划模型在决定「这句话画什么主体」时就会主动贴合风格。
+ */
+export interface StylePlannerGuidance {
+  /** 该风格下更合适的主体与道具（会写进规划提示词） */
+  suitableSubjects: string[];
+  /** 该风格下应当避开的主体（会写进规划提示词） */
+  avoidSubjects: string[];
+}
+
+/**
+ * 各风格对应的规划提示。
+ *
+ * 注意：这里刻意**不改动**任何风格的视觉定义，只是补上「这个风格该画什么题材」。
+ * 规划模型拿到之后，会在选主体时主动贴合 —— 这是解决「画风对但内容违和」的关键。
+ */
+export const STYLE_PLANNER_GUIDANCE: Record<string, StylePlannerGuidance> = {
+  modern_business: {
+    suitableSubjects: ['现代办公室与会议室', '笔记本电脑、文件夹、报表', '职场人物与商务场景', '简洁的信息图表与看板'],
+    avoidSubjects: ['古代器物', '水墨留白', '科幻霓虹'],
+  },
+  colored_pencil: {
+    suitableSubjects: ['生活化日常场景', '手写笔记本与文具', '家庭与亲子', '温暖的小物件特写'],
+    avoidSubjects: ['冷硬科技界面', '高楼玻璃幕墙', '未来科幻装置'],
+  },
+  classical_oil: {
+    suitableSubjects: ['历史场景与古典室内', '厚重书本、烛台、旧家具', '庄重的人物肖像', '戏剧性的强光影场面'],
+    avoidSubjects: ['手机屏幕与 App 界面', '现代办公设备', '扁平图表'],
+  },
+  cinematic_real: {
+    suitableSubjects: ['真实办公与生活实景', '专业摄影级的静物与人像', '真实材质特写（木、金属、织物）'],
+    avoidSubjects: ['卡通描边', '手绘涂抹', '抽象符号'],
+  },
+  chinese_ink: {
+    // 实测：不写这段时，水墨风会画出「现代办公室白板上的对比表格」
+    suitableSubjects: ['案头文房：毛笔、砚台、宣纸、印章', '算盘、账册、契约文书、线装书', '远山、竹石、庭院、窗棂', '中式厅堂与古典家具'],
+    avoidSubjects: ['现代办公室白板', '手机屏幕与 App 界面', '笔记本电脑', '西装人物', '扁平矢量图表'],
+  },
+  anime_cartoon: {
+    suitableSubjects: ['富有神态张力的人物', '校园与日常都市场景', '明快的动作瞬间', '夸张的表情特写'],
+    avoidSubjects: ['厚重油画肌理', '老旧泛黄做旧感'],
+  },
+  isometric_3d: {
+    suitableSubjects: ['微缩建筑与办公空间模型', '规整排列的物件与设备', '等距视角的数据看板', '流程与层级结构'],
+    avoidSubjects: ['真实摄影质感', '手绘笔触', '随机透视'],
+  },
+  watercolor_book: {
+    suitableSubjects: ['自然景物与植物', '温柔的日常片段', '绘本式的情境叙事', '轻盈的生活器物'],
+    avoidSubjects: ['厚重油彩', '冰冷机械', '刺目荧光'],
+  },
+  minimal_line: {
+    suitableSubjects: ['高度概括的人物轮廓', '极简的器物线条', '大面积留白的隐喻画面'],
+    avoidSubjects: ['复杂背景', '多重厚涂色彩', '写实材质细节'],
+  },
+  cyberpunk: {
+    suitableSubjects: ['未来城市天际线与霓虹街道', '全息界面与数据流', '科技装备与机械装置', '雨夜反光的金属质感'],
+    avoidSubjects: ['田园乡村', '传统水墨器物', '明亮白昼的温馨日常'],
+  },
+  // v0.7.18 新增：信息图表风
+  infographic_clean: {
+    suitableSubjects: ['清晰的数据图表与对比表', '流程步骤与层级结构', '量化的指标与刻度', '简洁的图形化概念示意'],
+    avoidSubjects: ['写实人物与场景插画', '油画笔触与手绘肌理', '抽象氛围渲染'],
+  },
+};
+
 export const STYLE_BIBLES: Record<string, StyleBible> = {
   modern_business: {
     styleId: 'modern_business',
@@ -309,6 +380,43 @@ export const STYLE_BIBLES: Record<string, StyleBible> = {
       '水彩手绘水渍',
       '过亮白天环境',
       '柔和扁平卡通',
+    ],
+  },
+
+  // ===== v0.7.18 新增：专为「信息图」分支准备的信息图表风 =====
+  // 此前 10 个风格全是「插画艺术风」，而工具本身有信息图/叙事图双分支。
+  // 路由判定某句该出对比图时，风格却可能是「古典艺术油画」，
+  // 最终编出「用油画笔触画数据对比图」这种不成立的组合。
+  infographic_clean: {
+    styleId: 'infographic_clean',
+    label: '现代信息图表',
+    badge: '数据可视化',
+    visualMedium: '现代专业信息图表设计，干净的网格对齐与清晰的视觉层级，克制的强调色，图形化表达取代写实描绘',
+    realism: 0.35,
+    palette: {
+      temperature: 'neutral',
+      saturation: 'muted',
+      contrast: 'medium',
+      dominantTones: ['纯净白底', '深墨蓝主体', '一组协调的强调色', '中浅灰分隔线', '少量警示红或提升绿'],
+    },
+    lighting: {
+      type: '平面设计无方向性照明',
+      direction: '无光源方向',
+      shadow: '不使用投影，仅用色块与描边区分层级',
+    },
+    cameraLanguage: {
+      recommendedLens: '正视平面设计视角',
+      compositionRule: '严格网格对齐，信息按从上到下或从左到右单向推进，留出充足呼吸空间',
+    },
+    texture: '平滑纯色块与精准几何描边，无任何肌理或噪点',
+    forbidden: [
+      '写实人物与场景插画',
+      '油画笔触与手绘肌理',
+      '三维塑料光泽',
+      '复杂装饰花纹',
+      '渐变滥用',
+      '悬浮的抽象符号',
+      '乱码错位文字',
     ],
   },
 };

@@ -155,8 +155,15 @@ export function compileScenePrompt(
     compositionAndCamera = sentence(`采用${shotDesc}，${angleDesc}`);
     lines.push(compositionAndCamera);
 
+    // v0.7.18 修复：信息图分支此前只用了 lighting.type，漏掉了 lighting.direction
+    // 与 texture —— 同一个画风在信息图上比在叙事图上弱一档。水墨风最明显：
+    // 「生宣纸渗墨纤维质感与毛笔干湿飞白」被整句丢掉，而那正是水墨感的关键。
+    // 现在两个分支使用完全相同的画风描述组成。
+    // v0.7.18：补上 lighting.shadow（此前同样从未进入提示词）
     lightingAndColor = sentence(
-      `配色${tempDesc}，主色调为${paletteDesc}，${styleBible.lighting.type}`
+      `${styleBible.lighting.type}，${styleBible.lighting.direction}${
+        styleBible.lighting.shadow ? `，${styleBible.lighting.shadow}` : ''
+      }，配色${tempDesc}，主色调为${paletteDesc}，${styleBible.texture}`
     );
     lines.push(lightingAndColor);
   } else {
@@ -188,8 +195,24 @@ export function compileScenePrompt(
     );
     lines.push(compositionAndCamera);
 
+    // v0.7.18：启用此前从未使用的 cameraLanguage（镜头语言）。
+    // 每个画风都精心写了 recommendedLens 与 compositionRule（如「50mm 平视标准视角」
+    // 「散点透视东方意境长卷视角」「三分法留白构图」），但此前一个字都没进提示词。
+    // 原则：**叙事内容决定景别，画风决定镜头质感**，两者不冲突，因此并列写出。
+    const lensPart = styleBible.cameraLanguage?.recommendedLens
+      ? `镜头质感${styleBible.cameraLanguage.recommendedLens}`
+      : '';
+    const rulePart = styleBible.cameraLanguage?.compositionRule
+      ? `构图遵循${styleBible.cameraLanguage.compositionRule}`
+      : '';
+    const camLine = sentence([lensPart, rulePart].filter(Boolean).join('，'));
+    if (camLine) lines.push(camLine);
+
+    // v0.7.18：补上 lighting.shadow（此前同样从未进入提示词）
     lightingAndColor = sentence(
-      `${styleBible.lighting.type}，${styleBible.lighting.direction}，配色${tempDesc}，主色调为${paletteDesc}，${styleBible.texture}`
+      `${styleBible.lighting.type}，${styleBible.lighting.direction}${
+        styleBible.lighting.shadow ? `，${styleBible.lighting.shadow}` : ''
+      }，配色${tempDesc}，主色调为${paletteDesc}，${styleBible.texture}`
     );
     lines.push(lightingAndColor);
   }

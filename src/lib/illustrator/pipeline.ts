@@ -139,6 +139,8 @@ export async function runIllustrationPipeline(
     density,
     videoDuration,
     modelHubSettings,
+    // v0.7.18：把画风传进规划阶段 —— 否则「选水墨风却画出水墨质感的现代白板」
+    styleId,
     onBatch: batchReporter('directing', 2, 'AI 分镜规划', 30, 55),
   });
 

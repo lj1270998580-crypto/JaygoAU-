@@ -4,7 +4,7 @@ import { api } from '../lib/ipc';
 import { chatCompletion, resolveModelInfo, subscribeModelCalls, type ModelCallEvent } from '../lib/modelHubService';
 import type { ModelHubSettings, ModelProviderType } from '../lib/modelHubTypes';
 import { PRESET_PROVIDERS } from '../lib/modelHubTypes';
-import { runIllustrationPipeline, type PipelineProgress, type PipelineDiagnostics } from '../lib/illustrator';
+import { runIllustrationPipeline, recommendStyle, type PipelineProgress, type PipelineDiagnostics } from '../lib/illustrator';
 import { useAdaptiveColumns } from '../lib/useAdaptiveColumns';
 import type { VideoIllustrationItem, IllustrationLayout, IllustrationDensity, IllustrationHistoryRecord } from '../types';
 import {
@@ -134,6 +134,16 @@ export const STYLE_OPTIONS: StyleConfig[] = [
     badge: '未来科技',
     desc: '暗黑冷调 · 霓虹流光 · 未来科幻',
     stylePrompt: '未来赛博朋克科技概念艺术，深邃暗色背景，霓虹蓝紫氛围光晕，全息光影质感，未来科幻张力',
+  },
+  // v0.7.18 新增：专为「信息图」分支准备的信息图表风。
+  // 此前 10 个风格全是插画艺术风，路由判定某句该出对比图/流程图时，
+  // 风格却可能是古典油画或水墨，最终编出「用油画笔触画数据对比图」这种组合。
+  {
+    id: 'infographic_clean',
+    label: '现代信息图表',
+    badge: '数据可视化',
+    desc: '网格对齐 · 层级清晰 · 克制的强调色',
+    stylePrompt: '现代专业信息图表设计，干净的网格对齐与清晰的视觉层级，克制的强调色，图形化表达取代写实描绘，平滑纯色块与精准几何描边',
   },
 ];
 
@@ -493,6 +503,10 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   // v0.7.16：历史作品。此前工作台是纯内存状态，点重置或关掉应用就全丢，
   // 而重新规划一次要跑好几分钟的大模型请求。
   const [historyRecords, setHistoryRecords] = useState<IllustrationHistoryRecord[]>([]);
+  // v0.7.18：AI 画风推荐 + 锁定
+  const [isRecommendingStyle, setIsRecommendingStyle] = useState<boolean>(false);
+  const [styleReason, setStyleReason] = useState<string | null>(null);
+  const [styleLocked, setStyleLocked] = useState<boolean>(false);
   // v0.7.17：历史作品改为整页切换（与「数字人」板块一致）。
   // 此前是塞在左栏里的一个 max-h-56 小面板，左栏本来就窄，一屏看不到两条，
   // 缩略信息也挤成一团，基本没法用。
@@ -1331,6 +1345,36 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     }
   };
 
+  // ===== v0.7.18：AI 画风推荐 =====
+
+  /**
+   * 读取全部文案推荐一个全片统一的画风。
+   * 刻意做成「推荐 + 用户确认」而不是静默自动切换：
+   * 做固定调性账号的用户需要视觉统一，锁上开关后就不再被推荐覆盖。
+   */
+  const handleRecommendStyle = async () => {
+    if (!scriptText.trim()) {
+      showToast('请先填入视频口播文案，AI 才能据此推荐画风', 'err');
+      return;
+    }
+    setIsRecommendingStyle(true);
+    try {
+      const res = await recommendStyle(
+        scriptText,
+        modelSettings,
+        STYLE_OPTIONS.map((s) => s.id)
+      );
+      setDefaultStyle(res.styleId);
+      setStyleReason(res.reason || null);
+      const label = STYLE_OPTIONS.find((s) => s.id === res.styleId)?.label || res.styleId;
+      showToast(`AI 推荐画风：${label}${res.reason ? ` —— ${res.reason}` : ''}`, 'ok');
+    } catch (e: any) {
+      showToast(`画风推荐失败：${e?.message || e}`, 'err');
+    } finally {
+      setIsRecommendingStyle(false);
+    }
+  };
+
   // ===== v0.7.16：历史作品与重置 =====
 
   /** 收集当前工作台的完整快照 */
@@ -1786,18 +1830,48 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                   <Palette className="w-3 h-3 text-rose-500" />
                   <span>图片风格</span>
                 </label>
+                {/* v0.7.18：AI 推荐画风。只推荐一次全局风格，绝不按句推荐 */}
+                <button
+                  type="button"
+                  onClick={handleRecommendStyle}
+                  disabled={isRecommendingStyle || !scriptText.trim()}
+                  className="text-[9.5px] px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/40 disabled:opacity-40 cursor-pointer flex items-center gap-0.5"
+                  title="读取全部文案后推荐一个全片统一的画风（需要先填入文案）"
+                >
+                  <Sparkles className={`w-2.5 h-2.5 ${isRecommendingStyle ? 'animate-spin' : ''}`} />
+                  {isRecommendingStyle ? '推荐中' : 'AI 推荐'}
+                </button>
               </div>
               <select
                 value={defaultStyle}
-                onChange={(e) => setDefaultStyle(e.target.value)}
+                onChange={(e) => { setDefaultStyle(e.target.value); setStyleLocked(true); setStyleReason(null); }}
                 className="w-full px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-[11px] text-zinc-800 dark:text-zinc-200 font-medium focus:ring-1 focus:ring-indigo-500 outline-none cursor-pointer truncate"
               >
                 {STYLE_OPTIONS.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.label}
+                    {s.badge ? `[${s.badge}] ` : ''}{s.label}
                   </option>
                 ))}
               </select>
+              {/* 推荐理由 + 锁定开关 */}
+              {styleReason && (
+                <div className="mt-1 text-[9.5px] text-purple-600 dark:text-purple-400 leading-tight flex items-start gap-1">
+                  <Sparkles className="w-2.5 h-2.5 shrink-0 mt-0.5" />
+                  <span className="min-w-0">AI 推荐：{styleReason}</span>
+                </div>
+              )}
+              <label
+                className="mt-1 flex items-center gap-1 text-[9.5px] text-zinc-500 dark:text-zinc-400 cursor-pointer select-none"
+                title="锁定后每次规划都用当前这个画风，不再参考 AI 推荐——做固定调性的账号建议锁定"
+              >
+                <input
+                  type="checkbox"
+                  checked={styleLocked}
+                  onChange={(e) => setStyleLocked(e.target.checked)}
+                  className="w-3 h-3 accent-purple-500 cursor-pointer"
+                />
+                <span>锁定画风（保持账号调性统一）</span>
+              </label>
             </div>
 
             <div>

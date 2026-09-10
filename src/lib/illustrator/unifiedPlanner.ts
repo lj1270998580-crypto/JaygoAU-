@@ -5,6 +5,7 @@ import { chatCompletion, resolveModelInfo } from '../modelHubService';
 import { extractJsonArrayLoose, chunkArray } from './jsonExtract';
 import { AdaptiveConcurrency, createAdaptiveConcurrency } from './modelConcurrency';
 import { enforceVisualDiversity } from './visualDirector';
+import { getStyleBible, STYLE_BIBLES, STYLE_PLANNER_GUIDANCE } from './styleBible';
 
 /**
  * v0.7.15：语义解析 + 视觉导演 合并为**单次**大模型调用。
@@ -124,15 +125,19 @@ export async function planIllustrationsUnified(
     density: IllustrationDensity;
     videoDuration: number;
     modelHubSettings: any;
+    /** v0.7.18：当前画风。规划阶段必须知道它，否则会出现「画风对但内容违和」 */
+    styleId?: string;
     onBatch?: (done: number, total: number) => void;
   }
 ): Promise<UnifiedPlanItem[]> {
-  const { density, videoDuration, modelHubSettings, onBatch } = opts;
+  const { density, videoDuration, modelHubSettings, styleId, onBatch } = opts;
 
   if (!segments || segments.length === 0) return [];
   if (!modelHubSettings) {
     throw new Error('未配置大模型服务，无法进行分镜规划。请先前往 [模型中心] 配置并启用一个供应商。');
   }
+
+  const styleBlock = buildStyleBlock(styleId);
 
   const batches = chunkArray(segments, BATCH_SIZE);
   const totalBudget = resolveTotalBudget(density, videoDuration, batches.length);
@@ -151,7 +156,7 @@ export async function planIllustrationsUnified(
   );
 
   const batchItems = await ctrl.run(batches, async (batch, bi) => {
-    const items = await planBatchWithRetry(batch, bi, modelHubSettings, perBatchBudget[bi], ctrl, batches.length);
+    const items = await planBatchWithRetry(batch, bi, modelHubSettings, perBatchBudget[bi], ctrl, batches.length, styleBlock);
     onBatch?.(++completed, batches.length);
     return items;
   });
@@ -190,14 +195,15 @@ async function planBatchWithRetry(
   modelHubSettings: any,
   budget: number,
   ctrl: AdaptiveConcurrency,
-  totalBatches: number
+  totalBatches: number,
+  styleBlock: string
 ): Promise<UnifiedPlanItem[]> {
   const MAX_ATTEMPTS = 3;
   let lastErr: any = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const items = await planBatchOnce(batch, batchIndex, modelHubSettings, budget);
+      const items = await planBatchOnce(batch, batchIndex, modelHubSettings, budget, styleBlock);
       if (items) return items;
       lastErr = new Error('模型未返回可解析的 JSON 结果');
     } catch (err: any) {
@@ -217,7 +223,8 @@ async function planBatchOnce(
   batch: TimelineSegment[],
   batchIndex: number,
   modelHubSettings: any,
-  budget: number
+  budget: number,
+  styleBlock: string
 ): Promise<UnifiedPlanItem[] | null> {
   const promptList = batch.map((s, idx) => ({
     seg_id: `SU_${String(batchIndex * BATCH_SIZE + idx + 1).padStart(2, '0')}`,
@@ -246,6 +253,7 @@ async function planBatchOnce(
 【第三步 —— 设计画面】
 画面必须让观众在 1 秒内看懂这句话在讲什么。
 用具体物理实体、真实场景、人物姿态与环境来构建，不要悬浮的抽象符号。
+${styleBlock}
 
 【反同质化 —— 极其重要，实测最容易被违反的一条】
 最容易出现的毛病不是「主体重复」，而是**构图套路重复**：
@@ -482,4 +490,102 @@ function resolveActiveModelName(settings: any): string {
   } catch {
     return '';
   }
+}
+
+/**
+ * v0.7.18：构造注入规划提示词的「画风约束」段落。
+ *
+ * 这是修「画风对但内容违和」的核心。此前风格只写进出图提示词，
+ * 规划阶段完全不知道用户选了什么，于是选水墨风照样会规划出现代白板表格。
+ */
+export function buildStyleBlock(styleId?: string): string {
+  const bible = getStyleBible(styleId);
+  const guide = STYLE_PLANNER_GUIDANCE[bible.styleId];
+  const lines: string[] = [];
+  lines.push('');
+  lines.push('【本片画风约束 —— 必须遵守】');
+  lines.push(`全片统一使用【${bible.label}】画风：${bible.visualMedium}`);
+  if (guide) {
+    lines.push(
+      `该画风下，优先选择这类主体与道具：${guide.suitableSubjects.join('、')}。`
+    );
+    lines.push(
+      `该画风下，**禁止**规划这些主体：${guide.avoidSubjects.join('、')}。` +
+        `如果某句旁白本身就在讲这些被禁止的事物，请用同一含义的、符合画风的实体来转译表达，` +
+        `而不是照搬现代物件。`
+    );
+  }
+  lines.push('不同画风对同一句话的取景完全不同，你的主体选择必须贴合上述画风。');
+  return lines.join('\n');
+}
+
+/**
+ * v0.7.18：根据文案内容推荐一个画风。
+ *
+ * 只跑一次、读全文，返回一个全局风格 —— 绝不能按句/按批推荐，
+ * 否则同一条视频里会出现多种画风，整片直接废掉。
+ */
+export async function recommendStyle(
+  scriptText: string,
+  modelHubSettings: any,
+  availableStyleIds: string[]
+): Promise<{ styleId: string; reason: string; alternatives: string[] }> {
+  if (!modelHubSettings) {
+    throw new Error('未配置大模型服务，无法推荐画风。');
+  }
+  const catalog = availableStyleIds
+    .map((id) => {
+      const b = STYLE_BIBLES[id];
+      return b ? `- ${id}：${b.label} —— ${b.visualMedium}` : null;
+    })
+    .filter(Boolean)
+    .join('\n');
+
+  const systemPrompt = `你是一位短视频视觉总监，负责为一条口播视频选定**全片统一**的画风。
+
+【可选画风】
+${catalog}
+
+【判断依据】
+- 题材调性：财经/职场/知识科普 vs 历史人文 vs 情感生活 vs 科技前沿
+- 内容形态：如果是数据、对比、流程图为主，优先考虑信息图表类画风；
+  如果是人物故事、场景叙事为主，优先考虑插画/写实类画风
+- 受众与平台：面向大众的知识口播，画风要清晰易读、不喧宾夺主
+
+【重要】
+全片只能用**一个**画风，所以请选最能覆盖整条视频的，而不是只看开头几句。
+
+只返回严格的 JSON，不要任何解释文字或 markdown：
+{ "style_id": "上面列表里的 id", "reason": "一句话说明为什么适合（30字以内）", "alternatives": ["次选 id", "再次选 id"] }`;
+
+  const text = await chatCompletion(
+    [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `请为以下口播文案推荐一个全片画风：\n\n${scriptText.slice(0, 6000)}` },
+    ],
+    { temperature: 0.3, maxTokens: 512, rejectTruncation: false },
+    modelHubSettings
+  );
+
+  // 宽容提取单个 JSON 对象
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('模型未返回可解析的推荐结果');
+  let parsed: any;
+  try {
+    parsed = JSON.parse(m[0]);
+  } catch {
+    throw new Error('模型返回的推荐结果不是合法 JSON');
+  }
+
+  const pick = String(parsed?.style_id || '').trim();
+  const styleId = availableStyleIds.includes(pick) ? pick : availableStyleIds[0];
+  const alternatives = Array.isArray(parsed?.alternatives)
+    ? parsed.alternatives.map((a: any) => String(a).trim()).filter((a: string) => availableStyleIds.includes(a)).slice(0, 2)
+    : [];
+
+  return {
+    styleId,
+    reason: typeof parsed?.reason === 'string' ? parsed.reason.trim().slice(0, 40) : '',
+    alternatives,
+  };
 }
