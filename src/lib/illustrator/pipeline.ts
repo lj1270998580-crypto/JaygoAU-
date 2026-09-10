@@ -49,6 +49,8 @@ export interface PlannedIllustrationResult {
   styleId: string;
   ratio: string;
   prompt: string;
+  /** v0.7.9：负向提示词，作为独立参数下发，不再混在正向提示词里 */
+  negativePrompt: string;
   promptBlocks: PromptBlocks;
   scenePlan: ScenePlan;
   visualScore: number;
@@ -208,6 +210,7 @@ export async function runIllustrationPipeline(
       styleId,
       ratio,
       prompt: promptBlocks.compiledPrompt,
+      negativePrompt: promptBlocks.negativePrompt,
       promptBlocks,
       scenePlan: plan,
       visualScore: beat.score.total,

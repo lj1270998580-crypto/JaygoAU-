@@ -195,16 +195,40 @@ export function compileScenePrompt(
     lines.push(lightingAndColor);
   }
 
+  // ————————————— 画面内文字与元素（v0.7.9 新增，对齐官方生图协议）—————————————
+  // 官方铁律：凡是希望出现在画面上的文字，必须用引号逐字标出，并配套描述对应图形；
+  // 否则模型会自行编造文字 —— 这是画面杂乱与乱码的首要来源。
+  const textLabels = (scenePlan.textLabels || []).filter(Boolean).slice(0, 8);
+  const visualElements = (scenePlan.visualElements || []).filter((e) => e && e.desc).slice(0, 6);
+
+  if (textLabels.length > 0) {
+    const quoted = textLabels.map((t) => `“${t}”`).join('、');
+    lines.push(
+      sentence(`画面中需要出现的文字必须逐字准确，仅限以下内容：${quoted}`)
+    );
+  } else if (isInfographic) {
+    lines.push(sentence('画面中如无必要不要出现任何文字，避免出现无法辨认的乱码字符'));
+  }
+
+  if (visualElements.length > 0) {
+    const desc = visualElements
+      .map((e) => (e.label ? `${e.desc}（对应文字“${e.label}”）` : e.desc))
+      .join('；');
+    lines.push(sentence(`画面中需要具体绘制的图形元素：${desc}`));
+  }
+
   // 风格基调（放在描述之后，避免喧宾夺主）
   lines.push(sentence(`整体视觉风格：${styleBible.visualMedium}`));
 
-  // 负向约束统一放最后，用一句明确的中文表达（信息图给更高上限，保证反模板词不被截断）
-  if (allAvoid.length > 0) {
-    lines.push(`禁止出现：${joinList(allAvoid, isInfographic ? 10 : 8)}。`);
-  }
-
   const rawCompiled = lines.filter(Boolean).join('');
   const compiledPrompt = sanitizePromptStrict(rawCompiled);
+
+  // 负向约束作为**独立参数**下发（v0.7.9）
+  // 此前写成「禁止出现：三维塑料感、漂浮的乱码色块…」混在正向提示词里，
+  // 这些词本身会被模型当成画面内容，反而加剧杂乱。官方是用独立的 negative_prompt。
+  const negativePrompt = Array.from(new Set(allAvoid.filter(Boolean)))
+    .slice(0, isInfographic ? 14 : 10)
+    .join('，');
 
   // 视觉锚点覆盖检查（中文：整体包含 + 2 字滑窗命中率）
   const promptLower = compiledPrompt.toLowerCase();
@@ -246,6 +270,7 @@ export function compileScenePrompt(
     lightingAndColor,
     negativeConstraints: allAvoid,
     compiledPrompt: finalPrompt,
+    negativePrompt,
     coverageScore,
     anchorsCovered,
     anchorsMissing,

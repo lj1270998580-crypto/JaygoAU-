@@ -2578,6 +2578,8 @@ ipcMain.handle('sensenova-generate-image', async (_, args: {
   apiKey: string;
   model: string;
   prompt: string;
+  /** v0.7.9：负向提示词，独立参数下发 */
+  negativePrompt?: string;
   size?: string;
   style?: string;
   imageBase64?: string;
@@ -2631,21 +2633,41 @@ ipcMain.handle('sensenova-generate-image', async (_, args: {
       n: 1,
       watermark: false,
     };
+    // v0.7.9：负向提示词改为独立参数下发。
+    // 此前「禁止出现：三维塑料感、漂浮的乱码色块…」混在正向提示词里，
+    // 这些词本身会被模型当成画面内容，反而加剧杂乱。
+    const negativePrompt = (args.negativePrompt || '').trim();
+    if (negativePrompt) {
+      reqBody.negative_prompt = negativePrompt;
+    }
     if (isImg2Img) {
       reqBody.image = args.imageBase64;
     }
 
     dbg(`[SenseNova] calling ${endpoint} model=${model} prompt="${prompt.slice(0, 60)}..."`);
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${key}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(reqBody),
-    });
 
-    const resText = await res.text();
+    const doRequest = async (body: any) =>
+      fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${key}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+    let res = await doRequest(reqBody);
+    let resText = await res.text();
+
+    // 兼容性兜底：若服务端不接受 negative_prompt 参数（4xx），去掉后重试一次，
+    // 保证不会因为新增参数导致生图整体失败。
+    if (!res.ok && res.status >= 400 && res.status < 500 && negativePrompt) {
+      dbg(`[SenseNova] negative_prompt 被拒（HTTP ${res.status}），去掉该参数重试`);
+      delete reqBody.negative_prompt;
+      res = await doRequest(reqBody);
+      resText = await res.text();
+    }
+
     let json: any = {};
     try {
       json = JSON.parse(resText);

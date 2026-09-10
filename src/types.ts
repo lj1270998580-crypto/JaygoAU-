@@ -194,6 +194,8 @@ export interface JaygoAPI {
     apiKey: string;
     model: string;
     prompt: string;
+    /** v0.7.9：负向提示词，独立于 prompt 下发 */
+    negativePrompt?: string;
     size?: string;
     style?: string;
     imageBase64?: string;
@@ -234,6 +236,8 @@ export interface VideoIllustrationItem {
   source?: 'generated' | 'upload';
   /** v0.7.8：上传图的原始宽高比（w/h）。存在时优先于 ratio，实现「不与模型生成图共用画幅比例」 */
   customAspect?: number;
+  /** v0.7.9：负向提示词，作为独立参数下发给生图接口 */
+  negativePrompt?: string;
   imageUrl?: string;
   localPath?: string;
   referenceImage?: string; // 图生图参考图 (Base64 或路径)

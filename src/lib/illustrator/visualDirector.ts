@@ -130,9 +130,42 @@ async function directWithLLM(
 }
 
 /**
- * 场景去重补偿：同一 primarySubject 重复出现时，按出现次序施加视角/背景差异，
- * 避免多个分镜产出雷同画面。规则与 deriveSceneFromText 内部保持一致。
+ * 从旁白中提取「确实需要出现在画面上」的少量文字（v0.7.9）
+ * 原则：宁可少、不可多。优先硬信息（数字/金额/百分比），图表类补一个短标题。
  */
+function deriveTextLabels(text: string, visualType: VisualType): string[] {
+  const out: string[] = [];
+  const nums = (text || '').match(/[0-9]+(?:\.[0-9]+)?\s*(?:%|％|万|亿|千|百|元|倍|折|个|年|天)/g) || [];
+  for (const n of nums.slice(0, 3)) {
+    const clean = n.replace(/\s+/g, '');
+    if (clean.length <= 12) out.push(clean);
+  }
+  if (out.length === 0) {
+    const isChart =
+      visualType === 'data_stat' || visualType === 'step_framework' || visualType === 'vs_comparison';
+    if (isChart) out.push(extractKeyPhrase(text));
+  }
+  return Array.from(new Set(out)).slice(0, 4);
+}
+
+/**
+ * 从场景描述派生语义化图形元素（v0.7.9 本地兜底路径）
+ * 目的：避免提示词里只写"一个图标"，而是说清每个图形具体画的是什么。
+ */
+function deriveVisualElements(
+  scene: { foreground?: string; background?: string; primarySubject?: string },
+  anchors: Array<{ concept: string }>
+): Array<{ desc: string; label?: string }> {
+  const out: Array<{ desc: string; label?: string }> = [];
+  const push = (d?: string) => {
+    const t = (d || '').trim();
+    if (t && !out.some((o) => o.desc === t)) out.push({ desc: t });
+  };
+  push(scene.foreground);
+  for (const a of anchors.slice(0, 2)) push(a.concept);
+  if (out.length === 0) push(scene.primarySubject);
+  return out.slice(0, 4);
+}
 function differentiateDuplicateSubjects(plans: ScenePlan[]): void {
   const seen = new Map<string, number>();
   for (const p of plans) {
@@ -249,8 +282,21 @@ async function directChunkWithLLM(
   "visualAnchors": [
     { "concept": "中文视觉概念一", "priority": 1.0 },
     { "concept": "中文视觉概念二", "priority": 0.8 }
+  ],
+  "textLabels": ["需要出现在画面上的文字，逐字准确，不要改写"],
+  "visualElements": [
+    { "desc": "具体图形描述，必须说清画的是什么（不要写'一个图标''一个图形'）", "label": "该图形对应的文字，可省略" }
   ]
 }
+
+【画面内文字与图形 —— 极其重要】
+- textLabels：只列出**确实需要出现在画面上**的少量文字（标题、关键数字、核心词），
+  最多 4 条，每条不超过 12 字。宁可少、不可多。不需要文字时给空数组。
+- textLabels 中的文字会被逐字写入提示词并要求模型照写。
+  凡是没写进 textLabels 的文字，一律不应出现在画面上。
+- visualElements：为画面上每一个主要图形元素写一句**具体**描述，
+  必须说清画的是什么（例："一台黑色计算器与一叠标注过的报表"），
+  禁止使用"一个图标""一个图形""一个符号"这类空泛说法。
 
 只返回严格的 JSON 数组，不要任何解释文字。`;
 
@@ -314,6 +360,18 @@ async function directChunkWithLLM(
         Array.isArray(item.visualAnchors) && item.visualAnchors.length > 0
           ? item.visualAnchors
           : extractAnchorsFromText(b.sourceText, b.visualType),
+      // v0.7.9：画面内文字（会被引号包裹并要求逐字照写）与语义化图形元素
+      textLabels:
+        Array.isArray(item.textLabels) && item.textLabels.length > 0
+          ? item.textLabels.map(String).filter(Boolean).slice(0, 4)
+          : deriveTextLabels(b.sourceText, b.visualType),
+      visualElements:
+        Array.isArray(item.visualElements) && item.visualElements.length > 0
+          ? item.visualElements
+              .filter((e: any) => e && typeof e.desc === 'string' && e.desc.trim())
+              .map((e: any) => ({ desc: String(e.desc).trim(), label: e.label ? String(e.label) : undefined }))
+              .slice(0, 5)
+          : deriveVisualElements(derived, extractAnchorsFromText(b.sourceText, b.visualType)),
     };
   });
 }
@@ -636,6 +694,11 @@ function directWithLocalRules(beats: VisualBeat[]): ScenePlan[] {
       mustInclude: mustInclude.length > 0 ? mustInclude : ['与该句内容直接相关的实体道具', '真实可信的场景细节'],
       mustAvoid: Array.from(new Set(mustAvoid)),
       visualAnchors: anchors,
+      textLabels: deriveTextLabels(text, b.visualType),
+      visualElements: deriveVisualElements(
+        { foreground, background, primarySubject },
+        anchors
+      ),
     };
   });
 }

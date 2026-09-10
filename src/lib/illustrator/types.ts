@@ -97,6 +97,20 @@ export interface ScenePlan {
     concept: string;         // 具体视觉概念（英文，直接进入 Prompt）
     priority: number;        // 优先级 0.0~1.0，越高越不可省略
   }>;
+  /**
+   * 画面内需要出现的文字（v0.7.9）
+   * 生图协议要求：凡是希望在图上出现的文字，必须在提示词中用引号逐字标出，
+   * 否则模型会自行编造文字 —— 这是画面杂乱/乱码的首要来源。
+   */
+  textLabels?: string[];
+  /**
+   * 语义化视觉元素（v0.7.9）
+   * 每个元素需描述其**具体图形内容**并指明与哪段文字对应，避免只写"一个图标"。
+   */
+  visualElements?: Array<{
+    desc: string;    // 具体图形描述，如"带绿叶的红苹果插画"
+    label?: string;  // 该元素对应的文字标签（会以引号写入提示词）
+  }>;
 }
 
 export interface StyleBible {
@@ -131,7 +145,9 @@ export interface PromptBlocks {
   compositionAndCamera: string;
   lightingAndColor: string;
   negativeConstraints: string[];
-  compiledPrompt: string;  // 最终纯净提示词
+  compiledPrompt: string;  // 最终纯净提示词（正向）
+  /** v0.7.9：负向提示词，作为独立参数下发，不再混在正向提示词里 */
+  negativePrompt: string;
   coverageScore: number;   // 视觉锚点覆盖率 0.0~1.0
   anchorsCovered: string[]; // 已覆盖的锚点概念列表
   anchorsMissing: string[]; // 未覆盖的锚点概念列表
