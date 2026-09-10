@@ -236,6 +236,9 @@ const api = {
     ipcRenderer.invoke('sensenova-generate-image', args),
   exportVideoWithOverlays: (args: any) =>
     ipcRenderer.invoke('export-video-with-overlays', args),
+  // v0.7.11：Canvas 预合成叠加层（圆角/星标/光晕/缩放），返回恒定尺寸帧序列
+  prepareOverlayFrames: (args: { imagePath: string; borderStyle: string; boxWidth: number; mode: string }) =>
+    ipcRenderer.invoke('prepare-overlay-frames', args),
   onExportVideoProgress: (cb: (data: { currentTimeSec: number }) => void) => {
     const listener = (_e: any, data: any) => cb(data);
     ipcRenderer.on('export-video-progress', listener);

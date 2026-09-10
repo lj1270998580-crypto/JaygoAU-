@@ -353,11 +353,25 @@ export function planVisualBeats(
     const contextStart = firstUnit.time.start;
     const unitDur = firstUnit.time.end - firstUnit.time.start;
     const semanticTrigger = Math.round((contextStart + Math.min(1.2, unitDur * 0.4)) * 100) / 100;
-    const recommendedStart = Math.max(0, Math.round((semanticTrigger - anticipationOffset) * 10) / 10);
+
+    // v0.7.11 修复：recommendedStart 必须同时钳制上下限。
+    // 此前只写了 Math.max(0, ...) —— 当累计时间轴超出视频时长时（timelineAligner 每句
+    // 强制最少 1.2 秒，句子多时累计时长会远超视频长度），recommendedStart 会大于 dur，
+    // 而 recommendedEnd 被 Math.min(dur, ...) 钳到 dur，于是产生 start > end 的负时长分镜：
+    //   预览 currentTime>=start && <=end 永远为假 → 永远不显示
+    //   导出 enable='between(t,start,end)' 永远不触发 → 视频里也没有
+    const maxStart = Math.max(0, Math.round((dur - budget.minDuration) * 10) / 10);
+    const recommendedStart = Math.min(
+      maxStart,
+      Math.max(0, Math.round((semanticTrigger - anticipationOffset) * 10) / 10)
+    );
+
     const duration = Math.min(budget.maxDuration, Math.max(budget.minDuration,
       Math.round((lastUnit.time.end - recommendedStart) * 10) / 10)
     );
     const recommendedEnd = Math.min(dur, Math.round((recommendedStart + duration) * 10) / 10);
+    // 最终兜底：无论剩余时长多紧张，都保证 end 严格大于 start
+    const safeEnd = Math.max(recommendedStart + 0.3, recommendedEnd);
     const sourceText = b.sourceUnits.map((u) => u.cleanText).join(' ');
 
     return {
@@ -368,8 +382,8 @@ export function planVisualBeats(
         contextStart: Math.round(contextStart * 10) / 10,
         semanticTrigger,
         recommendedStart,
-        recommendedEnd,
-        duration: Math.round((recommendedEnd - recommendedStart) * 10) / 10,
+        recommendedEnd: Math.round(safeEnd * 10) / 10,
+        duration: Math.round((safeEnd - recommendedStart) * 10) / 10,
       },
       score: b.combinedScore,
       visualType: b.visualType,

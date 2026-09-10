@@ -126,17 +126,16 @@ export function compileScenePrompt(
 
   if (isInfographic) {
     // ————————————— 信息图：信息结构优先的自然语言描述 —————————————
-    const goal = (scenePlan.communicationGoal || '').replace(/^1秒读懂[：:]?\s*/, '');
-    subjectAndAction = sentence(
-      `一张清晰的信息图，要传达的核心信息是：${goal || scenePlan.scene.primarySubject}`
-    );
+    // v0.7.11 修复：不再把 communicationGoal 写进正向提示词。
+    // 该字段是给规划器看的**内部指令**，形如「1秒读懂：观众一眼看到51%的控股权归属」，
+    // 一旦写进提示词，模型会把它当成标题**逐字画在图上**（实测已复现）。
+    // 提示词里只描述画面呈现什么；需要显示的文字统一走下面的引号标签。
+    subjectAndAction = sentence(`一张清晰的信息图。${scenePlan.scene.primarySubject}`);
 
     lines.push(subjectAndAction);
-    lines.push(
-      sentence(
-        `画面以${scenePlan.scene.primarySubject}的方式组织信息，${scenePlan.scene.action}`
-      )
-    );
+    if (scenePlan.scene.action) {
+      lines.push(sentence(scenePlan.scene.action));
+    }
 
     if (anchorList) {
       lines.push(sentence(`视觉上必须一眼可辨的核心元素是：${anchorList}`));
@@ -203,11 +202,12 @@ export function compileScenePrompt(
 
   if (textLabels.length > 0) {
     const quoted = textLabels.map((t) => `“${t}”`).join('、');
-    lines.push(
-      sentence(`画面中需要出现的文字必须逐字准确，仅限以下内容：${quoted}`)
-    );
-  } else if (isInfographic) {
-    lines.push(sentence('画面中如无必要不要出现任何文字，避免出现无法辨认的乱码字符'));
+    lines.push(sentence(`画面中需要出现的文字仅限以下内容，且必须逐字准确：${quoted}`));
+    // v0.7.11：补一条硬约束。官方协议要求文字白名单必须封闭，
+    // 否则模型会把描述性语句也当成需要书写的文字。
+    lines.push(sentence('除上述引号内的文字外，画面中不得出现任何其他文字、数字、标题或标签'));
+  } else {
+    lines.push(sentence('画面中不要出现任何文字、数字、标题或标签，避免出现无法辨认的乱码字符'));
   }
 
   if (visualElements.length > 0) {

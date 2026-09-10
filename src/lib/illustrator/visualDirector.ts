@@ -42,7 +42,8 @@ export function createDirectorDiagnostics(): DirectorDiagnostics {
 export async function directVisualScenes(
   beats: VisualBeat[],
   modelHubSettings?: any,
-  diag?: DirectorDiagnostics
+  diag?: DirectorDiagnostics,
+  onBatch?: (done: number, total: number) => void
 ): Promise<ScenePlan[]> {
   if (!beats || beats.length === 0) return [];
 
@@ -55,7 +56,7 @@ export async function directVisualScenes(
     d.fallbackReason = '未配置统一大模型中心（ModelHub），已退回关键词规则模板';
   } else {
     try {
-      plans = await directWithLLM(beats, modelHubSettings, d);
+      plans = await directWithLLM(beats, modelHubSettings, d, onBatch);
       if (!plans || plans.length !== beats.length) {
         d.usedLLM = false;
         d.fallbackReason = plans
@@ -119,7 +120,8 @@ const MAX_SPLIT_DEPTH = 4;
 async function directWithLLM(
   beats: VisualBeat[],
   modelHubSettings: any,
-  diag: DirectorDiagnostics
+  diag: DirectorDiagnostics,
+  onBatch?: (done: number, total: number) => void
 ): Promise<ScenePlan[] | null> {
   const batches = chunkArray(beats, LLM_BATCH_SIZE);
 
@@ -128,14 +130,21 @@ async function directWithLLM(
   diag.splits = 0;
 
   let degraded = 0;
+  let completed = 0;
+  onBatch?.(0, batches.length);
+
   const results = await mapWithConcurrency(batches, LLM_CONCURRENCY, async (batch, bi) => {
     try {
       const plans = await directBatchWithSplit(batch, bi * LLM_BATCH_SIZE, modelHubSettings, diag, 0);
-      if (plans && plans.length === batch.length) return plans;
+      if (plans && plans.length === batch.length) {
+        onBatch?.(++completed, batches.length);
+        return plans;
+      }
     } catch (err: any) {
       console.warn(`[VisualDirector] 第 ${bi + 1}/${batches.length} 批导演规划失败，本批改用本地规则引擎:`, err?.message || err);
     }
     degraded++;
+    onBatch?.(++completed, batches.length);
     return directWithLocalRules(batch);
   });
 

@@ -113,7 +113,32 @@ export async function runIllustrationPipeline(
     percent: 35,
   });
 
-  const semanticUnits: SemanticUnit[] = await parseSemanticUnits(timelineSegments, modelHubSettings);
+  // v0.7.11：分片进度透出。此前整条流水线只在 5 个固定节点上报百分比，
+  // 「分镜导演构图」在开始时报一次 80% 后就再无更新，而该阶段可能串行跑多轮
+  // LLM 请求（含限流退避）长达数分钟 —— 用户看到的就是「一直卡在 80%」。
+  const batchReporter = (
+    stage: PipelineProgress['stage'],
+    stepNumber: number,
+    stageName: string,
+    basePercent: number,
+    spanPercent: number
+  ) => (done: number, total: number) => {
+    const pct = Math.round(basePercent + (spanPercent * done) / Math.max(1, total));
+    onProgress?.({
+      stage,
+      stepNumber,
+      totalSteps: 5,
+      stageName,
+      message: `${stageName}：第 ${done}/${total} 批…`,
+      percent: Math.min(94, pct),
+    });
+  };
+
+  const semanticUnits: SemanticUnit[] = await parseSemanticUnits(
+    timelineSegments,
+    modelHubSettings,
+    batchReporter('parsing', 2, '语义事件解析', 35, 15)
+  );
   if (semanticUnits.length === 0) {
     throw new Error('未在文案中解析到可视觉化的有效正文内容');
   }
@@ -152,7 +177,8 @@ export async function runIllustrationPipeline(
   const scenePlans: ScenePlan[] = await directVisualScenes(
     visualBeats,
     modelHubSettings,
-    directorDiag
+    directorDiag,
+    batchReporter('directing', 4, '分镜导演构图', 80, 12)
   );
 
   // 5. 风格圣经与提示词编译阶段

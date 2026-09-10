@@ -214,8 +214,27 @@ export interface JaygoAPI {
       heightPercent?: number;
       transitionEffect?: 'fade' | 'slide' | 'zoom' | 'none';
       borderStyle?: 'none' | 'clean_white' | 'rounded_card' | 'star_badge' | 'cyber_glow';
+      /** v0.7.8：上传图原始宽高比，用于高度钳制 */
+      aspect?: number;
+      /** v0.7.11：Canvas 预合成的帧序列（printf 路径） */
+      framePattern?: string | null;
+      /** v0.7.11：已预合成，导出端不再重复处理圆角/边框 */
+      precomposed?: boolean;
     }>;
   }): Promise<{ ok: boolean; outputPath?: string; error?: string }>;
+  /** v0.7.11：Canvas 预合成叠加层（圆角/星标/光晕/缩放） */
+  prepareOverlayFrames(a: {
+    imagePath: string;
+    borderStyle: string;
+    boxWidth: number;
+    mode: string;
+  }): Promise<{
+    ok: boolean;
+    framePaths: string[];
+    framePattern: string | null;
+    width: number;
+    height: number;
+  }>;
   onExportVideoProgress(cb: (data: { currentTimeSec: number }) => void): () => void;
 }
 

@@ -67,7 +67,8 @@ export const GREETING_REGEX =
  */
 export async function parseSemanticUnits(
   segments: TimelineSegment[],
-  modelHubSettings?: any
+  modelHubSettings?: any,
+  onBatch?: (done: number, total: number) => void
 ): Promise<SemanticUnit[]> {
   if (!segments || segments.length === 0) return [];
 
@@ -86,7 +87,7 @@ export async function parseSemanticUnits(
   // 2. 优先尝试调用大模型进行工业级高精度语义事件解析
   if (modelHubSettings) {
     try {
-      const unitsFromLLM = await parseWithLLM(candidateSegments, modelHubSettings);
+      const unitsFromLLM = await parseWithLLM(candidateSegments, modelHubSettings, onBatch);
       if (unitsFromLLM && unitsFromLLM.length > 0) {
         return unitsFromLLM;
       }
@@ -121,10 +122,13 @@ const MAX_SPLIT_DEPTH = 4;
 
 async function parseWithLLM(
   segments: TimelineSegment[],
-  modelHubSettings: any
+  modelHubSettings: any,
+  onBatch?: (done: number, total: number) => void
 ): Promise<SemanticUnit[] | null> {
   const batches = chunkArray(segments, LLM_BATCH_SIZE);
   let degradedBatches = 0;
+  let completed = 0;
+  onBatch?.(0, batches.length);
 
   // v0.7.10：单批失败不再让整条流水线失败。
   // 此前任何一批返回空/数量不匹配就 return null，导致全部退回关键词模板；
@@ -132,11 +136,15 @@ async function parseWithLLM(
   const results = await mapWithConcurrency(batches, LLM_CONCURRENCY, async (batch, bi) => {
     try {
       const units = await parseBatchWithSplit(batch, bi * LLM_BATCH_SIZE, modelHubSettings, 0);
-      if (units && units.length === batch.length) return units;
+      if (units && units.length === batch.length) {
+        onBatch?.(++completed, batches.length);
+        return units;
+      }
     } catch (err: any) {
       console.warn(`[SemanticParser] 第 ${bi + 1}/${batches.length} 批大模型解析失败，本批改用本地规则引擎:`, err?.message || err);
     }
     degradedBatches++;
+    onBatch?.(++completed, batches.length);
     return parseWithLocalRules(batch);
   });
 

@@ -2719,6 +2719,174 @@ ipcMain.handle('sensenova-generate-image', async (_, args: {
 });
 
 // 3. 使用 FFmpeg 将插图序列按时间轴合成到视频中并导出
+/**
+ * 叠加层预合成（v0.7.11）
+ *
+ * 背景：此前导出端完全没有实现圆角（rounded_card 连分支都没有），star_badge /
+ * cyber_glow 也只是画了个纯色方框；而"缩放"动效受限于 ffmpeg overlay 滤镜
+ * 要求输入尺寸恒定，无法逐帧改框大小。
+ *
+ * 思路：既然动画本来就要逐帧采样（预览与导出共用同一套数学），那就把
+ * 圆角 / 星标 / 光晕 / 缩放全部在 Canvas 里一次性画好，输出**尺寸恒定**的 PNG：
+ *   · fade / slide / none → 只需 1 帧
+ *   · zoom               → 输出 N 帧（内容由小放大），作为图片序列喂给 ffmpeg
+ * 这样预览怎么画、导出就怎么画，两边不会再分叉。
+ */
+function roundRectPath(ctx: any, x: number, y: number, w: number, h: number, r: number) {
+  const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+function drawStarPath(ctx: any, cx: number, cy: number, outer: number, inner: number) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const rad = i % 2 === 0 ? outer : inner;
+    const ang = (Math.PI / 5) * i - Math.PI / 2;
+    const px = cx + Math.cos(ang) * rad;
+    const py = cy + Math.sin(ang) * rad;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+}
+
+/** 生成叠加层帧序列，返回帧文件路径（按顺序）与画布尺寸 */
+async function renderOverlayFrames(opts: {
+  imagePath: string;
+  borderStyle: string;
+  boxWidth: number;
+  scales: number[];
+  tag: string;
+}): Promise<{ paths: string[]; width: number; height: number }> {
+  // 延迟 require，避免未使用导出功能时加载原生模块
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createCanvas, loadImage } = require('@napi-rs/canvas');
+
+  const img = await loadImage(opts.imagePath);
+  const srcW = img.width || 1;
+  const srcH = img.height || 1;
+  const aspect = srcW / srcH;
+
+  const boxW = Math.max(16, Math.round(opts.boxWidth / 2) * 2);
+  const boxH = Math.max(16, Math.round(boxW / aspect / 2) * 2);
+
+  const tmpDir = path.join(app.getPath('temp'), `jaygo-ovl-${opts.tag}`);
+  fs.mkdirSync(tmpDir, { recursive: true });
+
+  const radius = Math.round(Math.min(boxW, boxH) * 0.06);
+  const borderW = Math.max(3, Math.round(Math.min(boxW, boxH) * 0.012));
+  const scales = opts.scales.length > 0 ? opts.scales : [1];
+  const paths: string[] = [];
+
+  scales.forEach((scale, fi) => {
+    const canvas = createCanvas(boxW, boxH);
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, boxW, boxH);
+
+    const iw = Math.max(8, Math.round((boxW * scale) / 2) * 2);
+    const ih = Math.max(8, Math.round((boxH * scale) / 2) * 2);
+    const ix = Math.round((boxW - iw) / 2);
+    const iy = Math.round((boxH - ih) / 2);
+    const r = Math.max(2, Math.round(radius * scale));
+
+    // 霓虹光晕：外扩若干圈递减透明度的描边
+    if (opts.borderStyle === 'cyber_glow') {
+      for (let g = 6; g >= 1; g--) {
+        ctx.save();
+        ctx.globalAlpha = (0.1 * (7 - g)) / 6;
+        ctx.strokeStyle = '#6366F1';
+        ctx.lineWidth = borderW + g * 3;
+        roundRectPath(ctx, ix - g * 1.5, iy - g * 1.5, iw + g * 3, ih + g * 3, r + g * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // 圆角裁剪后绘制图片
+    ctx.save();
+    roundRectPath(ctx, ix, iy, iw, ih, r);
+    ctx.clip();
+    ctx.drawImage(img, ix, iy, iw, ih);
+    ctx.restore();
+
+    // 边框
+    if (opts.borderStyle === 'clean_white') {
+      ctx.save();
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = borderW;
+      roundRectPath(ctx, ix, iy, iw, ih, r);
+      ctx.stroke();
+      ctx.restore();
+    } else if (opts.borderStyle === 'cyber_glow') {
+      ctx.save();
+      ctx.strokeStyle = '#818CF8';
+      ctx.lineWidth = borderW;
+      roundRectPath(ctx, ix, iy, iw, ih, r);
+      ctx.stroke();
+      ctx.restore();
+    } else if (opts.borderStyle === 'rounded_card') {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+      ctx.lineWidth = Math.max(1, Math.round(borderW / 2));
+      roundRectPath(ctx, ix, iy, iw, ih, r);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 顶部星标徽章
+    if (opts.borderStyle === 'star_badge') {
+      const cx = ix + iw / 2;
+      const cy = iy + Math.max(7, borderW + 4);
+      const outer = Math.max(8, Math.round(Math.min(iw, ih) * 0.06));
+      ctx.save();
+      ctx.fillStyle = '#F59E0B';
+      drawStarPath(ctx, cx, cy, outer, outer * 0.45);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    const out = path.join(tmpDir, `f${String(fi).padStart(3, '0')}.png`);
+    fs.writeFileSync(out, canvas.encodeSync('png'));
+    paths.push(out);
+  });
+
+  return { paths, width: boxW, height: boxH };
+}
+
+ipcMain.handle(
+  'prepare-overlay-frames',
+  async (_e, args: { imagePath: string; borderStyle: string; boxWidth: number; mode: string }) => {
+    const scales =
+      args.mode === 'zoom' ? [0.82, 0.88, 0.93, 0.97, 1.0] : [1];
+    const tag = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const r = await renderOverlayFrames({
+      imagePath: args.imagePath,
+      borderStyle: args.borderStyle,
+      boxWidth: args.boxWidth,
+      scales,
+      tag,
+    });
+    return {
+      ok: true,
+      framePaths: r.paths,
+      // ffmpeg 图片序列输入需要 printf 形式路径
+      framePattern: r.paths.length > 1 ? r.paths[0].replace(/f\d{3}\.png$/, 'f%03d.png') : null,
+      width: r.width,
+      height: r.height,
+    };
+  }
+);
+
 ipcMain.handle('export-video-with-overlays', async (event, args: {
   videoPath: string;
   outputPath?: string;
@@ -2733,6 +2901,10 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
     heightPercent?: number;
     /** v0.7.8：上传图的原始宽高比（w/h），用于高度钳制 */
     aspect?: number;
+    /** v0.7.11：Canvas 预合成的帧序列（printf 路径）；存在时按图片序列输入 */
+    framePattern?: string | null;
+    /** v0.7.11：已由 Canvas 预合成（圆角/星标/光晕/缩放均已烘焙），导出端不再重复处理 */
+    precomposed?: boolean;
     transitionEffect?: 'fade' | 'slide' | 'zoom' | 'none';
     borderStyle?: 'none' | 'clean_white' | 'rounded_card' | 'star_badge' | 'cyber_glow';
   }>;
@@ -2784,10 +2956,17 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
     const H = dimensions.height;
     dbg(`[VideoOverlay] input=${actualVideoPath} W=${W} H=${H} overlaysCount=${overlays.length} removeWatermark=${Boolean(removeOriginalWatermark)}`);
 
-    // 构建 FFmpeg 输入参数（使用 -loop 1 -i，杜绝 -t 过早耗尽后续分镜流）
+    // 构建 FFmpeg 输入参数
+    // v0.7.11：若该叠加层已由 Canvas 预合成（圆角/星标/光晕/缩放序列），
+    // 多帧时用图片序列输入（尺寸恒定，overlay 可正常处理）；
+    // 单帧时仍走 -loop 1 -i（杜绝 -t 过早耗尽后续分镜流）。
     const ffmpegArgs = ['-y', '-i', actualVideoPath];
     for (const ov of overlays) {
-      ffmpegArgs.push('-loop', '1', '-i', ov.imagePath);
+      if (ov.framePattern) {
+        ffmpegArgs.push('-start_number', '0', '-framerate', '10', '-i', ov.framePattern);
+      } else {
+        ffmpegArgs.push('-loop', '1', '-i', ov.imagePath);
+      }
     }
 
     // 滤镜处理各插图
@@ -2812,7 +2991,8 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
       // v0.7.8 高度钳制：叠加层按宽度缩放后高度由图片自身比例决定（h=-2），
       // 一张 9:16 竖图在 widthPercent=0.78 下会算出 1.39 倍画面高度而溢出。
       // 这里在上传图带有 aspect 时，按画面高度上限反推最大宽度。
-      if (typeof ov.aspect === 'number' && Number.isFinite(ov.aspect) && ov.aspect > 0) {
+      // v0.7.11：若该层已由 Canvas 预合成，尺寸与圆角均已烘焙，无需再钳制。
+      if (!ov.precomposed && typeof ov.aspect === 'number' && Number.isFinite(ov.aspect) && ov.aspect > 0) {
         const maxHPercent = typeof ov.heightPercent === 'number' && ov.heightPercent > 0
           ? ov.heightPercent
           : 0.92;
@@ -2834,15 +3014,20 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
       const fadeOutSt = Math.max(Number(st), Number(et) - fadeDur).toFixed(2);
 
       // 通过 setpts=PTS-STARTPTS+st/TB 精确将各图时间戳与主视频对齐
-      let imgFilters = `[${imgInputIndex}:v]scale=w=${targetW}:h=-2,format=rgba,setpts=PTS-STARTPTS+${st}/TB`;
+      // v0.7.11：预合成的帧已是最终尺寸，跳过 scale 避免二次重采样
+      let imgFilters = ov.precomposed
+        ? `[${imgInputIndex}:v]format=rgba,setpts=PTS-STARTPTS+${st}/TB`
+        : `[${imgInputIndex}:v]scale=w=${targetW}:h=-2,format=rgba,setpts=PTS-STARTPTS+${st}/TB`;
 
-      // 边框预设
-      if (ov.borderStyle === 'clean_white') {
-        imgFilters += `,drawbox=x=0:y=0:w=iw:h=ih:color=white:t=4`;
-      } else if (ov.borderStyle === 'star_badge') {
-        imgFilters += `,drawbox=x=0:y=0:w=iw:h=ih:color=0xF59E0B:t=4`;
-      } else if (ov.borderStyle === 'cyber_glow') {
-        imgFilters += `,drawbox=x=0:y=0:w=iw:h=ih:color=0x6366F1:t=4`;
+      // 边框预设（v0.7.11：预合成时圆角/星标/光晕已烘焙进 PNG，不再由 ffmpeg 重复绘制）
+      if (!ov.precomposed) {
+        if (ov.borderStyle === 'clean_white') {
+          imgFilters += `,drawbox=x=0:y=0:w=iw:h=ih:color=white:t=4`;
+        } else if (ov.borderStyle === 'star_badge') {
+          imgFilters += `,drawbox=x=0:y=0:w=iw:h=ih:color=0xF59E0B:t=4`;
+        } else if (ov.borderStyle === 'cyber_glow') {
+          imgFilters += `,drawbox=x=0:y=0:w=iw:h=ih:color=0x6366F1:t=4`;
+        }
       }
 
       // 入场与出场动效

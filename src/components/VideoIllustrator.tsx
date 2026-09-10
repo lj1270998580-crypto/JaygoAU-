@@ -659,11 +659,19 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
           setScriptText(res.text);
         }
         const rawUtts = res.utterances || [];
-        const utts = rawUtts.map((u: any) => ({
-          text: u.text || '',
-          startTime: typeof u.startTime === 'number' ? (u.startTime > 1000 ? u.startTime / 1000 : u.startTime) : 0,
-          endTime: typeof u.endTime === 'number' ? (u.endTime > 1000 ? u.endTime / 1000 : u.endTime) : 0,
-        }));
+        // v0.7.11 修复：原先对 startTime / endTime **各自独立**判断是否 >1000 决定要不要除以 1000，
+        // 一旦两个字段量级不同（一个已是秒、一个是毫秒），就会把 start 转成 370 而 end 转成 161.9，
+        // 产生 start > end 的负时长分镜。现改为按两个字段的共同量级统一判断单位。
+        const utts = rawUtts.map((u: any) => {
+          const rawStart = typeof u.startTime === 'number' ? u.startTime : 0;
+          const rawEnd = typeof u.endTime === 'number' ? u.endTime : 0;
+          const looksLikeMs = Math.max(Math.abs(rawStart), Math.abs(rawEnd)) > 1000;
+          return {
+            text: u.text || '',
+            startTime: looksLikeMs ? rawStart / 1000 : rawStart,
+            endTime: looksLikeMs ? rawEnd / 1000 : rawEnd,
+          };
+        });
         setAsrUtterances(utts);
         showToast(`ASR 语音转录完成！共获取 ${utts.length} 句毫秒级时间轴`, 'ok');
         if (illustrations.length > 0) {
@@ -915,6 +923,24 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
       if (asrUtterances.length > 0) {
         formatted = applyAsrAlignmentToIllustrations(formatted, asrUtterances);
       }
+
+      // v0.7.11 最终防御：保证 end 严格大于 start；已知视频时长时一并钳制到 [0, 时长]。
+      // 任何 start >= end 的分镜在预览（currentTime 区间判断）与导出
+      // （ffmpeg enable='between(t,start,end)'）中都不会出现，属于静默丢图。
+      const knownDur = videoDuration > 0 ? videoDuration : 0;
+      formatted = formatted.map((it) => {
+        let s = Math.max(0, it.startTime);
+        let e = Math.max(s + 0.3, it.endTime);
+        if (knownDur > 0) {
+          s = Math.min(s, Math.max(0, knownDur - 0.3));
+          e = Math.min(Math.max(e, s + 0.3), knownDur);
+        }
+        return {
+          ...it,
+          startTime: Math.round(s * 10) / 10,
+          endTime: Math.round(e * 10) / 10,
+        };
+      });
 
       setIllustrations(formatted);
       if (formatted.length > 0) {
@@ -1175,20 +1201,49 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
 
     try {
       showToast('正在调用 FFmpeg 高清合成视频轨道、进退动效与全部插图序列…', 'info');
-      const overlays = readyItems.map((it) => ({
-        imagePath: it.localPath!,
-        startTime: it.startTime,
-        endTime: it.endTime,
-        xPercent: globalLayout.xPercent,
-        yPercent: globalLayout.yPercent,
-        widthPercent: globalLayout.widthPercent,
-        heightPercent: globalLayout.heightPercent,
-        // v0.7.8：上传图带上原始宽高比，主进程据此做高度钳制，
-        // 避免竖图只按宽度缩放后高度超出画面（9:16 在 0.78 宽度下会算出 1.39 倍画面高）
-        aspect: it.source === 'upload' ? it.customAspect : undefined,
-        transitionEffect,
-        borderStyle,
-      }));
+      // v0.7.11：导出前先用 Canvas 预合成叠加层（圆角/星标/光晕/缩放）。
+      // 此前导出端完全没有圆角实现，star_badge/cyber_glow 也只是画纯色方框；
+      // 且 ffmpeg overlay 要求输入尺寸恒定，无法逐帧改框大小实现真缩放。
+      // 预合成后输出尺寸恒定的帧序列，两个问题一并解决。
+      const boxWidth = Math.max(
+        16,
+        Math.round((videoDimensions.width * globalLayout.widthPercent) / 2) * 2
+      );
+      const overlays = await Promise.all(
+        readyItems.map(async (it) => {
+          const base = {
+            imagePath: it.localPath!,
+            startTime: it.startTime,
+            endTime: it.endTime,
+            xPercent: globalLayout.xPercent,
+            yPercent: globalLayout.yPercent,
+            widthPercent: globalLayout.widthPercent,
+            heightPercent: globalLayout.heightPercent,
+            aspect: it.source === 'upload' ? it.customAspect : undefined,
+            transitionEffect,
+            borderStyle,
+          };
+          try {
+            const prep = await api.prepareOverlayFrames({
+              imagePath: it.localPath!,
+              borderStyle,
+              boxWidth,
+              mode: transitionEffect,
+            });
+            if (prep?.ok && prep.framePaths?.length > 0) {
+              return {
+                ...base,
+                imagePath: prep.framePaths[0],
+                framePattern: prep.framePattern,
+                precomposed: true,
+              };
+            }
+          } catch (e) {
+            console.warn('[Illustrator] 叠加层预合成失败，回退为原始图片叠加:', e);
+          }
+          return base;
+        })
+      );
 
       const res = await api.exportVideoWithOverlays({
         videoPath: targetSource,

@@ -69,17 +69,37 @@ export function alignScriptTimeline(
   const totalChars = rawSentences.reduce((sum, s) => sum + s.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').length, 0);
   const targetDuration = totalVideoDuration > 0 ? totalVideoDuration : Math.max(10, Math.round(totalChars / 4.2));
 
-  // 每个句子的字符权重
+  // v0.7.11 修复：单句「最少 1.2 秒」的下限会把总时长撑爆。
+  // 例：100 个短句按权重各得 1.0 秒，被下限抬到 1.2 秒后总时长变成 120 秒。
+  // 句子越多、句子越短，超出越严重（实测有文案累计到 370 秒，而视频只有 162 秒），
+  // 进而导致后续分镜的 recommendedStart 超出视频末尾 —— 那些分镜在预览与导出中都不会出现。
+  // 处理：先按权重 + 下限估算，若总量超出目标时长则整体按比例压缩回目标时长。
+  const baseDurations = rawSentences.map((s) => {
+    const charCount = Math.max(2, s.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').length);
+    const weight = charCount / Math.max(1, totalChars);
+    return Math.max(1.2, Math.round(weight * targetDuration * 10) / 10);
+  });
+
+  let durations = baseDurations;
+  const estimatedTotal = durations.reduce((a, b) => a + b, 0);
+  if (estimatedTotal > targetDuration) {
+    // 第一次压缩：保留一个较温和的下限，避免长句被压得不可读
+    const k1 = targetDuration / estimatedTotal;
+    durations = durations.map((d) => Math.max(0.5, d * k1));
+    // 第二次压缩：下限仍可能再次撑爆，这次纯按比例归一到目标时长
+    const total2 = durations.reduce((a, b) => a + b, 0);
+    if (total2 > targetDuration) {
+      const k2 = targetDuration / total2;
+      durations = durations.map((d) => d * k2);
+    }
+  }
+
   let currentSec = 0;
   const segments: TimelineSegment[] = [];
 
   for (let i = 0; i < rawSentences.length; i++) {
     const s = rawSentences[i];
-    const charCount = Math.max(2, s.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').length);
-    const weight = charCount / Math.max(1, totalChars);
-    let estDuration = weight * targetDuration;
-    // 单句最少 1.2 秒
-    estDuration = Math.max(1.2, Math.round(estDuration * 10) / 10);
+    const estDuration = Math.max(0.3, Math.round(durations[i] * 10) / 10);
 
     const startTime = Math.round(currentSec * 10) / 10;
     const endTime = Math.round((currentSec + estDuration) * 10) / 10;
