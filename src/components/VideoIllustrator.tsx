@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../store';
 import { api } from '../lib/ipc';
-import { chatCompletion, resolveModelInfo } from '../lib/modelHubService';
+import { chatCompletion, resolveModelInfo, subscribeModelCalls, type ModelCallEvent } from '../lib/modelHubService';
 import type { ModelHubSettings, ModelProviderType } from '../lib/modelHubTypes';
 import { PRESET_PROVIDERS } from '../lib/modelHubTypes';
 import { runIllustrationPipeline, type PipelineProgress, type PipelineDiagnostics } from '../lib/illustrator';
@@ -363,6 +363,20 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   const [diagExpanded, setDiagExpanded] = useState<boolean>(false);
   // v0.7.12：悬停放大预览跟随鼠标位置
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // v0.7.14：大模型调用实时状态。
+  // 规划阶段可能串行跑十几轮请求、持续数分钟，中途限流/超时/Key 失效时
+  // 此前界面上毫无反馈，用户只能看到进度条不动。现在每次调用结束都实时显示。
+  const [modelCalls, setModelCalls] = useState<ModelCallEvent[]>([]);
+  // v0.7.14：规划失败的完整原因（不再只弹一个会被截断的 toast）
+  const [planError, setPlanError] = useState<string | null>(null);
+  useEffect(() => {
+    const unsubscribe = subscribeModelCalls((event) => {
+      // 只保留最近 8 条，避免长时间运行时无限增长
+      setModelCalls((prev) => [...prev, event].slice(-8));
+    });
+    return unsubscribe;
+  }, []);
 
   // 全局排版、动效、边框与交互控制
   const [linkAllPositions, setLinkAllPositions] = useState<boolean>(true);
@@ -884,6 +898,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
 
     setIsPlanning(true);
     setPlanDiagnostics(null);
+    setModelCalls([]);
+    setPlanError(null);
     setPipelineProgress({
       stage: 'aligning',
       stepNumber: 1,
@@ -966,7 +982,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
       if (d && !d.usedLLM) {
         // 不再静默降级：明确告知用户本次规划未经过大模型
         showToast(
-          `已规划 ${formatted.length} 个分镜，但大模型未参与（${d.fallbackReason || '未知原因'}），本次使用关键词规则兜底`,
+          `已规划 ${formatted.length} 个分镜，但大模型未参与（${d.fallbackReason || '未知原因'}）`,
           'info'
         );
       } else {
@@ -976,7 +992,10 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         );
       }
     } catch (err: any) {
-      showToast(err?.message || '规划分镜失败', 'err');
+      // v0.7.14：失败原因完整保留在面板里（toast 放不下长文本，且会自动消失）
+      const msg = err?.message || '规划分镜失败';
+      setPlanError(msg);
+      showToast(msg.length > 60 ? `${msg.slice(0, 60)}…（详见右侧面板）` : msg, 'err');
     } finally {
       setIsPlanning(false);
       setPipelineProgress(null);
@@ -2150,6 +2169,85 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                   style={{ width: `${pipelineProgress?.percent || 25}%` }}
                 />
               </div>
+
+              {/* v0.7.14：大模型调用实时状态 —— 每次请求结束立刻显示成功/失败 */}
+              {modelCalls.length > 0 && (() => {
+                const okCount = modelCalls.filter((c) => c.ok).length;
+                const failCount = modelCalls.length - okCount;
+                const last = modelCalls[modelCalls.length - 1];
+                return (
+                  <div className="pt-1.5 border-t border-indigo-200/70 dark:border-indigo-800/50 space-y-1">
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold">
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                          last.ok ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500 animate-pulse'
+                        }`}
+                      />
+                      <span className="text-indigo-600 dark:text-indigo-300">大模型调用</span>
+                      <span className="text-emerald-600 dark:text-emerald-400">成功 {okCount}</span>
+                      {failCount > 0 && (
+                        <span className="text-rose-600 dark:text-rose-400">失败 {failCount}</span>
+                      )}
+                      <span className="ml-auto font-mono text-indigo-400">{modelCalls.length} 次</span>
+                    </div>
+                    <div className="space-y-0.5 max-h-24 overflow-y-auto">
+                      {modelCalls.slice().reverse().map((c) => (
+                        <div
+                          key={c.id}
+                          className={`flex items-start gap-1.5 text-[9.5px] leading-tight rounded px-1.5 py-1 ${
+                            c.ok
+                              ? 'bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400'
+                              : 'bg-rose-50/90 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300'
+                          }`}
+                        >
+                          <span className="shrink-0 font-bold">{c.ok ? '✓' : '✕'}</span>
+                          <span className="shrink-0 max-w-[92px] truncate" title={`${c.providerLabel} / ${c.model}`}>
+                            {c.model || c.providerLabel}
+                          </span>
+                          <span className="shrink-0 font-mono opacity-70">
+                            {(c.ms / 1000).toFixed(1)}s
+                            {c.attempts > 1 ? ` ·${c.attempts}试` : ''}
+                          </span>
+                          {!c.ok && (
+                            <span className="min-w-0 flex-1 truncate" title={c.error}>
+                              {c.error}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* v0.7.14：规划失败时显示完整原因（toast 会被截断且自动消失） */}
+          {!isPlanning && planError && (
+            <div className="mx-3 mt-3 p-3 rounded-xl border border-rose-300 dark:border-rose-800/80 bg-rose-50/90 dark:bg-rose-950/40 space-y-1.5">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11.5px] font-bold text-rose-700 dark:text-rose-300">
+                    规划失败：大模型未能完成本次调用
+                  </div>
+                  <div className="text-[10.5px] text-rose-700/90 dark:text-rose-400/90 mt-1 leading-relaxed break-words">
+                    {planError}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPlanError(null)}
+                  className="shrink-0 text-[10px] text-rose-500 hover:text-rose-700 dark:hover:text-rose-300 cursor-pointer"
+                  title="关闭"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="text-[10px] text-rose-600/80 dark:text-rose-400/70 leading-relaxed pl-6">
+                本次未使用任何本地关键词规则兜底（你已要求内容一律由大模型产出）。
+                请检查上方实时调用记录中的报错，或前往 [模型中心] 更换一个额度更充足的模型后重试。
+              </div>
             </div>
           )}
 
@@ -2189,6 +2287,20 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                 <span className="text-zinc-500 dark:text-zinc-400 font-mono truncate">
                   {planDiagnostics.totalBeats} 分镜 · 信息图 {planDiagnostics.infographicCount}
                 </span>
+                {/* v0.7.14：规划结束后仍能看到本次调用成功/失败次数，失败不会被面板收起后吞掉 */}
+                {modelCalls.length > 0 && (() => {
+                  const ok = modelCalls.filter((c) => c.ok).length;
+                  const bad = modelCalls.length - ok;
+                  return (
+                    <span
+                      className={`font-mono shrink-0 ${
+                        bad > 0 ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-emerald-600 dark:text-emerald-400'
+                      }`}
+                    >
+                      调用 {ok}✓{bad > 0 ? ` ${bad}✕` : ''}
+                    </span>
+                  );
+                })()}
                 <ChevronDown
                   className={`w-3 h-3 ml-auto shrink-0 text-zinc-400 transition-transform ${diagExpanded ? 'rotate-180' : ''}`}
                 />
@@ -2199,6 +2311,20 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                   {planDiagnostics.fallbackReason && (
                     <div className="text-amber-700/90 dark:text-amber-400/90 leading-relaxed whitespace-pre-wrap">
                       {planDiagnostics.fallbackReason}
+                    </div>
+                  )}
+                  {/* v0.7.14：展开后可见每一次失败的模型调用及原始报错 */}
+                  {modelCalls.some((c) => !c.ok) && (
+                    <div className="space-y-0.5">
+                      {modelCalls.filter((c) => !c.ok).map((c) => (
+                        <div
+                          key={c.id}
+                          className="text-rose-700/90 dark:text-rose-400/90 leading-relaxed break-words"
+                        >
+                          ✕ {c.providerLabel} / {c.model}（{(c.ms / 1000).toFixed(1)}s
+                          {c.attempts > 1 ? `，重试 ${c.attempts} 次` : ''}）：{c.error}
+                        </div>
+                      ))}
                     </div>
                   )}
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-zinc-600 dark:text-zinc-400 font-mono">
@@ -2215,6 +2341,26 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                     {(planDiagnostics.splits || 0) > 0 && (
                       <span className="text-amber-600 dark:text-amber-400">
                         截断自动降片 {planDiagnostics.splits} 次
+                      </span>
+                    )}
+                    {/* v0.7.14：本次实际生效的并发档位 */}
+                    {planDiagnostics.concurrency && (
+                      <span
+                        className={
+                          planDiagnostics.concurrency.finalLimit < planDiagnostics.concurrency.initialLimit
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : 'text-indigo-600 dark:text-indigo-400'
+                        }
+                        title={
+                          planDiagnostics.concurrency.rateLimitHits > 0
+                            ? `运行中命中限流 ${planDiagnostics.concurrency.rateLimitHits} 次，已自动降并发`
+                            : '按该模型 TPM 额度自动选择的并发档位'
+                        }
+                      >
+                        并发 {planDiagnostics.concurrency.initialLimit}
+                        {planDiagnostics.concurrency.finalLimit < planDiagnostics.concurrency.initialLimit
+                          ? ` → ${planDiagnostics.concurrency.finalLimit}（限流降级）`
+                          : ''}
                       </span>
                     )}
                     {planDiagnostics.diversityAdjusted > 0 && (

@@ -8,9 +8,19 @@
 // =========================================================================
 
 import type { VisualBeat, ScenePlan, ShotType, VisualType } from './types';
-import { chatCompletion } from '../modelHubService';
+import { chatCompletion, resolveModelInfo } from '../modelHubService';
 import { extractJsonArrayLoose, chunkArray } from './jsonExtract';
-import { mapWithConcurrency } from './concurrency';
+import { AdaptiveConcurrency, createAdaptiveConcurrency } from './modelConcurrency';
+
+/** 安全解析当前生效的模型名，失败时返回空串（由并发控制器回落到保守值） */
+function resolveActiveModelName(settings: any): string {
+  if (!settings) return '';
+  try {
+    return resolveModelInfo(settings)?.model || '';
+  } catch {
+    return '';
+  }
+}
 
 /**
  * 为全片所有选定的视觉节拍规划具体镜头画面
@@ -31,8 +41,16 @@ export interface DirectorDiagnostics {
   truncatedBatches?: number;
   /** 因截断而触发二分重试的次数 */
   splits?: number;
-  /** 因限流/失败而降级为本地规则引擎的批次数（v0.7.10） */
+  /** 因限流/失败而降级为本地规则引擎的批次数（v0.7.10；v0.7.14 起恒为 0，不再降级） */
   degradedBatches?: number;
+  /** v0.7.14：本次规划的自适应并发统计（初始/最终并发、限流命中次数） */
+  concurrency?: {
+    initialLimit: number;
+    finalLimit: number;
+    rateLimitHits: number;
+    completed: number;
+    failed: number;
+  };
 }
 
 export function createDirectorDiagnostics(): DirectorDiagnostics {
@@ -48,49 +66,29 @@ export async function directVisualScenes(
   if (!beats || beats.length === 0) return [];
 
   const d = diag || createDirectorDiagnostics();
-  let plans: ScenePlan[] | null = null;
 
-  // 1. 优先尝试通过大模型进行专业级分镜导演规划
+  // v0.7.14：移除「本地关键词规则模板兜底」。
+  // 用户明确指出本地规则覆盖面太窄、判定不精准，要求内容一律由大模型产出。
+  // 失败时不再悄悄给出一份劣质分镜，而是把真实原因抛给 UI。
   if (!modelHubSettings) {
     d.usedLLM = false;
-    d.fallbackReason = '未配置统一大模型中心（ModelHub），已退回关键词规则模板';
-  } else {
-    try {
-      plans = await directWithLLM(beats, modelHubSettings, d, onBatch);
-      if (!plans || plans.length !== beats.length) {
-        d.usedLLM = false;
-        d.fallbackReason = plans
-          ? `大模型返回分镜数量与节拍数量不一致（${plans.length} ≠ ${beats.length}）`
-          : '大模型未返回可解析的 JSON 分镜结果';
-        plans = null;
-      } else {
-        // v0.7.10：即便整体返回成功，也要如实反映有多少批次其实降级到了本地规则
-        const total = d.batches || 1;
-        const degraded = d.degradedBatches || 0;
-        if (degraded >= total) {
-          d.usedLLM = false;
-          d.fallbackReason = '全部批次均因服务商限流或调用失败而降级为关键词规则模板';
-        } else {
-          d.usedLLM = true;
-          if (degraded > 0) {
-            d.fallbackReason = `${degraded}/${total} 个批次因限流或调用失败降级为关键词规则模板，其余批次由大模型完成`;
-          }
-        }
-      }
-    } catch (err: any) {
-      d.usedLLM = false;
-      d.fallbackReason = `大模型调用异常：${err?.message || err}`;
-      console.warn('VisualDirector LLM 调用异常，使用语义规则引擎兜底:', err);
-      plans = null;
-    }
+    throw new Error('未配置大模型服务，无法进行分镜导演规划。请先前往 [模型中心] 配置并启用一个供应商。');
   }
 
-  // 2. 本地语义驱动规则引擎兜底
-  if (!plans) {
-    plans = directWithLocalRules(beats);
+  const plans = await directWithLLM(beats, modelHubSettings, d, onBatch);
+  if (!plans || plans.length !== beats.length) {
+    d.usedLLM = false;
+    throw new Error(
+      plans
+        ? `大模型返回的分镜数量与节拍数量不一致（${plans.length} ≠ ${beats.length}）`
+        : '大模型未返回可解析的分镜 JSON 结果'
+    );
   }
 
-  // 3. 统一执行「构图多样性」后处理（对 LLM 与兜底两条路径同时生效）
+  d.usedLLM = true;
+  d.fallbackReason = undefined;
+
+  // 统一执行「构图多样性」后处理
   d.diversityAdjusted = enforceVisualDiversity(plans);
 
   return plans;
@@ -102,13 +100,6 @@ export async function directVisualScenes(
  * 批量越大单次 token 消耗越高，越容易直接撞上限。
  */
 const LLM_BATCH_SIZE = 5;
-/**
- * 并发上限。
- * v0.7.10：由 3 改回 1（串行）。上一版的 3 并发 + 批量 10 会瞬间打满
- * 每分钟 Token 额度并连续 429，反而导致整条规划失败。TPM 是分钟级配额，
- * 并发只会更快撞墙。
- */
-const LLM_CONCURRENCY = 1;
 /** 因截断而二分重试的最大深度 */
 const MAX_SPLIT_DEPTH = 4;
 
@@ -129,36 +120,63 @@ async function directWithLLM(
   diag.truncatedBatches = 0;
   diag.splits = 0;
 
-  let degraded = 0;
   let completed = 0;
   onBatch?.(0, batches.length);
 
-  const results = await mapWithConcurrency(batches, LLM_CONCURRENCY, async (batch, bi) => {
-    try {
-      const plans = await directBatchWithSplit(batch, bi * LLM_BATCH_SIZE, modelHubSettings, diag, 0);
-      if (plans && plans.length === batch.length) {
-        onBatch?.(++completed, batches.length);
-        return plans;
-      }
-    } catch (err: any) {
-      console.warn(`[VisualDirector] 第 ${bi + 1}/${batches.length} 批导演规划失败，本批改用本地规则引擎:`, err?.message || err);
-    }
-    degraded++;
+  // v0.7.14：并发按模型 TPM 额度自适应；单批失败改为重试 + 立即降并发，
+  // 不再降级到本地规则模板（用户要求内容一律由大模型产出）。
+  const model = resolveActiveModelName(modelHubSettings);
+  const ctrl = createAdaptiveConcurrency(model);
+
+  const results = await ctrl.run(batches, async (batch, bi) => {
+    const plans = await directBatchWithRetry(batch, bi * LLM_BATCH_SIZE, modelHubSettings, diag, ctrl, bi + 1, batches.length);
     onBatch?.(++completed, batches.length);
-    return directWithLocalRules(batch);
+    return plans;
   });
 
-  if (degraded > 0) {
-    console.warn(`[VisualDirector] 共 ${degraded}/${batches.length} 批降级为本地规则引擎`);
-  }
-  diag.degradedBatches = degraded;
+  diag.degradedBatches = 0;
+  diag.concurrency = ctrl.stats;
 
   const collected: ScenePlan[] = results.flat();
-
   // 合并后统一做场景去重补偿
   differentiateDuplicateSubjects(collected);
-
   return collected;
+}
+
+/**
+ * 单批导演规划 + 有限次重试。
+ * 失败直接抛出（不再静默降级到本地规则模板）。
+ */
+async function directBatchWithRetry(
+  batch: VisualBeat[],
+  globalOffset: number,
+  modelHubSettings: any,
+  diag: DirectorDiagnostics,
+  ctrl: AdaptiveConcurrency,
+  batchNo: number,
+  totalBatches: number
+): Promise<ScenePlan[]> {
+  const MAX_ATTEMPTS = 3;
+  let lastErr: any = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const plans = await directBatchWithSplit(batch, globalOffset, modelHubSettings, diag, 0);
+      if (plans && plans.length === batch.length) {
+        return plans;
+      }
+      lastErr = new Error(`模型返回的分镜数与节拍数不一致（期望 ${batch.length}，实际 ${plans?.length ?? 0}）`);
+    } catch (err: any) {
+      lastErr = err;
+    }
+    if (attempt < MAX_ATTEMPTS) {
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
+  }
+
+  throw new Error(
+    `分镜导演第 ${batchNo}/${totalBatches} 批在 ${MAX_ATTEMPTS} 次尝试后仍失败：${lastErr?.message || lastErr}`
+  );
 }
 
 /**

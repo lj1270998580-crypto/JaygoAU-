@@ -11,9 +11,19 @@
 
 import type { SemanticUnit } from './types';
 import type { TimelineSegment } from './timelineAligner';
-import { chatCompletion } from '../modelHubService';
+import { chatCompletion, resolveModelInfo } from '../modelHubService';
 import { extractJsonArrayLoose, chunkArray } from './jsonExtract';
-import { mapWithConcurrency } from './concurrency';
+import { AdaptiveConcurrency, createAdaptiveConcurrency } from './modelConcurrency';
+
+/** 安全解析当前生效的模型名，失败时返回空串（由并发控制器回落到保守值） */
+function resolveActiveModelName(settings: any): string {
+  if (!settings) return '';
+  try {
+    return resolveModelInfo(settings)?.model || '';
+  } catch {
+    return '';
+  }
+}
 
 // -------------------------------------------------------------------------
 // 营销推销话术过滤（v0.7.8 重构）
@@ -84,20 +94,21 @@ export async function parseSemanticUnits(
 
   if (candidateSegments.length === 0) return [];
 
-  // 2. 优先尝试调用大模型进行工业级高精度语义事件解析
-  if (modelHubSettings) {
-    try {
-      const unitsFromLLM = await parseWithLLM(candidateSegments, modelHubSettings, onBatch);
-      if (unitsFromLLM && unitsFromLLM.length > 0) {
-        return unitsFromLLM;
-      }
-    } catch (err) {
-      console.warn('SemanticParser LLM 调用异常，使用本地高精度规则引擎兜底:', err);
-    }
+  // 2. 语义事件解析。
+  //
+  // v0.7.14：彻底移除「本地关键词规则兜底」。
+  // 用户明确指出本地规则覆盖面太窄、判定不精准，要求内容一律由大模型产出。
+  // 因此这里不再 catch 后返回 parseWithLocalRules，而是让错误直接向上抛，
+  // 由 UI 明确告知「哪一批、为什么失败」，而不是悄悄给出一份劣质结果。
+  if (!modelHubSettings) {
+    throw new Error('未配置大模型服务，无法进行语义解析。请先前往 [模型中心] 配置并启用一个供应商。');
   }
 
-  // 3. 本地高精度规则解析兜底（在无大模型或网络超时时保证 100% 可用）
-  return parseWithLocalRules(candidateSegments);
+  const unitsFromLLM = await parseWithLLM(candidateSegments, modelHubSettings, onBatch);
+  if (!unitsFromLLM || unitsFromLLM.length === 0) {
+    throw new Error('大模型未返回可用的语义解析结果，请检查模型配置或稍后重试。');
+  }
+  return unitsFromLLM;
 }
 
 /**
@@ -109,50 +120,68 @@ export async function parseSemanticUnits(
  * 批量越大单次消耗的 token 越多，越容易直接撞上限。小批量 + 串行才稳。
  */
 const LLM_BATCH_SIZE = 5;
-/**
- * 并发上限。
- * v0.7.10：由 3 改回 1（串行）。
- * 上一版为了提速改成 3 并发 + 批量 10，结果 3 个大请求同时发出，
- * 瞬间打满每分钟 Token 额度并连续 429 —— 语义解析整体失败后
- * 全量退回关键词模板，用户看到的就是「切换什么模型都提示大模型未参与」。
- * TPM 是分钟级配额，并发只会更快撞墙；串行 + 小批量才是正确解。
- */
-const LLM_CONCURRENCY = 1;
 const MAX_SPLIT_DEPTH = 4;
 
 async function parseWithLLM(
   segments: TimelineSegment[],
   modelHubSettings: any,
-  onBatch?: (done: number, total: number) => void
+  onBatch?: (done: number, total: number) => void,
+  onCall?: (stage: string) => void
 ): Promise<SemanticUnit[] | null> {
   const batches = chunkArray(segments, LLM_BATCH_SIZE);
-  let degradedBatches = 0;
   let completed = 0;
   onBatch?.(0, batches.length);
 
-  // v0.7.10：单批失败不再让整条流水线失败。
-  // 此前任何一批返回空/数量不匹配就 return null，导致全部退回关键词模板；
-  // 现在改为「该批用本地规则引擎兜底」，其余批次仍走大模型。
-  const results = await mapWithConcurrency(batches, LLM_CONCURRENCY, async (batch, bi) => {
-    try {
-      const units = await parseBatchWithSplit(batch, bi * LLM_BATCH_SIZE, modelHubSettings, 0);
-      if (units && units.length === batch.length) {
-        onBatch?.(++completed, batches.length);
-        return units;
-      }
-    } catch (err: any) {
-      console.warn(`[SemanticParser] 第 ${bi + 1}/${batches.length} 批大模型解析失败，本批改用本地规则引擎:`, err?.message || err);
-    }
-    degradedBatches++;
+  // v0.7.14：并发按模型 TPM 额度自适应，撞限流立即降级为串行。
+  // 内容一律由大模型产出——不再有「本批改用本地关键词规则」的降级路径
+  // （用户明确要求：本地规则覆盖面太窄、不精准）。单批失败改为**重试**，
+  // 重试仍失败才抛出，让用户在实时状态里看到到底哪一次调用挂了。
+  const model = resolveActiveModelName(modelHubSettings);
+  const ctrl = createAdaptiveConcurrency(model);
+
+  const results = await ctrl.run(batches, async (batch, bi) => {
+    const units = await parseBatchWithRetry(batch, bi * LLM_BATCH_SIZE, modelHubSettings, ctrl, bi + 1, batches.length);
     onBatch?.(++completed, batches.length);
-    return parseWithLocalRules(batch);
+    return units;
   });
 
-  if (degradedBatches > 0) {
-    console.warn(`[SemanticParser] 共 ${degradedBatches}/${batches.length} 批降级为本地规则引擎`);
+  return results.flat();
+}
+
+/**
+ * 单批解析 + 有限次重试。
+ * 失败直接抛出（不再静默降级到本地规则），错误信息里带上批次位置便于定位。
+ */
+async function parseBatchWithRetry(
+  batch: TimelineSegment[],
+  globalOffset: number,
+  modelHubSettings: any,
+  ctrl: AdaptiveConcurrency,
+  batchNo: number,
+  totalBatches: number
+): Promise<SemanticUnit[]> {
+  const MAX_ATTEMPTS = 3;
+  let lastErr: any = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const units = await parseBatchWithSplit(batch, globalOffset, modelHubSettings, 0);
+      if (units && units.length === batch.length) {
+        return units;
+      }
+      lastErr = new Error(`模型返回的条目数与输入不匹配（期望 ${batch.length}，实际 ${units?.length ?? 0}）`);
+    } catch (err: any) {
+      lastErr = err;
+    }
+    if (attempt < MAX_ATTEMPTS) {
+      // 线性退避：给额度恢复留时间
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
   }
 
-  return results.flat();
+  throw new Error(
+    `语义解析第 ${batchNo}/${totalBatches} 批在 ${MAX_ATTEMPTS} 次尝试后仍失败：${lastErr?.message || lastErr}`
+  );
 }
 
 /**

@@ -59,8 +59,61 @@ export function resolveModelInfo(settings: ModelHubSettings, options?: ChatCompl
   };
 }
 
-export interface ConnectionTestResult {
+/**
+ * v0.7.14：大模型调用实时观测。
+ *
+ * 此前用户在 AI 规划过程中完全看不到模型到底有没有被调用成功 —— 只有在
+ * 全部跑完之后，诊断区才会显示「降级批次数」。整个规划可能串行跑十几轮
+ * 请求、耗时数分钟，中途撞上限流/超时/Key 失效时，界面上毫无反馈，
+ * 用户只能看到进度条卡住。
+ *
+ * 这里在 chatCompletion（所有大模型请求的唯一出口）上挂一个全局观察点，
+ * 每次调用结束（成功或失败）都广播一条事件，UI 侧订阅后实时渲染。
+ */
+export interface ModelCallEvent {
+  /** 自增序号，用于 React key */
+  id: number;
+  /** 是否调用成功 */
   ok: boolean;
+  /** 供应商展示名，如「深度求索 DeepSeek」 */
+  providerLabel: string;
+  /** 实际请求的模型 ID */
+  model: string;
+  /** 耗时（毫秒） */
+  ms: number;
+  /** 实际发出的请求次数（含 429 退避重试） */
+  attempts: number;
+  /** 失败原因（成功时为空） */
+  error?: string;
+  /** 结束时间戳 */
+  ts: number;
+}
+
+export type ModelCallListener = (event: ModelCallEvent) => void;
+
+const modelCallListeners = new Set<ModelCallListener>();
+let modelCallSeq = 0;
+
+/** 订阅大模型调用事件，返回取消订阅函数 */
+export function subscribeModelCalls(listener: ModelCallListener): () => void {
+  modelCallListeners.add(listener);
+  return () => {
+    modelCallListeners.delete(listener);
+  };
+}
+
+function emitModelCall(event: Omit<ModelCallEvent, 'id' | 'ts'>): void {
+  const full: ModelCallEvent = { ...event, id: ++modelCallSeq, ts: Date.now() };
+  modelCallListeners.forEach((cb) => {
+    try {
+      cb(full);
+    } catch {
+      /* 观察者异常不得影响主流程 */
+    }
+  });
+}
+
+export interface ConnectionTestResult {  ok: boolean;
   pingMs: number;
   error?: string;
   reply?: string;
@@ -133,10 +186,57 @@ export function sanitizeMessagesForLLM(messages: ChatMessage[]): ChatMessage[] {
   return [...systemMessages, ...merged];
 }
 
+/**
+ * 对外的大模型调用入口。
+ *
+ * v0.7.14：在原实现外面包一层观测——无论成功、抛错还是 Key 未配置，
+ * 都会向订阅者广播一条 ModelCallEvent，供 UI 实时显示调用状态。
+ */
 export async function chatCompletion(
   messages: ChatMessage[],
   options: ChatCompletionOptions = {},
   settings: ModelHubSettings
+): Promise<string> {
+  const startedAt = Date.now();
+  let providerLabel = '未配置';
+  let modelName = '未配置';
+  try {
+    const info = resolveModelInfo(settings, options);
+    providerLabel = info.providerLabel;
+    modelName = info.model;
+  } catch {
+    /* 解析失败时保留占位文案，真正的报错由下面抛出 */
+  }
+
+  const state = { attempts: 0 };
+  try {
+    const text = await chatCompletionImpl(messages, options, settings, state);
+    emitModelCall({
+      ok: true,
+      providerLabel,
+      model: modelName,
+      ms: Date.now() - startedAt,
+      attempts: Math.max(1, state.attempts),
+    });
+    return text;
+  } catch (err: any) {
+    emitModelCall({
+      ok: false,
+      providerLabel,
+      model: modelName,
+      ms: Date.now() - startedAt,
+      attempts: Math.max(1, state.attempts),
+      error: err?.message || String(err),
+    });
+    throw err;
+  }
+}
+
+async function chatCompletionImpl(
+  messages: ChatMessage[],
+  options: ChatCompletionOptions = {},
+  settings: ModelHubSettings,
+  state: { attempts: number }
 ): Promise<string> {
   const { provider, model } = resolveProviderAndModel(settings, options);
 
@@ -189,6 +289,8 @@ export async function chatCompletion(
     if (options.signal?.aborted) {
       throw new Error('用户已取消请求');
     }
+    // v0.7.14：记录真实发出的请求次数（含限流重试），供实时状态显示
+    state.attempts++;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
