@@ -3043,8 +3043,14 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
         overlayX = `'if(lt(t,${st}+${fadeDur.toFixed(2)}),${posX}+(1-(t-${st})/${fadeDur.toFixed(2)})*120,${posX})'`;
       }
 
+      // v0.7.12 修复：预合成的缩放序列是**有限帧**（5 帧 @10fps = 0.5 秒），
+      // 播完后输入流 EOF。此前统一用 eof_action=pass，其语义是「叠加层结束就放行底图」，
+      // 于是图片弹入后立刻消失（一闪而过）。改为 repeat + repeatlast 保持末帧。
+      // 静帧叠加走 -loop 1，永不 EOF，行为不变。
+      const eofAction = ov.framePattern ? 'repeat' : 'pass';
+      const repeatLast = ov.framePattern ? ':repeatlast=1' : '';
       filterParts.push(
-        `[${prevVideoTag}][${scaledTag}]overlay=x=${overlayX}:y=${posY}:enable='between(t,${st},${et})':eof_action=pass[${nextVideoTag}]`
+        `[${prevVideoTag}][${scaledTag}]overlay=x=${overlayX}:y=${posY}:enable='between(t,${st},${et})':eof_action=${eofAction}${repeatLast}[${nextVideoTag}]`
       );
       prevVideoTag = nextVideoTag;
     });

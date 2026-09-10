@@ -359,6 +359,10 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   const [selectedIllustrationId, setSelectedIllustrationId] = useState<string | null>(null);
   // 规划诊断：让「大模型是否真的参与」可见（v0.7.5 起不再静默降级）
   const [planDiagnostics, setPlanDiagnostics] = useState<PipelineDiagnostics | null>(null);
+  // v0.7.12：诊断横幅默认收成一行，避免长期占据右栏大量纵向空间
+  const [diagExpanded, setDiagExpanded] = useState<boolean>(false);
+  // v0.7.12：悬停放大预览跟随鼠标位置
+  const [hoverPos, setHoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // 全局排版、动效、边框与交互控制
   const [linkAllPositions, setLinkAllPositions] = useState<boolean>(true);
@@ -796,35 +800,47 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     preset: 'top-left' | 'top' | 'top-right' | 'bottom-left' | 'bottom' | 'bottom-right' | 'center'
   ) => {
     const isVertical = videoDimensions.height > videoDimensions.width;
-    const defaultW = isVertical ? 0.78 : 0.44;
+
+    // v0.7.12 修复：此前竖屏用 defaultW = 0.78，导致左上/上中/右上算出的 x 全是 0.11
+    // （0.11 / (1-0.78)/2=0.11 / 1-0.78-0.11=0.11），三个预设横向位置完全一致，
+    // 表现就是「只能上下移动、点左右没反应」。
+    // 现改为：角位与边位使用较小尺寸，保证左右确实能分开；正中保留较大尺寸。
+    const isCornerOrEdge = preset !== 'center';
+    const defaultW = isCornerOrEdge
+      ? (isVertical ? 0.54 : 0.34)
+      : (isVertical ? 0.78 : 0.44);
     const defaultH = defaultW / (activeRatioObj.ratioNum || 16 / 9);
 
-    let xp = 0.05;
-    let yp = 0.05;
+    const margin = isVertical ? 0.05 : 0.04;
+    const topY = isVertical ? 0.08 : 0.06;
+    const bottomY = (isVertical ? 0.92 : 0.94) - defaultH;
+
+    let xp = margin;
+    let yp = topY;
     switch (preset) {
       case 'top-left':
-        xp = isVertical ? 0.11 : 0.04;
-        yp = isVertical ? 0.10 : 0.06;
+        xp = margin;
+        yp = topY;
         break;
       case 'top':
         xp = Math.max(0, (1 - defaultW) / 2);
-        yp = isVertical ? 0.10 : 0.06;
+        yp = topY;
         break;
       case 'top-right':
-        xp = isVertical ? 1 - defaultW - 0.11 : 1 - defaultW - 0.04;
-        yp = isVertical ? 0.10 : 0.06;
+        xp = 1 - defaultW - margin;
+        yp = topY;
         break;
       case 'bottom-left':
-        xp = isVertical ? 0.11 : 0.04;
-        yp = isVertical ? 0.88 - defaultH : 0.92 - defaultH;
+        xp = margin;
+        yp = bottomY;
         break;
       case 'bottom':
         xp = Math.max(0, (1 - defaultW) / 2);
-        yp = isVertical ? 0.88 - defaultH : 0.92 - defaultH;
+        yp = bottomY;
         break;
       case 'bottom-right':
-        xp = isVertical ? 1 - defaultW - 0.11 : 1 - defaultW - 0.04;
-        yp = isVertical ? 0.88 - defaultH : 0.92 - defaultH;
+        xp = 1 - defaultW - margin;
+        yp = bottomY;
         break;
       case 'center':
       default:
@@ -835,8 +851,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
 
     setGlobalLayout((prev) => ({
       ...prev,
-      xPercent: Math.round(xp * 1000) / 1000,
-      yPercent: Math.round(yp * 1000) / 1000,
+      xPercent: Math.round(Math.max(0, Math.min(1 - defaultW, xp)) * 1000) / 1000,
+      yPercent: Math.round(Math.max(0, Math.min(1 - defaultH, yp)) * 1000) / 1000,
       widthPercent: Math.round(defaultW * 1000) / 1000,
       heightPercent: Math.round(defaultH * 1000) / 1000,
       positionPreset: preset,
@@ -1351,32 +1367,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {/* 布局模式切换：三栏 / 双栏 / 专注舞台（窄窗口自动降级并给出提示） */}
-          <div className="flex items-center gap-0.5 p-0.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
-            {([
-              { id: 'three', label: '三栏', title: '配置 + 预览舞台 + 分镜清单（完整工作台）' },
-              { id: 'two', label: '双栏', title: '隐藏分镜栏，预览舞台更宽' },
-              { id: 'focus', label: '专注', title: '只保留预览舞台，沉浸式核对画面与插图' },
-            ] as const).map((m) => {
-              const active = cols.mode === m.id;
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  title={m.title}
-                  onClick={() => cols.setMode(m.id)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
-                    active
-                      ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                      : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              );
-            })}
-          </div>
-
+          {/* v0.7.12：移除三栏/双栏/专注切换按钮，固定三栏。
+              窄窗口的自动降级保护仍然保留（避免内容被裁切），只是不再提供手动入口。 */}
           {effectiveMode !== cols.mode && (
             <span
               title={`当前可用宽度约 ${cols.containerWidth}px，已自动降级以保证内容完整显示`}
@@ -2155,62 +2147,78 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             </div>
           )}
 
-          {/* 规划诊断看板：明确区分「大模型参与」与「关键词规则兜底」，避免静默降级 */}
+          {/* 规划诊断：默认一行紧凑徽章，点击展开详情（v0.7.12 收窄版） */}
           {!isPlanning && planDiagnostics && (
             <div
-              className={`mx-3 mt-3 p-2.5 rounded-xl border text-[10.5px] space-y-1 ${
-                planDiagnostics.usedLLM
+              className={`mx-3 mt-3 px-2.5 py-1.5 rounded-xl border text-[10.5px] ${
+                planDiagnostics.usedLLM && !planDiagnostics.fallbackReason
                   ? 'border-emerald-200 dark:border-emerald-900/70 bg-emerald-50/70 dark:bg-emerald-950/30'
                   : 'border-amber-300 dark:border-amber-800/80 bg-amber-50/80 dark:bg-amber-950/30'
               }`}
             >
-              <div className="flex items-center gap-1.5 font-bold">
+              <button
+                type="button"
+                onClick={() => setDiagExpanded((v) => !v)}
+                className="w-full flex items-center gap-1.5 text-left cursor-pointer"
+                title="点击展开/收起规划诊断详情"
+              >
                 {planDiagnostics.usedLLM && !planDiagnostics.fallbackReason ? (
-                  <>
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span className="text-emerald-700 dark:text-emerald-300">大模型视觉导演已参与规划</span>
-                  </>
-                ) : planDiagnostics.usedLLM ? (
-                  <>
-                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                    <span className="text-amber-700 dark:text-amber-300">大模型已参与，但部分批次降级</span>
-                  </>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 ) : (
-                  <>
-                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                    <span className="text-amber-700 dark:text-amber-300">大模型未参与，本次为关键词规则兜底</span>
-                  </>
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
                 )}
-              </div>
-              {planDiagnostics.fallbackReason && (
-                <div className="text-amber-700/90 dark:text-amber-400/90 leading-relaxed whitespace-pre-wrap">
-                  {planDiagnostics.usedLLM ? '' : '原因：'}{planDiagnostics.fallbackReason}
+                <span
+                  className={`font-bold truncate ${
+                    planDiagnostics.usedLLM && !planDiagnostics.fallbackReason
+                      ? 'text-emerald-700 dark:text-emerald-300'
+                      : 'text-amber-700 dark:text-amber-300'
+                  }`}
+                >
+                  {planDiagnostics.usedLLM
+                    ? planDiagnostics.fallbackReason
+                      ? '大模型已参与（部分批次降级）'
+                      : '大模型已参与规划'
+                    : '关键词规则兜底'}
+                </span>
+                <span className="text-zinc-500 dark:text-zinc-400 font-mono truncate">
+                  {planDiagnostics.totalBeats} 分镜 · 信息图 {planDiagnostics.infographicCount}
+                </span>
+                <ChevronDown
+                  className={`w-3 h-3 ml-auto shrink-0 text-zinc-400 transition-transform ${diagExpanded ? 'rotate-180' : ''}`}
+                />
+              </button>
+
+              {diagExpanded && (
+                <div className="mt-1.5 pt-1.5 border-t border-current/10 space-y-1">
+                  {planDiagnostics.fallbackReason && (
+                    <div className="text-amber-700/90 dark:text-amber-400/90 leading-relaxed whitespace-pre-wrap">
+                      {planDiagnostics.fallbackReason}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-zinc-600 dark:text-zinc-400 font-mono">
+                    {activeModel && (
+                      <span className="text-purple-600 dark:text-purple-400">模型 {activeModel.model}</span>
+                    )}
+                    <span>分镜 {planDiagnostics.totalBeats}</span>
+                    <span>信息图 {planDiagnostics.infographicCount}</span>
+                    <span>标准图 {planDiagnostics.standardCount}</span>
+                    <span>锚点覆盖 {Math.round(planDiagnostics.averageCoverage * 100)}%</span>
+                    {typeof planDiagnostics.batches === 'number' && planDiagnostics.batches > 1 && (
+                      <span>分片 {planDiagnostics.batches} 批</span>
+                    )}
+                    {(planDiagnostics.splits || 0) > 0 && (
+                      <span className="text-amber-600 dark:text-amber-400">
+                        截断自动降片 {planDiagnostics.splits} 次
+                      </span>
+                    )}
+                    {planDiagnostics.diversityAdjusted > 0 && (
+                      <span className="text-indigo-600 dark:text-indigo-400">
+                        多样性校正 {planDiagnostics.diversityAdjusted} 处
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
-              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-zinc-600 dark:text-zinc-400 font-mono">
-                {activeModel && (
-                  <span className="text-purple-600 dark:text-purple-400">
-                    模型 {activeModel.model}
-                  </span>
-                )}
-                <span>分镜 {planDiagnostics.totalBeats}</span>
-                <span>信息图 {planDiagnostics.infographicCount}</span>
-                <span>标准图 {planDiagnostics.standardCount}</span>
-                <span>锚点覆盖 {Math.round(planDiagnostics.averageCoverage * 100)}%</span>
-                {typeof planDiagnostics.batches === 'number' && planDiagnostics.batches > 1 && (
-                  <span>分片 {planDiagnostics.batches} 批</span>
-                )}
-                {(planDiagnostics.splits || 0) > 0 && (
-                  <span className="text-amber-600 dark:text-amber-400">
-                    截断自动降片 {planDiagnostics.splits} 次
-                  </span>
-                )}
-                {planDiagnostics.diversityAdjusted > 0 && (
-                  <span className="text-indigo-600 dark:text-indigo-400">
-                    多样性校正 {planDiagnostics.diversityAdjusted} 处
-                  </span>
-                )}
-              </div>
             </div>
           )}
 
@@ -2335,7 +2343,11 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                     <div className="flex items-center gap-2 pt-1.5 border-t border-zinc-100 dark:border-zinc-800/60">
                       <div
                         className="relative w-12 h-12 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 overflow-hidden flex items-center justify-center shrink-0 cursor-zoom-in group"
-                        onMouseEnter={() => setHoveredIllustrationId(item.id)}
+                        onMouseEnter={(e) => {
+                          setHoveredIllustrationId(item.id);
+                          setHoverPos({ x: e.clientX, y: e.clientY });
+                        }}
+                        onMouseMove={(e) => setHoverPos({ x: e.clientX, y: e.clientY })}
                         onMouseLeave={() => setHoveredIllustrationId(null)}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -2359,24 +2371,33 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                           </div>
                         )}
 
-                        {/* 悬停浮动放大查看 Tooltip */}
-                        {isHovered && item.imageUrl && (
-                          <div
-                            className="fixed z-50 pointer-events-none p-2 rounded-xl bg-zinc-900/95 border border-zinc-700 shadow-2xl backdrop-blur-md"
-                            style={{
-                              transform: 'translate(-110%, -50%)',
-                            }}
-                          >
-                            <img
-                              src={item.imageUrl}
-                              alt={item.concept}
-                              className="max-w-[280px] max-h-[280px] rounded-lg object-contain block shadow-lg"
-                            />
-                            <div className="mt-1 text-[10px] text-zinc-300 font-medium truncate">
-                              {item.concept} · {item.ratio}
+                        {/* 悬停浮动放大查看 Tooltip（v0.7.12：跟随鼠标并做边界翻转） */}
+                        {isHovered && item.imageUrl && (() => {
+                          const TIP_W = 300;
+                          const TIP_H = 320;
+                          const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+                          const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+                          // 靠近右边缘时翻到鼠标左侧；靠近下边缘时上移
+                          const left = hoverPos.x + 24 + TIP_W > vw
+                            ? Math.max(8, hoverPos.x - TIP_W - 24)
+                            : hoverPos.x + 24;
+                          const top = Math.max(8, Math.min(hoverPos.y - 60, vh - TIP_H - 8));
+                          return (
+                            <div
+                              className="fixed z-50 pointer-events-none p-2 rounded-xl bg-zinc-900/95 border border-zinc-700 shadow-2xl backdrop-blur-md"
+                              style={{ left, top }}
+                            >
+                              <img
+                                src={item.imageUrl}
+                                alt={item.concept}
+                                className="max-w-[280px] max-h-[280px] rounded-lg object-contain block shadow-lg"
+                              />
+                              <div className="mt-1 text-[10px] text-zinc-300 font-medium truncate">
+                                {item.concept} · {item.ratio}
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </div>
 
                       <div className="flex-1 min-w-0">
