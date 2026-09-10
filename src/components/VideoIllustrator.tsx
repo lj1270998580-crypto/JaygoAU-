@@ -6,13 +6,17 @@ import type { ModelHubSettings, ModelProviderType } from '../lib/modelHubTypes';
 import { PRESET_PROVIDERS } from '../lib/modelHubTypes';
 import { runIllustrationPipeline, type PipelineProgress, type PipelineDiagnostics } from '../lib/illustrator';
 import { useAdaptiveColumns } from '../lib/useAdaptiveColumns';
-import type { VideoIllustrationItem, IllustrationLayout, IllustrationDensity } from '../types';
+import type { VideoIllustrationItem, IllustrationLayout, IllustrationDensity, IllustrationHistoryRecord } from '../types';
 import {
   Sparkles,
   Wand2,
   Video,
   Upload,
   Play,
+  // v0.7.16：历史作品 / 保存 / 重置（History 与 DOM 全局类型同名，故加别名）
+  History as HistoryIcon,
+  Save,
+  RotateCcw,
   Pause,
   Plus,
   Trash2,
@@ -474,6 +478,22 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     transitionEffect: 'fade',
     borderStyle: 'none',
   });
+
+  // v0.7.16：重置所用的初始布局（避免每次重置都手写一遍常量而漂移）
+  const DEFAULT_LAYOUT: IllustrationLayout = useMemo(() => ({
+    xPercent: 0.11,
+    yPercent: 0.26,
+    widthPercent: 0.78,
+    heightPercent: 0.44,
+    positionPreset: 'center',
+    transitionEffect: 'fade',
+    borderStyle: 'none',
+  }), []);
+
+  // v0.7.16：历史作品。此前工作台是纯内存状态，点重置或关掉应用就全丢，
+  // 而重新规划一次要跑好几分钟的大模型请求。
+  const [historyRecords, setHistoryRecords] = useState<IllustrationHistoryRecord[]>([]);
+  const [historyOpen, setHistoryOpen] = useState<boolean>(false);
 
   // 导出合成状态
   const [isExporting, setExporting] = useState<boolean>(false);
@@ -1306,6 +1326,136 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     }
   };
 
+  // ===== v0.7.16：历史作品与重置 =====
+
+  /** 收集当前工作台的完整快照 */
+  const buildSnapshot = (): IllustrationHistoryRecord => {
+    const now = Date.now();
+    const firstLine = (scriptText || '').split('\n').map((s) => s.trim()).filter(Boolean)[0] || '';
+    return {
+      id: `ih_${now}_${Math.random().toString(36).slice(2, 7)}`,
+      title: firstLine.slice(0, 24) || `未命名作品 ${new Date(now).toLocaleString('zh-CN')}`,
+      createdAt: now,
+      updatedAt: now,
+      scriptText,
+      videoDuration: videoDuration || 0,
+      density,
+      styleId: defaultStyle,
+      ratio: defaultRatio,
+      routingMode,
+      transitionEffect,
+      borderStyle,
+      globalLayout,
+      // 只保存有意义的字段，避免把巨大的 base64 参考图写进历史文件
+      illustrations: illustrations.map((it) => ({
+        ...it,
+        referenceImage: undefined,
+        imageUrl: it.source === 'upload' ? undefined : it.imageUrl,
+      })),
+    };
+  };
+
+  const persistHistory = async (records: IllustrationHistoryRecord[]) => {
+    setHistoryRecords(records);
+    try {
+      const res = await api.saveIllustrationHistory(records);
+      if (!res?.ok) console.warn('[Illustrator] 历史保存失败:', res?.error);
+    } catch (e) {
+      console.warn('[Illustrator] 历史保存异常:', e);
+    }
+  };
+
+  /** 保存当前工作到历史；同一份文案已存在则覆盖，避免刷出一堆重复条目 */
+  const handleSaveHistory = async () => {
+    if (illustrations.length === 0) {
+      showToast('当前还没有配图内容可保存', 'err');
+      return;
+    }
+    const snap = buildSnapshot();
+    const key = snap.scriptText.trim();
+    const existingIdx = historyRecords.findIndex((r) => r.scriptText.trim() === key);
+    let next: IllustrationHistoryRecord[];
+    if (existingIdx >= 0) {
+      const old = historyRecords[existingIdx];
+      next = [...historyRecords];
+      next[existingIdx] = { ...snap, id: old.id, createdAt: old.createdAt };
+      showToast('已更新同名作品的历史记录', 'ok');
+    } else {
+      next = [snap, ...historyRecords].slice(0, 30);
+      showToast(`已保存到历史作品（共 ${next.length} 份）`, 'ok');
+    }
+    await persistHistory(next);
+  };
+
+  /** 载入一份历史作品，完整恢复现场 */
+  const handleLoadHistory = (rec: IllustrationHistoryRecord) => {
+    setScriptText(rec.scriptText || '');
+    setVideoDuration(rec.videoDuration || 0);
+    setDensity(rec.density || 'standard');
+    setDefaultStyle(rec.styleId || defaultStyle);
+    setDefaultRatio(rec.ratio || '16:9');
+    setRoutingMode(rec.routingMode || 'smart');
+    setTransitionEffect(rec.transitionEffect || 'fade');
+    setBorderStyle(rec.borderStyle || 'none');
+    if (rec.globalLayout) setGlobalLayout({ ...DEFAULT_LAYOUT, ...rec.globalLayout });
+    setIllustrations(rec.illustrations || []);
+    setSelectedIllustrationId(rec.illustrations?.[0]?.id || null);
+    setPlanDiagnostics(null);
+    setPlanError(null);
+    setModelCalls([]);
+    setHistoryOpen(false);
+    showToast(`已载入作品「${rec.title}」（${rec.illustrations?.length || 0} 张插图）`, 'ok');
+  };
+
+  /** 删除一份历史作品，并清理它独占的插图文件 */
+  const handleDeleteHistory = async (rec: IllustrationHistoryRecord) => {
+    const next = historyRecords.filter((r) => r.id !== rec.id);
+    const removedPaths = (rec.illustrations || [])
+      .map((it) => it.localPath)
+      .filter((p): p is string => Boolean(p));
+    setHistoryRecords(next);
+    try {
+      const res = await api.deleteIllustrationHistory({ id: rec.id, records: next, removedPaths });
+      if (!res?.ok) showToast(`删除失败：${res?.error || '未知错误'}`, 'err');
+      else showToast('已删除该历史作品', 'ok');
+    } catch (e: any) {
+      showToast(`删除异常：${e?.message || e}`, 'err');
+    }
+  };
+
+  /** 重置工作台（历史记录保留，可随时载回） */
+  const handleResetWorkspace = () => {
+    setScriptText('');
+    setIllustrations([]);
+    setSelectedIllustrationId(null);
+    setAsrUtterances([]);
+    setPlanDiagnostics(null);
+    setPlanError(null);
+    setModelCalls([]);
+    setPipelineProgress(null);
+    setGlobalLayout({ ...DEFAULT_LAYOUT });
+    setTransitionEffect('fade');
+    setBorderStyle('none');
+    setVideoDuration(0);
+    showToast('工作台已重置（历史作品仍保留，可从「历史作品」载回）', 'ok');
+  };
+
+  // 启动时载入历史作品
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.loadIllustrationHistory();
+        if (!cancelled && res?.ok && Array.isArray(res.records)) {
+          setHistoryRecords(res.records);
+        }
+      } catch {
+        /* 读不到历史不影响使用 */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // 根据当前选择的边框预设计算 CSS class (经典纯净无边框下彻底去除圆角)
   const getContainerBorderClass = () => {
     switch (borderStyle) {
@@ -1697,6 +1847,89 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             <Wand2 className={`w-4 h-4 shrink-0 ${isPlanning ? 'animate-spin' : ''}`} />
             <span>{isPlanning ? (pipelineProgress ? `${pipelineProgress.stageName} (${pipelineProgress.percent}%)` : 'AI 智能规划中…') : 'AI 智能规划'}</span>
           </button>
+
+          {/* v0.7.16：历史作品 + 保存 + 重置 */}
+          <div className="grid grid-cols-3 gap-1.5">
+            <button
+              type="button"
+              onClick={() => setHistoryOpen((v) => !v)}
+              className={`py-1.5 px-2 rounded-lg text-[11px] font-medium border transition cursor-pointer flex items-center justify-center gap-1 ${
+                historyOpen
+                  ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
+                  : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900'
+              }`}
+              title="查看并载入历史作品"
+            >
+              <HistoryIcon className="w-3 h-3 shrink-0" />
+              历史作品
+              {historyRecords.length > 0 && (
+                <span className="text-[9px] px-1 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-500">
+                  {historyRecords.length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveHistory}
+              disabled={illustrations.length === 0}
+              className="py-1.5 px-2 rounded-lg text-[11px] font-medium border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-40 cursor-pointer flex items-center justify-center gap-1"
+              title="把当前分镜、插图与排版设置保存到历史作品"
+            >
+              <Save className="w-3 h-3 shrink-0" />
+              保存作品
+            </button>
+            <button
+              type="button"
+              onClick={handleResetWorkspace}
+              className="py-1.5 px-2 rounded-lg text-[11px] font-medium border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 dark:hover:bg-rose-950/30 dark:hover:text-rose-400 dark:hover:border-rose-900 cursor-pointer flex items-center justify-center gap-1"
+              title="清空当前工作台（历史作品会保留）"
+            >
+              <RotateCcw className="w-3 h-3 shrink-0" />
+              重置
+            </button>
+          </div>
+
+          {/* 历史作品面板 */}
+          {historyOpen && (
+            <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/70 bg-indigo-50/40 dark:bg-indigo-950/20 p-2 space-y-1.5 max-h-56 overflow-y-auto">
+              {historyRecords.length === 0 ? (
+                <p className="text-[10.5px] text-zinc-500 dark:text-zinc-400 text-center py-2">
+                  还没有历史作品。配好图后点【保存作品】即可存档，之后随时载回。
+                </p>
+              ) : (
+                historyRecords.map((rec) => (
+                  <div
+                    key={rec.id}
+                    className="flex items-center gap-1.5 bg-white dark:bg-zinc-900/70 rounded-lg border border-zinc-200 dark:border-zinc-800 px-2 py-1.5"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11px] font-medium text-zinc-800 dark:text-zinc-200 truncate" title={rec.title}>
+                        {rec.title}
+                      </div>
+                      <div className="text-[9.5px] text-zinc-400 font-mono">
+                        {new Date(rec.createdAt).toLocaleString('zh-CN')} · {rec.illustrations?.length || 0} 张
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleLoadHistory(rec)}
+                      className="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer"
+                    >
+                      载入
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteHistory(rec)}
+                      className="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-rose-600 hover:border-rose-200 cursor-pointer"
+                      title="删除该历史作品（同时清理它独占的插图文件）"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
 
           {/* 折叠式“插图包装与排版设置”卡片 */}
           <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 p-2.5 space-y-2">

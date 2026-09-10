@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { ModelHubSettings, ModelProviderType } from '../lib/modelHubTypes';
 import { PRESET_PROVIDERS, DEFAULT_MODEL_HUB_SETTINGS } from '../lib/modelHubTypes';
-import { testConnection } from '../lib/modelHubService';
+import { testConnection, fetchProviderModels } from '../lib/modelHubService';
 import { useStore } from '../store';
 
 interface Props {
@@ -43,6 +43,9 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
   const [activeTab, setActiveTab] = useState<ModelProviderType>('doubao');
   const [formData, setFormData] = useState<ModelHubSettings>(settings || DEFAULT_MODEL_HUB_SETTINGS);
   const [testing, setTesting] = useState(false);
+  // v0.7.16：从服务商实时拉取的模型列表（null 表示尚未拉取）
+  const [fetchedModels, setFetchedModels] = useState<string[] | null>(null);
+  const [fetchingModels, setFetchingModels] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; pingMs: number; error?: string } | null>(null);
 
   useEffect(() => {
@@ -138,6 +141,29 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
       setTestResult({ ok: false, pingMs: 0, error: e.message });
     } finally {
       setTesting(false);
+    }
+  };
+
+  /**
+   * v0.7.16：从服务商实时拉取模型列表。
+   * 内置清单必然会过期（实测 MiMo 内置的 mimo-v2.5-flash 根本不存在），
+   * 因此提供一键拉取服务商**当前真实**可用的模型 ID。
+   */
+  const handleFetchModels = async () => {
+    setFetchingModels(true);
+    setFetchedModels(null);
+    try {
+      const res = await fetchProviderModels(currentProvider);
+      if (res.ok) {
+        setFetchedModels(res.models);
+        useStore.getState().showToast(`已拉取到 ${res.models.length} 个可用模型`, 'ok');
+      } else {
+        useStore.getState().showToast(`拉取失败：${res.error || '未知错误'}`, 'err');
+      }
+    } catch (e: any) {
+      useStore.getState().showToast(`拉取失败：${e?.message || e}`, 'err');
+    } finally {
+      setFetchingModels(false);
     }
   };
 
@@ -302,9 +328,22 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
                 <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
                   驱动模型选择
                 </label>
-                <span className="text-[11px] text-zinc-400">
-                  内置 2025/2026 最新官方模型矩阵
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-zinc-400">
+                    {fetchedModels ? `已拉取 ${fetchedModels.length} 个在线模型` : '内置清单（可能过期）'}
+                  </span>
+                  {activeTab !== 'custom' && (
+                    <button
+                      type="button"
+                      onClick={handleFetchModels}
+                      disabled={fetchingModels}
+                      className="text-[11px] px-2 py-0.5 rounded-md border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 disabled:opacity-50 cursor-pointer"
+                      title="直接向服务商查询当前真实可用的模型 ID，避免内置清单过期"
+                    >
+                      {fetchingModels ? '拉取中…' : '拉取最新模型'}
+                    </button>
+                  )}
+                </div>
               </div>
 
               {activeTab === 'custom' ? (
@@ -317,20 +356,38 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
                 />
               ) : (
                 <div className="space-y-2">
-                  <select
-                    value={currentProvider.selectedModel}
-                    onChange={e => handleModelSelect(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 cursor-pointer font-sans"
-                  >
-                    {preset.models.map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.badge ? `[${m.badge}] ` : ''}{m.name}
+                  {/* 已拉取到在线列表时，优先使用服务商返回的真实模型 ID */}
+                  {fetchedModels ? (
+                    <select
+                      value={fetchedModels.includes(currentProvider.selectedModel) ? currentProvider.selectedModel : ''}
+                      onChange={e => handleModelSelect(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800/70 bg-white dark:bg-zinc-900/80 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 cursor-pointer font-mono"
+                    >
+                      <option value="" disabled>
+                        {fetchedModels.includes(currentProvider.selectedModel)
+                          ? '请选择模型'
+                          : `当前选择 ${currentProvider.selectedModel} 不在在线列表中`}
                       </option>
-                    ))}
-                  </select>
+                      {fetchedModels.map(id => (
+                        <option key={id} value={id}>{id}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <select
+                      value={currentProvider.selectedModel}
+                      onChange={e => handleModelSelect(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 cursor-pointer font-sans"
+                    >
+                      {preset.models.map(m => (
+                        <option key={m.id} value={m.id}>
+                          {m.badge ? `[${m.badge}] ` : ''}{m.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
 
-                  {/* 选定模型的详细说明 */}
-                  {(() => {
+                  {/* 选定模型的详细说明（仅内置清单提供描述） */}
+                  {!fetchedModels && (() => {
                     const currentModelObj = preset.models.find(m => m.id === currentProvider.selectedModel);
                     return currentModelObj?.description ? (
                       <p className="text-[11px] text-zinc-500 dark:text-zinc-400 px-1">

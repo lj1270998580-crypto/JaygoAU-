@@ -246,6 +246,39 @@ export interface JaygoAPI {
     innerHeight?: number;
   }>;
   onExportVideoProgress(cb: (data: { currentTimeSec: number }) => void): () => void;
+  /** v0.7.16：AI 配图历史作品持久化 */
+  loadIllustrationHistory(): Promise<{ ok: boolean; records: IllustrationHistoryRecord[]; error?: string }>;
+  saveIllustrationHistory(records: IllustrationHistoryRecord[]): Promise<{ ok: boolean; error?: string }>;
+  deleteIllustrationHistory(args: {
+    id: string;
+    records: IllustrationHistoryRecord[];
+    removedPaths: string[];
+  }): Promise<{ ok: boolean; error?: string }>;
+}
+
+/**
+ * v0.7.16：一次「AI 配图」工作的完整快照。
+ *
+ * 生成出来的图片本身已经持久保存在 userData/illustrations/ 下，
+ * 因此这里只保存元数据与文件路径，不复制图片本体。
+ */
+export interface IllustrationHistoryRecord {
+  id: string;
+  /** 展示用标题（取文案首句） */
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  scriptText: string;
+  videoDuration: number;
+  density: IllustrationDensity;
+  styleId: string;
+  ratio: string;
+  routingMode: 'smart' | 'infographic' | 'standard';
+  transitionEffect: 'fade' | 'slide' | 'zoom' | 'none';
+  borderStyle: 'none' | 'clean_white' | 'rounded_card' | 'star_badge' | 'cyber_glow';
+  /** 全局叠加层位置与尺寸（相对画面百分比） */
+  globalLayout: IllustrationLayout;
+  illustrations: VideoIllustrationItem[];
 }
 
 export interface VideoIllustrationItem {

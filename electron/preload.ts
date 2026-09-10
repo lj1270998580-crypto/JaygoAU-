@@ -207,6 +207,16 @@ const api = {
   },
   // ---- 打点后上传自己的图片（v0.7.8） ----
   pickImageFile: (): Promise<string | null> => ipcRenderer.invoke('pick-image-file'),
+  // ---- AI 配图历史作品持久化（v0.7.16） ----
+  loadIllustrationHistory: (): Promise<{ ok: boolean; records: any[]; error?: string }> =>
+    ipcRenderer.invoke('load-illustration-history'),
+  saveIllustrationHistory: (records: unknown[]): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('save-illustration-history', records),
+  deleteIllustrationHistory: (args: {
+    id: string;
+    records: unknown[];
+    removedPaths: string[];
+  }): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('delete-illustration-history', args),
   // ---- 多平台媒体/短视频无水印提取 ----
   extractMedia: (input: string) => ipcRenderer.invoke('extract-media', input),
   downloadExtractedMedia: (args: {

@@ -119,6 +119,62 @@ export interface ConnectionTestResult {  ok: boolean;
   reply?: string;
 }
 
+/**
+ * v0.7.16：从服务商实时拉取可用模型列表。
+ *
+ * 内置清单一定会过期 —— 实测小米 MiMo 的内置清单里写着 `mimo-v2.5-flash`，
+ * 但官方 /v1/models 返回的真实阵容是 mimo-v2.5 / mimo-v2.5-pro / …-asr / …-tts，
+ * 根本没有 flash；用户选中一个不存在的模型只会得到一句语焉不详的报错。
+ *
+ * 绝大多数 OpenAI 兼容服务都提供 GET {baseUrl}/models，因此改为让用户
+ * 一键拉取**服务商当前真实的**模型列表，而不是依赖我们手工维护的清单。
+ */
+export async function fetchProviderModels(
+  provider: ConfiguredProvider
+): Promise<{ ok: boolean; models: string[]; error?: string }> {
+  if (!provider.apiKey) {
+    return { ok: false, models: [], error: '请先填写 API Key' };
+  }
+  const baseUrl = normalizeBaseUrl(provider);
+  if (!baseUrl) {
+    return { ok: false, models: [], error: 'Base URL 不能为空' };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/models`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${provider.apiKey.trim()}` },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!res.ok) {
+      return { ok: false, models: [], error: `服务商返回 HTTP ${res.status}` };
+    }
+
+    const json: any = await res.json();
+    const raw: unknown[] = Array.isArray(json?.data) ? json.data : Array.isArray(json?.models) ? json.models : [];
+    const ids: string[] = raw
+      .map((m: any) => (typeof m === 'string' ? m : m?.id || m?.name || ''))
+      .map((s: any) => String(s).trim())
+      .filter(Boolean);
+
+    const unique = Array.from(new Set(ids)).sort();
+    if (unique.length === 0) {
+      return { ok: false, models: [], error: '服务商返回的列表为空（该服务可能不支持 /models 接口）' };
+    }
+    return { ok: true, models: unique };
+  } catch (err: any) {
+    return { ok: false, models: [], error: err?.message || String(err) };
+  }
+}
+
 function resolveProviderAndModel(
   settings: ModelHubSettings,
   options?: ChatCompletionOptions

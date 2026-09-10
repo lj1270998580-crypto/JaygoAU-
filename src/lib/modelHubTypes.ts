@@ -181,8 +181,10 @@ export const PRESET_PROVIDERS: Record<ModelProviderType, ProviderPreset> = {
     keyPlaceholder: '按量付费填 sk-… ；Token Plan 套餐填 tp-…（域名自动切换）',
     docUrl: 'https://platform.xiaomimimo.com/',
     models: [
+      // v0.7.16：以下名单来自官方 GET /v1/models 实测返回。
+      // 此前内置的 `mimo-v2.5-flash` 经核实**并不存在**，已移除。
       { id: 'mimo-v2.5-pro', name: 'MiMo-V2.5-Pro (小米旗舰多模态大模型)', description: '小米多模态推理与创作旗舰，综合指令遵循与口播创作拔尖', badge: '2026旗舰' },
-      { id: 'mimo-v2.5-flash', name: 'MiMo-V2.5-Flash (轻量高并发极速版)', description: '低消耗高吞吐，自媒体批量文案处理首选', badge: '极速轻量' },
+      { id: 'mimo-v2.5', name: 'MiMo-V2.5 (标准版)', description: '标准推理能力，速度与质量均衡', badge: '标准' },
     ],
   },
   custom: {

@@ -139,6 +139,71 @@ const DEFAULT_SETTINGS: Settings = {
 
 const settingsPath = () => path.join(app.getPath('userData'), 'jaygo-settings.json');
 
+/**
+ * v0.7.16：AI 配图「历史作品」持久化。
+ *
+ * 此前配图工作台是纯内存状态：一旦点「重置」或关掉应用，已经规划好的分镜、
+ * 生成好的插图、调好的位置与边框全部丢失，用户只能重头再来一遍（而重新规划
+ * 一次要跑好几分钟的大模型请求）。
+ *
+ * 生成出来的图片本身已经落在 userData/illustrations/ 下，是持久的，
+ * 所以历史记录只需要保存元数据 + 文件路径即可，不需要复制图片。
+ */
+const historyPath = () => path.join(app.getPath('userData'), 'jaygo-illustration-history.json');
+const HISTORY_LIMIT = 30;
+
+ipcMain.handle('load-illustration-history', async () => {
+  try {
+    if (!fs.existsSync(historyPath())) return { ok: true, records: [] };
+    const raw = fs.readFileSync(historyPath(), 'utf-8');
+    const parsed = JSON.parse(raw);
+    const records = Array.isArray(parsed) ? parsed : [];
+    return { ok: true, records };
+  } catch (err: any) {
+    return { ok: false, records: [], error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('save-illustration-history', async (_, records: unknown) => {
+  try {
+    const list = Array.isArray(records) ? records.slice(0, HISTORY_LIMIT) : [];
+    // 先写临时文件再改名，避免写一半断电导致整个历史文件损坏
+    const tmp = `${historyPath()}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(list, null, 2), 'utf-8');
+    fs.renameSync(tmp, historyPath());
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+/** 删除某条历史；同时清理它独占的插图文件（同一文件被其他记录引用时保留） */
+ipcMain.handle('delete-illustration-history', async (_, args: { id: string; records: unknown[] }) => {
+  try {
+    const list = Array.isArray(args?.records) ? args.records.slice(0, HISTORY_LIMIT) : [];
+    fs.writeFileSync(historyPath(), JSON.stringify(list, null, 2), 'utf-8');
+
+    const removed = (Array.isArray((args as any)?.removedPaths) ? (args as any).removedPaths : []) as string[];
+    const stillUsed = new Set<string>();
+    for (const rec of list as any[]) {
+      for (const it of rec?.illustrations || []) {
+        if (it?.localPath) stillUsed.add(String(it.localPath));
+      }
+    }
+    for (const p of removed) {
+      if (stillUsed.has(p)) continue;
+      try {
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      } catch {
+        /* 文件被占用或已删除，忽略 */
+      }
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
 // get_voice 请求体必须按音色 ID 类型区分（官方文档 6561/2535742）：
 //  - 后付费音色（custom_ 开头）：{ speaker_id: 'custom_speaker_id', custom_speaker_id: xxx }
 //  - 控制台复刻/预付费音色（S_ 开头或其它）：{ speaker_id: xxx }
