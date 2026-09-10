@@ -2767,7 +2767,7 @@ async function renderOverlayFrames(opts: {
   boxWidth: number;
   scales: number[];
   tag: string;
-}): Promise<{ paths: string[]; width: number; height: number }> {
+}): Promise<{ paths: string[]; width: number; height: number; pad: number; innerWidth: number; innerHeight: number }> {
   // 延迟 require，避免未使用导出功能时加载原生模块
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { createCanvas, loadImage } = require('@napi-rs/canvas');
@@ -2784,19 +2784,28 @@ async function renderOverlayFrames(opts: {
   fs.mkdirSync(tmpDir, { recursive: true });
 
   const radius = Math.round(Math.min(boxW, boxH) * 0.06);
-  const borderW = Math.max(3, Math.round(Math.min(boxW, boxH) * 0.012));
+  const borderW = Math.max(4, Math.round(Math.min(boxW, boxH) * 0.016));
   const scales = opts.scales.length > 0 ? opts.scales : [1];
   const paths: string[] = [];
 
+  // v0.7.13 修复「导出只看到圆角、看不到边框」：
+  // 此前画布尺寸恰好等于 boxW×boxH，图片铺满到边缘，而 stroke 是以路径为中心的
+  // ——一半线宽落在画布之外被裁掉，cyber_glow 的外发光更是整圈被裁。
+  // 现在画布四周各留 PAD，图片本身仍是 boxW×boxH（视觉尺寸不变），
+  // 边框/光晕画在外扩区域，导出时把叠加层位置回退 PAD 像素即可。
+  const PAD = Math.ceil(borderW * 2 + 16);
+  const canvasW = boxW + PAD * 2;
+  const canvasH = boxH + PAD * 2;
+
   scales.forEach((scale, fi) => {
-    const canvas = createCanvas(boxW, boxH);
+    const canvas = createCanvas(canvasW, canvasH);
     const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, boxW, boxH);
+    ctx.clearRect(0, 0, canvasW, canvasH);
 
     const iw = Math.max(8, Math.round((boxW * scale) / 2) * 2);
     const ih = Math.max(8, Math.round((boxH * scale) / 2) * 2);
-    const ix = Math.round((boxW - iw) / 2);
-    const iy = Math.round((boxH - ih) / 2);
+    const ix = Math.round((canvasW - iw) / 2);
+    const iy = Math.round((canvasH - ih) / 2);
     const r = Math.max(2, Math.round(radius * scale));
 
     // 霓虹光晕：外扩若干圈递减透明度的描边
@@ -2819,26 +2828,41 @@ async function renderOverlayFrames(opts: {
     ctx.drawImage(img, ix, iy, iw, ih);
     ctx.restore();
 
-    // 边框
+    // 边框：整条线宽画在图片矩形**之外**，图片本身不被压边，
+    // 这样在视频上看就是一圈干净的外框（此前居中描边有一半被裁掉）。
+    const bx = ix - borderW / 2;
+    const by = iy - borderW / 2;
+    const bw = iw + borderW;
+    const bh = ih + borderW;
+    const br = r + borderW / 2;
     if (opts.borderStyle === 'clean_white') {
       ctx.save();
       ctx.strokeStyle = '#FFFFFF';
       ctx.lineWidth = borderW;
-      roundRectPath(ctx, ix, iy, iw, ih, r);
+      roundRectPath(ctx, bx, by, bw, bh, br);
       ctx.stroke();
       ctx.restore();
     } else if (opts.borderStyle === 'cyber_glow') {
       ctx.save();
       ctx.strokeStyle = '#818CF8';
       ctx.lineWidth = borderW;
-      roundRectPath(ctx, ix, iy, iw, ih, r);
+      roundRectPath(ctx, bx, by, bw, bh, br);
+      ctx.stroke();
+      ctx.restore();
+    } else if (opts.borderStyle === 'star_badge') {
+      // v0.7.13：星标预设此前只画了星星、没画琥珀色外框（预合成后 ffmpeg 的
+      // drawbox 又被跳过），导致导出效果与预览不符。
+      ctx.save();
+      ctx.strokeStyle = '#F59E0B';
+      ctx.lineWidth = borderW;
+      roundRectPath(ctx, bx, by, bw, bh, br);
       ctx.stroke();
       ctx.restore();
     } else if (opts.borderStyle === 'rounded_card') {
       ctx.save();
       ctx.strokeStyle = 'rgba(0,0,0,0.28)';
       ctx.lineWidth = Math.max(1, Math.round(borderW / 2));
-      roundRectPath(ctx, ix, iy, iw, ih, r);
+      roundRectPath(ctx, bx, by, bw, bh, br);
       ctx.stroke();
       ctx.restore();
     }
@@ -2860,7 +2884,7 @@ async function renderOverlayFrames(opts: {
     paths.push(out);
   });
 
-  return { paths, width: boxW, height: boxH };
+  return { paths, width: canvasW, height: canvasH, pad: PAD, innerWidth: boxW, innerHeight: boxH };
 }
 
 ipcMain.handle(
@@ -2883,6 +2907,9 @@ ipcMain.handle(
       framePattern: r.paths.length > 1 ? r.paths[0].replace(/f\d{3}\.png$/, 'f%03d.png') : null,
       width: r.width,
       height: r.height,
+      pad: r.pad,
+      innerWidth: r.innerWidth,
+      innerHeight: r.innerHeight,
     };
   }
 );
@@ -2903,6 +2930,12 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
     aspect?: number;
     /** v0.7.11：Canvas 预合成的帧序列（printf 路径）；存在时按图片序列输入 */
     framePattern?: string | null;
+    /** v0.7.13：入场序列的静止末帧路径，用于保持与淡出（序列本身太短，fade 跑不到出场） */
+    holdImagePath?: string | null;
+    /** v0.7.13：入场序列的播放时长（秒），= 帧数 / 帧率 */
+    seqDuration?: number;
+    /** v0.7.13：预合成画布相对图片外扩的像素，导出时需把叠加层位置回退该值 */
+    pad?: number;
     /** v0.7.11：已由 Canvas 预合成（圆角/星标/光晕/缩放均已烘焙），导出端不再重复处理 */
     precomposed?: boolean;
     transitionEffect?: 'fade' | 'slide' | 'zoom' | 'none';
@@ -2957,15 +2990,25 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
     dbg(`[VideoOverlay] input=${actualVideoPath} W=${W} H=${H} overlaysCount=${overlays.length} removeWatermark=${Boolean(removeOriginalWatermark)}`);
 
     // 构建 FFmpeg 输入参数
-    // v0.7.11：若该叠加层已由 Canvas 预合成（圆角/星标/光晕/缩放序列），
-    // 多帧时用图片序列输入（尺寸恒定，overlay 可正常处理）；
-    // 单帧时仍走 -loop 1 -i（杜绝 -t 过早耗尽后续分镜流）。
+    // v0.7.12：带动画的叠加层拆成两路输入：
+    //   ① 入场帧序列（有限帧，只负责弹入）
+    //   ② 静止末帧（-loop 1 无限循环，负责保持与淡出）
+    // 这样拆分的原因：fade 滤镜在 overlay **之前**处理，序列只有 0.5 秒，
+    // 设在第 3.5 秒的 fade=t=out 根本执行不到（repeatlast 是在 overlay 内部补帧，
+    // 补出来的帧不经过 fade），表现就是「弹入有动效、结束时没有」。
     const ffmpegArgs = ['-y', '-i', actualVideoPath];
+    const inputPlan: Array<{ seq?: number; hold?: number }> = [];
+    let inputCursor = 1;
     for (const ov of overlays) {
-      if (ov.framePattern) {
+      if (ov.framePattern && ov.holdImagePath) {
         ffmpegArgs.push('-start_number', '0', '-framerate', '10', '-i', ov.framePattern);
+        const seqIdx = inputCursor++;
+        ffmpegArgs.push('-loop', '1', '-i', ov.holdImagePath);
+        const holdIdx = inputCursor++;
+        inputPlan.push({ seq: seqIdx, hold: holdIdx });
       } else {
         ffmpegArgs.push('-loop', '1', '-i', ov.imagePath);
+        inputPlan.push({ hold: inputCursor++ });
       }
     }
 
@@ -2985,7 +3028,9 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
     }
 
     overlays.forEach((ov, idx) => {
-      const imgInputIndex = idx + 1;
+      const plan = inputPlan[idx] || {};
+      const seqInput = typeof plan.seq === 'number' ? plan.seq : null;
+      const holdInput = typeof plan.hold === 'number' ? plan.hold : -1;
       let targetW = Math.max(16, Math.round((W * ov.widthPercent) / 2) * 2);
 
       // v0.7.8 高度钳制：叠加层按宽度缩放后高度由图片自身比例决定（h=-2），
@@ -3003,55 +3048,84 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
         }
       }
       const scaledTag = `ov_${idx}`;
+      const scaledTagB = `ovh_${idx}`;
       const nextVideoTag = idx === overlays.length - 1 ? 'outv' : `v_${idx}`;
-      const posX = Math.max(0, Math.min(W - 20, Math.round(W * ov.xPercent)));
-      const posY = Math.max(0, Math.min(H - 20, Math.round(H * ov.yPercent)));
+      const midVideoTag = seqInput !== null ? `vm_${idx}` : nextVideoTag;
+      // v0.7.13：预合成画布四周留了 PAD，图片本身仍按 widthPercent 定尺寸，
+      // 这里把贴图位置回退 PAD，保证图片的视觉位置与预览一致。
+      const pad = ov.precomposed && typeof ov.pad === 'number' ? Math.max(0, ov.pad) : 0;
+      const posX = Math.max(0, Math.min(W - 20, Math.round(W * ov.xPercent) - pad));
+      const posY = Math.max(0, Math.min(H - 20, Math.round(H * ov.yPercent) - pad));
       const st = Math.max(0, ov.startTime).toFixed(2);
       const et = Math.max(ov.startTime + 0.5, ov.endTime).toFixed(2);
 
       const dur = Math.max(0.6, ov.endTime - ov.startTime);
       const fadeDur = Math.min(0.35, dur / 3);
       const fadeOutSt = Math.max(Number(st), Number(et) - fadeDur).toFixed(2);
+      const seqDur = Math.max(0.2, Number(ov.seqDuration) || 0.5);
+      const seqEnd = (Number(st) + seqDur).toFixed(2);
 
-      // 通过 setpts=PTS-STARTPTS+st/TB 精确将各图时间戳与主视频对齐
-      // v0.7.11：预合成的帧已是最终尺寸，跳过 scale 避免二次重采样
-      let imgFilters = ov.precomposed
-        ? `[${imgInputIndex}:v]format=rgba,setpts=PTS-STARTPTS+${st}/TB`
-        : `[${imgInputIndex}:v]scale=w=${targetW}:h=-2,format=rgba,setpts=PTS-STARTPTS+${st}/TB`;
-
-      // 边框预设（v0.7.11：预合成时圆角/星标/光晕已烘焙进 PNG，不再由 ffmpeg 重复绘制）
-      if (!ov.precomposed) {
-        if (ov.borderStyle === 'clean_white') {
-          imgFilters += `,drawbox=x=0:y=0:w=iw:h=ih:color=white:t=4`;
-        } else if (ov.borderStyle === 'star_badge') {
-          imgFilters += `,drawbox=x=0:y=0:w=iw:h=ih:color=0xF59E0B:t=4`;
-        } else if (ov.borderStyle === 'cyber_glow') {
-          imgFilters += `,drawbox=x=0:y=0:w=iw:h=ih:color=0x6366F1:t=4`;
-        }
-      }
-
-      // 入场与出场动效
       const effect = ov.transitionEffect || 'fade';
-      if (effect === 'fade' || effect === 'zoom') {
-        imgFilters += `,fade=t=in:st=${st}:d=${fadeDur.toFixed(2)}:alpha=1,fade=t=out:st=${fadeOutSt}:d=${fadeDur.toFixed(2)}:alpha=1`;
-      }
-      imgFilters += `[${scaledTag}]`;
-      filterParts.push(imgFilters);
+      const wantFade = effect === 'fade' || effect === 'zoom';
+
+      const baseChain = (inputIdx: number) =>
+        ov.precomposed
+          ? `[${inputIdx}:v]format=rgba,setpts=PTS-STARTPTS+${st}/TB`
+          : `[${inputIdx}:v]scale=w=${targetW}:h=-2,format=rgba,setpts=PTS-STARTPTS+${st}/TB`;
 
       let overlayX = `${posX}`;
       if (effect === 'slide') {
         overlayX = `'if(lt(t,${st}+${fadeDur.toFixed(2)}),${posX}+(1-(t-${st})/${fadeDur.toFixed(2)})*120,${posX})'`;
       }
 
-      // v0.7.12 修复：预合成的缩放序列是**有限帧**（5 帧 @10fps = 0.5 秒），
-      // 播完后输入流 EOF。此前统一用 eof_action=pass，其语义是「叠加层结束就放行底图」，
-      // 于是图片弹入后立刻消失（一闪而过）。改为 repeat + repeatlast 保持末帧。
-      // 静帧叠加走 -loop 1，永不 EOF，行为不变。
-      const eofAction = ov.framePattern ? 'repeat' : 'pass';
-      const repeatLast = ov.framePattern ? ':repeatlast=1' : '';
-      filterParts.push(
-        `[${prevVideoTag}][${scaledTag}]overlay=x=${overlayX}:y=${posY}:enable='between(t,${st},${et})':eof_action=${eofAction}${repeatLast}[${nextVideoTag}]`
-      );
+      // 边框预设（v0.7.11：预合成时圆角/星标/光晕已烘焙进 PNG，不再由 ffmpeg 重复绘制）
+      const borderChain = ov.precomposed
+        ? ''
+        : ov.borderStyle === 'clean_white'
+          ? `,drawbox=x=0:y=0:w=iw:h=ih:color=white:t=4`
+          : ov.borderStyle === 'star_badge'
+            ? `,drawbox=x=0:y=0:w=iw:h=ih:color=0xF59E0B:t=4`
+            : ov.borderStyle === 'cyber_glow'
+              ? `,drawbox=x=0:y=0:w=iw:h=ih:color=0x6366F1:t=4`
+              : '';
+
+      if (seqInput !== null) {
+        // —— 阶段 A：入场帧序列（有限帧，只负责弹入）——
+        // fade 滤镜在 overlay 之前处理，序列只有 0.5 秒；把出场淡出挂在这里
+        // 会因为滤镜早已结束而永远不触发（v0.7.12 的「结束没有动效」）。
+        let seqFilters = baseChain(seqInput) + borderChain;
+        if (wantFade) {
+          seqFilters += `,fade=t=in:st=${st}:d=${fadeDur.toFixed(2)}:alpha=1`;
+        }
+        seqFilters += `[${scaledTag}]`;
+        filterParts.push(seqFilters);
+        filterParts.push(
+          `[${prevVideoTag}][${scaledTag}]overlay=x=${overlayX}:y=${posY}:enable='between(t,${st},${seqEnd})':eof_action=repeat:repeatlast=1[${midVideoTag}]`
+        );
+
+        // —— 阶段 B：静止末帧（-loop 1 无限流，负责保持与淡出）——
+        // 从 seqEnd 接管，内容与阶段 A 的末帧逐像素一致，交接无跳变。
+        let holdFilters = baseChain(holdInput) + borderChain;
+        if (wantFade) {
+          holdFilters += `,fade=t=out:st=${fadeOutSt}:d=${fadeDur.toFixed(2)}:alpha=1`;
+        }
+        holdFilters += `[${scaledTagB}]`;
+        filterParts.push(holdFilters);
+        filterParts.push(
+          `[${midVideoTag}][${scaledTagB}]overlay=x=${overlayX}:y=${posY}:enable='between(t,${seqEnd},${et})':eof_action=pass[${nextVideoTag}]`
+        );
+      } else {
+        // 静帧叠加（-loop 1，永不 EOF）：入场 + 出场可挂在同一条滤镜链上
+        let imgFilters = baseChain(holdInput) + borderChain;
+        if (wantFade) {
+          imgFilters += `,fade=t=in:st=${st}:d=${fadeDur.toFixed(2)}:alpha=1,fade=t=out:st=${fadeOutSt}:d=${fadeDur.toFixed(2)}:alpha=1`;
+        }
+        imgFilters += `[${scaledTag}]`;
+        filterParts.push(imgFilters);
+        filterParts.push(
+          `[${prevVideoTag}][${scaledTag}]overlay=x=${overlayX}:y=${posY}:enable='between(t,${st},${et})':eof_action=pass[${nextVideoTag}]`
+        );
+      }
       prevVideoTag = nextVideoTag;
     });
 

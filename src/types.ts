@@ -218,6 +218,12 @@ export interface JaygoAPI {
       aspect?: number;
       /** v0.7.11：Canvas 预合成的帧序列（printf 路径） */
       framePattern?: string | null;
+      /** v0.7.13：静止末帧路径，承担保持与出场淡出 */
+      holdImagePath?: string | null;
+      /** v0.7.13：入场序列播放时长（秒） */
+      seqDuration?: number;
+      /** v0.7.13：预合成画布外扩像素，导出时位置需回退 */
+      pad?: number;
       /** v0.7.11：已预合成，导出端不再重复处理圆角/边框 */
       precomposed?: boolean;
     }>;
@@ -234,6 +240,10 @@ export interface JaygoAPI {
     framePattern: string | null;
     width: number;
     height: number;
+    /** v0.7.13：画布四周外扩像素（边框/光晕所需），导出端需回退该偏移 */
+    pad?: number;
+    innerWidth?: number;
+    innerHeight?: number;
   }>;
   onExportVideoProgress(cb: (data: { currentTimeSec: number }) => void): () => void;
 }

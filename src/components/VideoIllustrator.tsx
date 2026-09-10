@@ -1247,10 +1247,16 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
               mode: transitionEffect,
             });
             if (prep?.ok && prep.framePaths?.length > 0) {
+              const frames: string[] = prep.framePaths;
               return {
                 ...base,
-                imagePath: prep.framePaths[0],
+                imagePath: frames[0],
                 framePattern: prep.framePattern,
+                // v0.7.13：序列只有 0.5 秒，出场淡出必须挂在「静止末帧」这一路
+                // （-loop 1 无限流）上，否则 fade=t=out 永远触发不到。
+                holdImagePath: frames[frames.length - 1],
+                seqDuration: frames.length / 10,
+                pad: prep.pad ?? 0,
                 precomposed: true,
               };
             }
