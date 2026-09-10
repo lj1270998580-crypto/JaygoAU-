@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../store';
 import { api } from '../lib/ipc';
 import { chatCompletion } from '../lib/modelHubService';
+import { runIllustrationPipeline, type PipelineProgress } from '../lib/illustrator';
 import type { VideoIllustrationItem, IllustrationLayout, IllustrationDensity } from '../types';
 import {
   Sparkles,
@@ -267,6 +268,7 @@ export const VideoIllustrator: React.FC = () => {
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isPlanning, setIsPlanning] = useState<boolean>(false);
+  const [pipelineProgress, setPipelineProgress] = useState<PipelineProgress | null>(null);
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number }>({ width: 1080, height: 1920 });
 
   // 规划与生成配置
@@ -726,7 +728,7 @@ export const VideoIllustrator: React.FC = () => {
   };
 
   // =========================================================================
-  // AI 智能规划插图分镜 (三级语义链条 + 全片统一色彩风格 + 3档密集度)
+  // AI 视觉导演分镜规划核心流水线 (基于 7/8 层解耦架构)
   // =========================================================================
   const handleAiPlanIllustrations = async () => {
     if (!scriptText.trim()) {
@@ -737,283 +739,54 @@ export const VideoIllustrator: React.FC = () => {
     const dur = videoDuration > 0 ? videoDuration : 60;
     const modelHubSettings = (settings as any).modelHubSettings;
     const currentStyleObj = STYLE_OPTIONS.find((s) => s.id === defaultStyle) || STYLE_OPTIONS[0];
-    const currentDensityObj = DENSITY_OPTIONS.find((d) => d.id === density) || DENSITY_OPTIONS[1];
 
     setIsPlanning(true);
-    showToast(`AI 正在分析文案，基于【${currentStyleObj.label}】与【${currentDensityObj.label}】规划分镜…`, 'info');
+    setPipelineProgress({
+      stage: 'aligning',
+      stepNumber: 1,
+      totalSteps: 5,
+      stageName: '启动导演流水线',
+      message: '正在初始化时间轴与上下文…',
+      percent: 10,
+    });
 
     try {
-      const systemPrompt = `你是一位顶尖的影视级短视频分镜视觉导演。
-你的任务是深度理解用户的完整视频口播台词，基于全局上下文和专业因果逻辑，规划最具视觉吸引力、表现力与干货含量的视频插图分镜（Illustration Storyboard）。
-
-【图片风格】
-用户当前指定的画风：【${currentStyleObj.label}】
-- 艺术画风描述：${currentStyleObj.stylePrompt}
-- 视觉一致性要求：请你根据本视频的主旨调性（如商业合规、职场思辨、情感哲理、生活科普等），自主统一设计整套插图的色彩基调、光影情绪与核心视觉符号，让全片所有插图具有高度连贯的艺术整体感。
-
-【生图提示词（prompt）绝对核心原则：物理具象实体化】
-1. 绝对严禁生成抽象色块拼图、七巧板式碎片、碎块集合或任何无意义伪汉字乱码！
-2. 提示词必须以【具体的商业与生活物理实体道具与人物场景】构建画面：
-   - 商业/法律/财务类：红木或现代简约办公桌、带红色印章与签字笔的正式借款合同/股权协议书、带清晰折线图与条形图的纸质财务报表、金融计算器、金属天平秤、银行存折、公文包、落地窗外城市天际线、商务人士严谨专注的工作神态等实体道具；
-   - 生活/哲理类：清晨咖啡杯、写满思考要点的笔记本手账、钥匙开启门扉、通往远方的延伸道路、人物沉思与坚毅目光等具体物理情境；
-   - 信息图类：必须依托真实的实体展板、纸质规整图纸或实体桌面工作台布局来呈现模块与箭头，杜绝凭空漂浮的色块拼图。
-3. 严禁在 prompt 中出现“8k”、“超高清”、“无水印”、“排版整洁有序”、“指标卡片”、“几何矢量构图”等指令元词！大模型会把这些词直接印在画面上成为乱码错字。
-
-【路由模式与图种规则（必须严格遵守）】
-当前路由模式：【${routingMode === 'standard' ? '标准图 (standard)' : routingMode === 'infographic' ? '信息图 (infographic)' : '智能路由 (smart)'}】
-1. 若当前路由模式为【标准图 (standard)】：
-   - 严禁生成任何信息图、数据图表、卡片看板、流程图！
-   - 所有分镜必须且只能规划为生动的标准视觉插图（如人物动作特写、情节场景描绘、人生哲理隐喻、象征意境画面）；
-   - type 必须为 "standard"，model 必须为 "sensenova-u1.5-lite"，category 可以是 "scene_narrative"（场景叙事）或 "concept_metaphor"（概念隐喻）；
-   - prompt 必须重点描写具象画面、主体人物/事物、构图、光影氛围，并深度融合指定的【图片风格】。
-2. 若当前路由模式为【信息图 (infographic)】：
-   - 所有分镜必须规划为结构化信息图解（如实体展板数据看板、流程框架、正反对比、关键法则卡片）；
-   - type 必须为 "infographic"，model 必须为 "sensenova-u1-fast"，category 可以是 "data_stat"、"step_framework"、"vs_comparison" 等；
-   - prompt 必须包含提炼的主标题（6-12字）、结构化卡片模块与导向箭头，并以指定的【图片风格】来渲染排版。
-3. 若当前路由模式为【智能路由 (smart)】：
-   - 由你深度分析台词的实质属性：
-     * 涉及统计数据、金额、多步流程架构、正反红绿对比、法律条例剖析 -> 自动规划为【信息图 (infographic, sensenova-u1-fast)】；
-     * 涉及人生感悟、情感抒发、故事叙事、金句哲理、人物写照、抽象隐喻 -> 自动规划为【标准图 (standard, sensenova-u1.5-lite)】！
-
-【带货营销与推销转化话术绝对禁配令（铁律）】
-严禁为任何涉及“点击小黄车、购买课程、下单抢购、橱窗、领资料、私信我、关注直播间、扣1领福利、原价现价优惠”等纯带货营销或转化导流话术规划插图！凡遇到此类推销话术，必须直接跳过，保持纯净留白。
-
-【生图提示词（prompt）纯净度与结构化提炼铁律】
-1. 绝对严禁在 prompt 中出现任何 '#' 十六进制色码（如 #FAF9F6、#1E40AF 等）或 RGB 数值！
-2. 绝对严禁在 prompt 中出现“统一背景底色基调”、“统一核心主色调”、“辅助高亮”等指令元词！
-3. 绝对严禁直接照抄口播整句台词作为标题！
-
-【密集度规划节奏（${currentDensityObj.label}）】
-- 目标密度模式：${currentDensityObj.badge}
-- 规划目标：${currentDensityObj.desc}
-- 两张插图之间的最小安全呼吸间隔：${currentDensityObj.minGap} 秒
-- 单张插图展示时长：3.0 ~ 4.5 秒，绝不连续霸屏。
-
-输出格式：严格合法的纯 JSON 数组，绝不要包含 markdown 围栏或其它对话寒暄：
-[
-  {
-    "startTime": 2.5,
-    "endTime": 6.5,
-    "contextText": "前文背景+当前句完整语义原句",
-    "concept": "基于全局上下文的精准核心概念 (8-16字)",
-    "category": "scene_narrative",
-    "type": "standard",
-    "model": "sensenova-u1.5-lite",
-    "prompt": "基于选定画风与台词内容生动构图的纯净提示词 (以具体物理实体道具为主，0色码0指令泄露)"
-  }
-]`;
-
-      const userContent = `视频总时长：约 ${Math.round(dur)} 秒。
-当前图片风格：${currentStyleObj.label}
-密集度：${currentDensityObj.label} (${currentDensityObj.badge})
-路由偏好：${routingMode === 'infographic' ? '全量信息图 (sensenova-u1-fast)' : routingMode === 'standard' ? '全量标准图 (sensenova-u1.5-lite, 严禁信息图)' : '智能路由 (模型自主研判)'}
-完整口播台词：
-${scriptText}
-
-请精选规划最具价值的插图分镜，输出严格 JSON 数组：`;
-
-      let jsonStr = '';
-      try {
-        jsonStr = await chatCompletion(
-          [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userContent },
-          ],
-          { temperature: 0.3 },
-          modelHubSettings
-        );
-      } catch (e: any) {
-        console.warn('ModelHub 调用失败，启动三级上下文智能规则引擎保底规划:', e);
-      }
-
-      let parsedItems: any[] = [];
-      try {
-        const cleaned = jsonStr.replace(/^```[a-z]*\s*/im, '').replace(/\s*```$/im, '').trim();
-        const jsonMatch = cleaned.match(/\[\s*\{[\s\S]*\}\s*\]/);
-        if (jsonMatch) {
-          parsedItems = JSON.parse(jsonMatch[0]);
-        }
-      } catch {
-        console.warn('JSON 解析未命中，转为智能规则引擎保底');
-      }
-
-      // 本地三级上下文滑动窗口高质量规则引擎（在无大模型或网络断开时提供工业级高水准保底）
-      if (!parsedItems || parsedItems.length === 0) {
-        const rawSentences = scriptText
-          .split(/[。！？!?；;\n]+/)
-          .map((s) => s.trim())
-          .filter((s) => s.length >= 6);
-
-        const scoredCandidates: Array<{
-          sentence: string;
-          contextWindow: string;
-          score: number;
-          category: 'data_stat' | 'step_framework' | 'vs_comparison' | 'concept_metaphor' | 'scene_narrative';
-          concept: string;
-          prompt: string;
-        }> = [];
-
-        for (let i = 0; i < rawSentences.length; i++) {
-          const rawSent = rawSentences[i];
-          // 过滤客套寒暄
-          if (
-            /^(大家好|欢迎大家|点赞关注|欢迎点赞|关注我|哈喽|感谢大家|我是[^\s，。]+)[，。！？!\s]*$/.test(rawSent) ||
-            (rawSent.length < 15 && /(大家好|点赞|关注|欢迎|哈喽)/.test(rawSent))
-          ) {
-            continue;
-          }
-
-          // 严格禁配令：凡涉及带货、小黄车、卖课、优惠、下单话术，一律不配图
-          if (SALES_PITCH_REGEX.test(rawSent)) {
-            continue;
-          }
-
-          // 上下文滑动窗口：前一句 + 当前句 + 后一句
-          const prevSent = i > 0 ? rawSentences[i - 1] : '';
-          const nextSent = i < rawSentences.length - 1 ? rawSentences[i + 1] : '';
-          const contextWindow = [prevSent, rawSent, nextSent].filter(Boolean).join('；');
-
-          const cleanSent = rawSent.replace(
-            /^(其实很多人不知道[，,\s]*|其实[，,\s]*|我们来看[，,\s]*|接下来[，,\s]*|大家知道[，,\s]*)/,
-            ''
-          );
-
-          let titleEntity = cleanSent.replace(/[，。！？!?]/g, ' ').replace(/\s+/g, ' ').trim();
-          if (titleEntity.length > 14) titleEntity = titleEntity.slice(0, 14);
-
-          const withoutQianwan = cleanSent.replace(/千万(别|不要|不能)/g, '');
-          const isStandardMode = routingMode === 'standard';
-
-          // 精确匹配财务与统计数据（排除诸如“18岁”、“20年”等叙事年龄与时间词）
-          const isFinancialOrStatData =
-            /(百分之|[0-9]+%|[0-9]+[万千亿]元?|[0-9]+倍|[0-9]+折|同比增长|环比下滑|利润率|个税|税率|营收|成本支出|财务报表)/.test(
-              withoutQianwan
-            );
-          const isStepOrFramework =
-            /(第一步|第二步|第三步|流程图|架构图|执行法则|操作体系|穿透机制|隔离防火墙|四维框架)/.test(
-              cleanSent
-            );
-          const isComparisonOrPitfall =
-            /(避坑指南|风险红线|违规行为|正反对比|区别于|相较于|对比分析)/.test(cleanSent);
-
-          let score = 10;
-          let cat: 'data_stat' | 'step_framework' | 'vs_comparison' | 'concept_metaphor' | 'scene_narrative' = 'scene_narrative';
-          let cpt = '生活选择与人生转折意境';
-          let pmt = sanitizePromptForImageGen(
-            `${currentStyleObj.stylePrompt}。画面生动展现与【${titleEntity}】契合的真实情景：办公室内采光通透，主角人物专注商讨方案，神态坚定充满信心，桌上摆放相关文书资料与笔记本电脑，画面层次丰富，光影自然细腻`
-          );
-
-          if (!isStandardMode && isFinancialOrStatData) {
-            score += 45;
-            cat = 'data_stat';
-            cpt = '核心数据指标与财务分析';
-            pmt = sanitizePromptForImageGen(
-              `${currentStyleObj.stylePrompt}。画面生动展现围绕【${titleEntity}】的商务工作场景：办公桌上整齐平铺着带清晰图表曲线的纸质财务报表、计算器与签字笔，光线柔和明亮，核心财务细节清晰可见，主体鲜明生动`
-            );
-          } else if (!isStandardMode && isStepOrFramework) {
-            score += 40;
-            cat = 'step_framework';
-            cpt = '进阶步骤与执行手册';
-            pmt = sanitizePromptForImageGen(
-              `${currentStyleObj.stylePrompt}。画面生动展现关于【${titleEntity}】的条理化规划场景：桌面上按阶段陈列的工作路线手册、流程节点备忘手账与执行方案实体，空间层次分明，逻辑秩序感强`
-            );
-          } else if (!isStandardMode && isComparisonOrPitfall) {
-            score += 35;
-            cat = 'vs_comparison';
-            cpt = '正反对比与合规指引';
-            pmt = sanitizePromptForImageGen(
-              `${currentStyleObj.stylePrompt}。画面生动呈现【${titleEntity}】的左右双重对比意象：左侧展现杂乱草稿与红色醒目警示符，右侧展现规整盖章的正式合同与绿叶生机，光影层次对比鲜明，寓意深刻`
-            );
-          } else if (/(核心|本质|真相|关键|痛点|破局|爆发|重构|底层|永续)/.test(cleanSent)) {
-            score += 25;
-            cat = 'concept_metaphor';
-            cpt = '核心认知与视觉隐喻';
-            pmt = sanitizePromptForImageGen(
-              `${currentStyleObj.stylePrompt}。画面核心生动呈现围绕【${titleEntity}】的具象实体隐喻：如桌面金属天平衡量轻重、或是握紧钥匙开启明亮大门，光影质感饱满，富有视觉张力与深刻哲思`
-            );
-          } else {
-            score += 20;
-          }
-
-          if (score >= 20) {
-            scoredCandidates.push({
-              sentence: rawSent,
-              contextWindow,
-              score,
-              category: cat,
-              concept: cpt,
-              prompt: pmt,
-            });
-          }
-        }
-
-        // 根据 3 档密集度动态计算目标数量
-        let targetCount = Math.max(3, Math.min(6, Math.floor(dur / 12)));
-        if (density === 'sparse') targetCount = Math.max(2, Math.min(4, Math.floor(dur / 20)));
-        else if (density === 'dense') targetCount = Math.max(5, Math.min(12, Math.floor(dur / 7)));
-
-        const sorted = [...scoredCandidates].sort((a, b) => b.score - a.score).slice(0, targetCount);
-        sorted.sort((a, b) => scriptText.indexOf(a.sentence) - scriptText.indexOf(b.sentence));
-
-        const totalChars = Math.max(1, scriptText.length);
-        parsedItems = sorted.map((cand, idx) => {
-          const charPos = scriptText.indexOf(cand.sentence);
-          const ratio = charPos >= 0 ? charPos / totalChars : idx / Math.max(1, sorted.length);
-          const estimatedStart = Math.min(Math.max(0, dur - 4.5), ratio * dur);
-          let isInfo = cand.category !== 'concept_metaphor' && cand.category !== 'scene_narrative';
-          if (routingMode === 'standard') isInfo = false;
-          if (routingMode === 'infographic') isInfo = true;
-
-          return {
-            startTime: Math.round(estimatedStart * 10) / 10,
-            endTime: Math.round((estimatedStart + 3.8) * 10) / 10,
-            contextText: cand.contextWindow || cand.sentence,
-            concept: cand.concept,
-            category: isInfo ? cand.category : (cand.category === 'data_stat' || cand.category === 'step_framework' ? 'scene_narrative' : cand.category),
-            type: isInfo ? 'infographic' : 'standard',
-            model: isInfo ? 'sensenova-u1-fast' : 'sensenova-u1.5-lite',
-            prompt: cand.prompt,
-          };
-        });
-      }
-
-      // 转换为正式 VideoIllustrationItem
-      let formatted: VideoIllustrationItem[] = parsedItems.map((it: any, idx: number) => {
-        let isInfo = it.type === 'infographic';
-        if (routingMode === 'infographic') isInfo = true;
-        if (routingMode === 'standard') isInfo = false;
-
-        const modelName = isInfo ? 'sensenova-u1-fast' : 'sensenova-u1.5-lite';
-        const ratioToUse = defaultRatio || '16:9';
-
-        let finalPrompt = it.prompt || `${currentStyleObj.stylePrompt}，画面清晰自然，实体细节丰富`;
-        if (routingMode === 'standard') {
-          finalPrompt = finalPrompt
-            .replace(/(趣味漫画科普信息图卡片|信息图卡片|信息图|数据图表|数据看板|流程分支|步骤图解|柱状图|饼图|看板)/g, '视觉画面')
-            .replace(/主标题为[“"][^”"]*[”"]/g, '');
-        }
-
-        const cat = !isInfo && (it.category === 'data_stat' || it.category === 'step_framework')
-          ? 'scene_narrative'
-          : (it.category || 'concept_metaphor');
-
-        return {
-          id: `ill_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
-          startTime: typeof it.startTime === 'number' ? it.startTime : idx * 10,
-          endTime: typeof it.endTime === 'number' ? it.endTime : idx * 10 + 4.0,
-          contextText: it.contextText || '',
-          concept: it.concept || (isInfo ? '结构化信息图解' : '核心视觉分镜'),
-          prompt: sanitizePromptForImageGen(finalPrompt),
-          type: isInfo ? 'infographic' : 'standard',
-          model: modelName,
-          category: cat,
-          style: defaultStyle,
-          ratio: ratioToUse,
-          status: 'idle',
-        };
+      const planResults = await runIllustrationPipeline({
+        scriptText,
+        videoDuration: dur,
+        density,
+        styleId: defaultStyle,
+        ratio: defaultRatio || '16:9',
+        routingMode,
+        asrUtterances: asrUtterances.length > 0 ? asrUtterances : undefined,
+        modelHubSettings,
+        onProgress: (prog) => {
+          setPipelineProgress(prog);
+        },
       });
 
-      // 如果有已提取的 ASR 真实发音时间轴，立即吸附精准对齐
+      let formatted: VideoIllustrationItem[] = planResults.map((it, idx) => ({
+        id: `ill_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+        beatId: it.beatId,
+        startTime: it.startTime,
+        endTime: it.endTime,
+        contextText: it.contextText,
+        concept: it.concept,
+        communicationGoal: it.communicationGoal,
+        prompt: it.prompt,
+        promptBlocks: it.promptBlocks,
+        scenePlan: it.scenePlan,
+        visualScore: it.visualScore,
+        shot: it.shot,
+        type: it.type,
+        model: it.model,
+        category: it.category,
+        style: it.styleId,
+        ratio: it.ratio,
+        status: 'idle',
+      }));
+
+      // 如果有已提取的 ASR 真实发音时间轴，再次对齐微调
       if (asrUtterances.length > 0) {
         formatted = applyAsrAlignmentToIllustrations(formatted, asrUtterances);
       }
@@ -1022,11 +795,12 @@ ${scriptText}
       if (formatted.length > 0) {
         setSelectedIllustrationId(formatted[0].id);
       }
-      showToast(`成功规划 ${formatted.length} 个插图分镜！已锁定【${currentStyleObj.label}】画风`, 'ok');
+      showToast(`成功由 AI 导演规划 ${formatted.length} 个镜头分镜！已锁定【${currentStyleObj.label}】画风`, 'ok');
     } catch (err: any) {
       showToast(err?.message || '规划分镜失败', 'err');
     } finally {
       setIsPlanning(false);
+      setPipelineProgress(null);
     }
   };
 
@@ -1513,7 +1287,7 @@ ${scriptText}
             }`}
           >
             <Wand2 className={`w-4 h-4 shrink-0 ${isPlanning ? 'animate-spin' : ''}`} />
-            <span>{isPlanning ? 'AI 智能规划中…' : 'AI 智能规划'}</span>
+            <span>{isPlanning ? (pipelineProgress ? `${pipelineProgress.stageName} (${pipelineProgress.percent}%)` : 'AI 智能规划中…') : 'AI 智能规划'}</span>
           </button>
 
           {/* 折叠式“插图包装与排版设置”卡片 */}
@@ -1944,17 +1718,30 @@ ${scriptText}
 
           {/* AI 规划中或图片生成中动态状态看板 */}
           {isPlanning && (
-            <div className="mx-3 mt-3 p-3 rounded-xl border border-indigo-200 dark:border-indigo-800/80 bg-gradient-to-r from-indigo-50/80 to-purple-50/80 dark:from-indigo-950/40 dark:to-purple-950/40 animate-pulse flex items-center gap-2.5 shadow-sm">
-              <div className="w-7 h-7 rounded-lg bg-indigo-500 text-white flex items-center justify-center shrink-0 shadow">
-                <Wand2 className="w-3.5 h-3.5 animate-spin" />
+            <div className="mx-3 mt-3 p-3 rounded-xl border border-indigo-200 dark:border-indigo-800/80 bg-gradient-to-r from-indigo-50/80 to-purple-50/80 dark:from-indigo-950/40 dark:to-purple-950/40 shadow-sm space-y-2 animate-in fade-in">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-indigo-500 text-white flex items-center justify-center shrink-0 shadow">
+                  <Wand2 className="w-3.5 h-3.5 animate-spin" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11.5px] font-bold text-indigo-700 dark:text-indigo-300 truncate">
+                      {pipelineProgress ? `阶段 ${pipelineProgress.stepNumber}/${pipelineProgress.totalSteps}: ${pipelineProgress.stageName}` : 'AI 导演系统正在规划分镜…'}
+                    </span>
+                    <span className="text-[10px] font-mono text-indigo-500 font-bold">
+                      {pipelineProgress?.percent || 20}%
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 mt-0.5 truncate">
+                    {pipelineProgress ? pipelineProgress.message : `锁定【${STYLE_OPTIONS.find((s) => s.id === defaultStyle)?.label}】画风`}
+                  </div>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[11.5px] font-bold text-indigo-700 dark:text-indigo-300 truncate">
-                  AI 正在深度研读口播台词并规划分镜…
-                </div>
-                <div className="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 mt-0.5 truncate">
-                  锁定【{STYLE_OPTIONS.find((s) => s.id === defaultStyle)?.label}】画风 · 构思实体场景
-                </div>
+              <div className="w-full h-1.5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-300"
+                  style={{ width: `${pipelineProgress?.percent || 25}%` }}
+                />
               </div>
             </div>
           )}
@@ -2038,8 +1825,20 @@ ${scriptText}
                         </span>
 
                         <span className="font-mono text-[9px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20">
-                          {item.model === 'sensenova-u1-fast' ? 'u1-fast (信息图)' : 'u1.5-lite (标准图)'}
+                          {item.model === 'sensenova-u1-fast' ? 'u1-fast' : 'u1.5-lite'}
                         </span>
+
+                        {typeof item.visualScore === 'number' && (
+                          <span className="font-mono text-[9px] px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 font-bold" title="Visual Need Score (视觉需求价值评分)">
+                            🎯 V:{item.visualScore.toFixed(2)}
+                          </span>
+                        )}
+
+                        {item.shot && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-500/10 text-purple-500 dark:text-purple-400 border border-purple-500/20 font-medium">
+                            {item.shot === 'wide' ? '全景' : item.shot === 'medium' ? '中景' : item.shot === 'close' ? '特写' : item.shot === 'overhead' ? '俯瞰' : item.shot}
+                          </span>
+                        )}
                       </div>
 
                       <button
@@ -2053,9 +1852,16 @@ ${scriptText}
                     </div>
 
                     {/* 台词语义原句 */}
-                    <p className="text-[11px] text-zinc-600 dark:text-zinc-300 line-clamp-2 leading-relaxed mb-1.5 font-script-reading">
+                    <p className="text-[11px] text-zinc-600 dark:text-zinc-300 line-clamp-2 leading-relaxed mb-1 font-script-reading">
                       “{item.contextText}”
                     </p>
+
+                    {item.communicationGoal && (
+                      <div className="text-[9.5px] text-amber-600 dark:text-amber-400/90 font-medium mb-1.5 flex items-center gap-1 bg-amber-50/60 dark:bg-amber-950/20 px-1.5 py-0.5 rounded border border-amber-200/50 dark:border-amber-800/30">
+                        <span className="shrink-0">🎬 目标:</span>
+                        <span className="truncate">{item.communicationGoal.replace(/^1秒读懂[：:]?\s*/, '')}</span>
+                      </div>
+                    )}
 
                     {/* 概念、缩略图与重新生成微型按钮 */}
                     <div className="flex items-center gap-2 pt-1.5 border-t border-zinc-100 dark:border-zinc-800/60">

@@ -232,6 +232,12 @@ export interface VideoIllustrationItem {
   localPath?: string;
   referenceImage?: string; // 图生图参考图 (Base64 或路径)
   error?: string;
+  beatId?: string;
+  visualScore?: number; // 视觉价值评分 V (0.00 ~ 1.00)
+  communicationGoal?: string; // 视觉导演 1秒读懂目标
+  shot?: string; // 景别机位 (wide / medium / close 等)
+  scenePlan?: any; // 完整导演分镜规划表
+  promptBlocks?: any; // 结构化提示词模块
 }
 
 export type IllustrationDensity = 'sparse' | 'standard' | 'dense';
