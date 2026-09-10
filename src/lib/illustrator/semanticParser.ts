@@ -1,12 +1,18 @@
 // =========================================================================
-// 模块 2: Semantic Parser (语义事件解析器)
+// 模块 2: Semantic Parser (语义事件解析器) - v3 中文母语 + 分片批处理
 // 职责：将口播文案转化为原子语义事件 (Semantic Units)，提取物理主体、动作、实体道具与时空特征
 // 严禁决定是否生成图片（那是 Visual Beat Planner 的工作）
+//
+// v3 升级：
+// 1. 提示词全面中文化（原为英文，与中文生图模型及 StyleBible 不一致）
+// 2. 分片批处理 + 截断二分重试
+// 3. 宽容 JSON 提取（括号配平 + 截断抢救），不再依赖贪婪正则
 // =========================================================================
 
 import type { SemanticUnit } from './types';
 import type { TimelineSegment } from './timelineAligner';
 import { chatCompletion } from '../modelHubService';
+import { extractJsonArrayLoose, chunkArray } from './jsonExtract';
 
 // 绝对禁配的营销推销话术正则（含课程招募/带货段落）
 export const SALES_PITCH_REGEX =
@@ -55,43 +61,101 @@ export async function parseSemanticUnits(
 /**
  * 通过大模型进行语义事件解析
  */
+/**
+ * 单次请求处理的片段数量。
+ * 与 visualDirector 同理：一次性请求全部片段在长文案上必然超 token 被截断。
+ */
+const LLM_BATCH_SIZE = 6;
+const MAX_SPLIT_DEPTH = 4;
+
 async function parseWithLLM(
   segments: TimelineSegment[],
   modelHubSettings: any
 ): Promise<SemanticUnit[] | null> {
+  const batches = chunkArray(segments, LLM_BATCH_SIZE);
+  const collected: SemanticUnit[] = [];
+
+  for (let bi = 0; bi < batches.length; bi++) {
+    const batch = batches[bi];
+    const globalOffset = bi * LLM_BATCH_SIZE;
+    const units = await parseBatchWithSplit(batch, globalOffset, modelHubSettings, 0);
+    if (!units || units.length !== batch.length) return null;
+    collected.push(...units);
+  }
+
+  return collected;
+}
+
+/**
+ * 单批解析；截断时二分重试，避免整条流水线因一批超限而整体退化
+ */
+async function parseBatchWithSplit(
+  segments: TimelineSegment[],
+  globalOffset: number,
+  modelHubSettings: any,
+  depth: number
+): Promise<SemanticUnit[] | null> {
+  try {
+    return await parseChunkWithLLM(segments, globalOffset, modelHubSettings);
+  } catch (err: any) {
+    if (err?.name === 'LlmTruncationError' && segments.length > 1 && depth < MAX_SPLIT_DEPTH) {
+      const mid = Math.ceil(segments.length / 2);
+      const head = await parseBatchWithSplit(segments.slice(0, mid), globalOffset, modelHubSettings, depth + 1);
+      if (!head) throw err;
+      const tail = await parseBatchWithSplit(segments.slice(mid), globalOffset + mid, modelHubSettings, depth + 1);
+      if (!tail) throw err;
+      return [...head, ...tail];
+    }
+    throw err;
+  }
+}
+
+/**
+ * 单批（不做二分）的语义解析
+ */
+async function parseChunkWithLLM(
+  segments: TimelineSegment[],
+  globalOffset: number,
+  modelHubSettings: any
+): Promise<SemanticUnit[] | null> {
   const promptList = segments.map((s, idx) => ({
-    seg_id: `SU_${String(idx + 1).padStart(2, '0')}`,
-    time_start: s.startTime,
-    time_end: s.endTime,
-    text: s.text,
+    seg_id: `SU_${String(globalOffset + idx + 1).padStart(2, '0')}`,
+    时间起: s.startTime,
+    时间止: s.endTime,
+    旁白: s.text,
   }));
 
-  const systemPrompt = `You are a professional video semantic analyst and visual storytelling expert.
-Your task is NOT to create images.
-Your task is to convert narration segments into atomic semantic events with deep visual understanding.
+  const systemPrompt = `你是一位专业的视频语义分析师与视觉叙事专家。
+你的任务不是生成图片。
+你的任务是把旁白片段拆解为带有深度视觉理解的原子语义事件。
 
-CRITICAL PRINCIPLE: Understand the MEANING, not just keywords.
-- "这家公司最后被迫宣布破产" → Don't just match "公司" + "破产". Understand this means: empty offices, employees carrying boxes, closed doors, desolation.
-- "穿透制度" → Don't just match a keyword. Understand this means: a legal net connecting multiple companies, creditors reaching through corporate layers.
+【核心原则】理解**含义**，而不是只做关键词匹配。
+- 「这家公司最后被迫宣布破产」→ 不要只匹配"公司"+"破产"，要理解这意味着：空荡的办公室、抱着纸箱离开的员工、紧闭的门、萧条感。
+- 「穿透制度」→ 不要只匹配关键词，要理解这意味着：一张连接多家公司的法律之网、债权人穿过公司层级追索。
 
-For every event identify:
-1. subjects: core actors or key entities [{ name, type: 'person' | 'object' | 'concept' | 'organization' }]
-2. action: what is happening (concise verb phrase)
-3. objects: key physical props or tangible items [{ name, type }]
-4. location: physical setting if mentioned or implied
-5. timePeriod: historical era or setting time if mentioned
-6. isAbstract: boolean (true ONLY for pure philosophical sentiment with no concrete action. Legal/financial content = false)
-7. visual_goal: ONE sentence describing what the audience should SEE and FEEL in 1 second (this is the most important field!)
-8. visual_anchors: 2-4 concrete visual concepts (in English) that would make the audience instantly recognize this narration segment. Each has a priority (0.0-1.0).
-9. Multi-dimensional scores (0.0 to 1.0):
-   - importance: how essential this event is to the core narration
-   - visualizability: how easily this can be depicted with tangible physical objects/people
-   - novelty: introduction of a new concept or turning point
-   - emotionalIntensity: emotional weight or tension
-   - sceneChange: degree of environment or subject shift
-   - informationDensity: richness of factual/data content
+【语言要求 —— 极其重要】
+- 所有字段值必须使用**简体中文**。这是硬性要求。
+- 不要输出英文描述。后续生图模型是中文原生模型。
+- visual_anchors 的 concept 必须是中文。
 
-Return ONLY a strict JSON array matching this format:
+请为每个事件识别：
+1. subjects：核心行为者或关键实体 [{ name, type: 'person' | 'object' | 'concept' | 'organization' }]
+2. action：正在发生什么（简洁的动词短语）
+3. objects：关键实体道具或可触物件 [{ name, type }]
+4. location：物理场所（若提及或可合理推断）
+5. timePeriod：历史年代或时代背景（若提及）
+6. isAbstract：布尔值（仅当是纯哲理抒情、无任何具体动作时才为 true；法律/商业内容一律为 false）
+7. visual_goal：一句话描述观众应该在 1 秒内**看到并感受到**什么（这是最重要的字段）
+8. visual_anchors：2~4 个**中文**视觉概念，是让观众一眼认出这段旁白的最关键视觉元素，每个带 priority（0.0~1.0）
+9. 多维评分（0.0 ~ 1.0）：
+   - importance：该事件对核心叙事的必要程度
+   - visualizability：用具体实体人物呈现的难易程度
+   - novelty：是否引入新概念或转折
+   - emotionalIntensity：情绪强度或张力
+   - sceneChange：环境或主体切换幅度
+   - informationDensity：事实/数据信息的丰富度
+
+只返回严格的 JSON 数组，格式如下：
 [
   {
     "id": "SU_01",
@@ -101,10 +165,10 @@ Return ONLY a strict JSON array matching this format:
     "location": "...",
     "timePeriod": "...",
     "isAbstract": false,
-    "visual_goal": "Show a legal net stretching across multiple company buildings, symbolizing the piercing veil doctrine",
+    "visual_goal": "一张连接多栋公司大楼的法律之网，象征穿透制度",
     "visual_anchors": [
-      { "concept": "legal net connecting multiple company buildings", "priority": 1.0 },
-      { "concept": "creditor pointing at linked companies", "priority": 0.8 }
+      { "concept": "连接多栋公司大楼的法律之网", "priority": 1.0 },
+      { "concept": "债权人指向彼此关联的公司", "priority": 0.8 }
     ],
     "importance": 0.85,
     "visualizability": 0.90,
@@ -113,36 +177,41 @@ Return ONLY a strict JSON array matching this format:
     "sceneChange": 0.80,
     "informationDensity": 0.75
   }
-]`;
+]
+不要输出任何解释文字。`;
 
-  const userPrompt = `Input segments to analyze:\n${JSON.stringify(promptList, null, 2)}`;
+  const userPrompt = `请分析以下视频旁白片段（共 ${segments.length} 个，必须返回同样数量的数组元素）：\n${JSON.stringify(promptList, null, 2)}`;
 
   const responseText = await chatCompletion(
     [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    { temperature: 0.2 },
+    { temperature: 0.2, rejectTruncation: true },
     modelHubSettings
   );
 
-  const cleaned = responseText.replace(/^```[a-z]*\s*/im, '').replace(/\s*```$/im, '').trim();
-  const match = cleaned.match(/\[\s*\{[\s\S]*\}\s*\]/);
-  if (!match) return null;
-
-  const parsed = JSON.parse(match[0]);
-  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  // 宽容提取：括号配平扫描 + 截断抢救
+  const extraction = extractJsonArrayLoose<any>(responseText);
+  if (!extraction.ok || extraction.items.length === 0) return null;
 
   // 映射回带时间戳的完整 SemanticUnit
-  return segments.map((seg, idx) => {
-    const item = parsed[idx] || parsed.find((p: any) => p.id === `SU_${String(idx + 1).padStart(2, '0')}`) || {};
+  return segments.map((seg, localIdx) => {
+    const idx = globalOffset + localIdx;
+    const expectedId = `SU_${String(idx + 1).padStart(2, '0')}`;
+    const item =
+      extraction.items[localIdx] ||
+      extraction.items.find((p: any) => p && p.id === expectedId) ||
+      {};
     return {
-      id: item.id || `SU_${String(idx + 1).padStart(2, '0')}`,
+      id: item.id || expectedId,
       time: { start: seg.startTime, end: seg.endTime },
       rawText: seg.text,
       cleanText: seg.text.replace(/^[，,；;\s]+|[，,；;\s]+$/g, ''),
-      subjects: Array.isArray(item.subjects) ? item.subjects : [{ name: '核心主体', type: 'concept' as const }],
-      action: item.action || '展开叙事',
+      subjects: Array.isArray(item.subjects) && item.subjects.length > 0
+        ? item.subjects
+        : [{ name: keyPhraseOf(seg.text), type: 'concept' as const }],
+      action: item.action || `围绕「${keyPhraseOf(seg.text)}」展开`,
       objects: Array.isArray(item.objects) ? item.objects : [],
       location: item.location || undefined,
       timePeriod: item.timePeriod || undefined,
@@ -158,6 +227,16 @@ Return ONLY a strict JSON array matching this format:
       visualAnchors: Array.isArray(item.visual_anchors) ? item.visual_anchors : undefined,
     };
   });
+}
+
+/**
+ * 取旁白的关键短语，用于兜底字段，避免所有片段共用同一句默认值
+ */
+function keyPhraseOf(text: string): string {
+  const first = (text || '').split(/[，。！？；、]/).map((s) => s.trim()).filter((s) => s.length >= 4)[0];
+  const base = first || (text || '').replace(/[\s，。！？、；：""''（）《》【】…—\-]/g, '');
+  if (!base) return '当前内容';
+  return base.length > 12 ? base.slice(0, 12) : base;
 }
 
 /**

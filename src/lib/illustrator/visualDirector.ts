@@ -9,6 +9,7 @@
 
 import type { VisualBeat, ScenePlan, ShotType, VisualType } from './types';
 import { chatCompletion } from '../modelHubService';
+import { extractJsonArrayLoose, chunkArray } from './jsonExtract';
 
 /**
  * 为全片所有选定的视觉节拍规划具体镜头画面
@@ -23,6 +24,12 @@ export interface DirectorDiagnostics {
   usedLLM: boolean;
   fallbackReason?: string;
   diversityAdjusted: number;
+  /** 大模型分片批次数 */
+  batches?: number;
+  /** 发生截断的批次数 */
+  truncatedBatches?: number;
+  /** 因截断而触发二分重试的次数 */
+  splits?: number;
 }
 
 export function createDirectorDiagnostics(): DirectorDiagnostics {
@@ -75,19 +82,97 @@ export async function directVisualScenes(
 }
 
 /**
- * LLM 导演规划器 - v2 增强版
- * 要求 LLM 输出 visual_goal + visual_anchors + 具体场景
+ * 单次请求处理的节拍数量。
+ * 此前把全部分镜塞进一个请求，长文案（20+ 节拍）必然超出 max_tokens 被截断，
+ * 导致 JSON 解析失败并静默退回关键词模板 —— 这就是「AI 规划提示大模型未参与」的根因。
+ */
+const LLM_BATCH_SIZE = 6;
+/** 因截断而二分重试的最大深度 */
+const MAX_SPLIT_DEPTH = 4;
+
+/**
+ * LLM 导演规划器 - v4 分片批处理版
+ * 把节拍切成小批分别请求，任一批次被截断时自动二分重试，最后按顺序合并。
  */
 async function directWithLLM(
   beats: VisualBeat[],
   modelHubSettings: any,
   diag: DirectorDiagnostics
 ): Promise<ScenePlan[] | null> {
+  const usedSubjects = new Map<string, number>();
+  const collected: ScenePlan[] = [];
+  const batches = chunkArray(beats, LLM_BATCH_SIZE);
+
+  diag.batches = batches.length;
+  diag.truncatedBatches = 0;
+  diag.splits = 0;
+
+  for (let bi = 0; bi < batches.length; bi++) {
+    const batch = batches[bi];
+    const globalOffset = bi * LLM_BATCH_SIZE;
+    const plans = await directBatchWithSplit(
+      batch, globalOffset, modelHubSettings, usedSubjects, diag, 0
+    );
+    if (!plans || plans.length !== batch.length) {
+      return null;
+    }
+    collected.push(...plans);
+  }
+
+  return collected;
+}
+
+/**
+ * 单批规划；若因 Token 截断失败且该批还能再分，则二分后分别重试。
+ * 缩小批量总能让输出装得下，因此这比直接退化到关键词模板要好得多。
+ */
+async function directBatchWithSplit(
+  batch: VisualBeat[],
+  globalOffset: number,
+  modelHubSettings: any,
+  usedSubjects: Map<string, number>,
+  diag: DirectorDiagnostics,
+  depth: number
+): Promise<ScenePlan[] | null> {
+  try {
+    return await directChunkWithLLM(batch, globalOffset, modelHubSettings, usedSubjects);
+  } catch (err: any) {
+    const isTruncation = err?.name === 'LlmTruncationError';
+    if (!isTruncation) throw err;
+
+    diag.truncatedBatches = (diag.truncatedBatches || 0) + 1;
+
+    if (batch.length > 1 && depth < MAX_SPLIT_DEPTH) {
+      diag.splits = (diag.splits || 0) + 1;
+      const mid = Math.ceil(batch.length / 2);
+      const head = await directBatchWithSplit(
+        batch.slice(0, mid), globalOffset, modelHubSettings, usedSubjects, diag, depth + 1
+      );
+      if (!head) throw err;
+      const tail = await directBatchWithSplit(
+        batch.slice(mid), globalOffset + mid, modelHubSettings, usedSubjects, diag, depth + 1
+      );
+      if (!tail) throw err;
+      return [...head, ...tail];
+    }
+    throw err;
+  }
+}
+
+/**
+ * 单批（不做二分）的 LLM 导演规划
+ */
+async function directChunkWithLLM(
+  beats: VisualBeat[],
+  globalOffset: number,
+  modelHubSettings: any,
+  usedSubjects: Map<string, number>
+): Promise<ScenePlan[] | null> {
   const promptList = beats.map((b, i) => ({
     beat_id: b.beatId,
     narration: b.sourceText,
     visual_type: b.visualType,
-    序号: i + 1,
+    序号: globalOffset + i + 1,
   }));
 
   const systemPrompt = `你是一位世界级的电影与动态影像视觉导演，具备极深的语义理解能力。
@@ -154,24 +239,23 @@ async function directWithLLM(
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    { temperature: 0.3 },
+    { temperature: 0.3, rejectTruncation: true },
     modelHubSettings
   );
 
-  const cleaned = responseText.replace(/^```[a-z]*\s*/im, '').replace(/\s*```$/im, '').trim();
-  const match = cleaned.match(/\[\s*\{[\s\S]*\}\s*\]/);
-  if (!match) return null;
+  // 宽容提取：括号配平扫描 + 截断抢救，不再依赖贪婪正则
+  const extraction = extractJsonArrayLoose<any>(responseText);
+  if (!extraction.ok || extraction.items.length === 0) return null;
 
-  const parsed = JSON.parse(match[0]);
-  if (!Array.isArray(parsed) || parsed.length === 0) return null;
-
-  const llmUsedSubjects = new Map<string, number>();
-
-  return beats.map((b, idx) => {
-    const item = parsed[idx] || parsed.find((p: any) => p.beatId === b.beatId) || {};
+  return beats.map((b, localIdx) => {
+    const idx = globalOffset + localIdx;
+    const item =
+      extraction.items[localIdx] ||
+      extraction.items.find((p: any) => p && p.beatId === b.beatId) ||
+      {};
     // 修复同质化：缺失字段不再填统一模板，改为从「该节拍自己的旁白原文」派生，
     // 否则每个漏答字段都会变成同一句"核心角色与主体 / 采光通透的现代室内空间"。
-    const derived = deriveSceneFromText(b.sourceText, b.visualType, llmUsedSubjects);
+    const derived = deriveSceneFromText(b.sourceText, b.visualType, usedSubjects);
     const llmShot = item.composition?.shot;
     const shot: ShotType = isShotType(llmShot) ? llmShot : getAlternatingShot(idx);
     return {

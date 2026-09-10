@@ -486,7 +486,7 @@ export default function App() {
           {/* 上部：品牌展厅与核心创作导航 */}
           <div className="flex flex-col overflow-y-auto no-scrollbar">
             {/* 侧边栏专属品牌展厅卡片（消除顶栏重复，恢复饱满视觉锚点） */}
-            <div className="px-1.5 pt-1 pb-3 mb-2 border-b border-zinc-200/70 dark:border-zinc-800/80">
+            <div className="px-1.5 pt-1 pb-3 mb-2 border-b border-zinc-200/70 dark:border-zinc-800/80 rail-hide-narrow">
               <BrandLogo size={28} showText={true} subtext="AI 自媒体创作工作台" />
             </div>
 
@@ -530,10 +530,10 @@ export default function App() {
                 <span className={`transition-transform duration-300 ${tab === 'settings' ? 'rotate-45' : ''}`}>
                   {Icon.settings}
                 </span>
-                <span className="truncate">设置</span>
+                <span className="truncate rail-hide-narrow">设置</span>
               </button>
 
-              <div className="w-[1px] h-4 bg-zinc-300/70 dark:bg-zinc-700/70 my-auto shrink-0 opacity-60" />
+              <div className="w-[1px] h-4 bg-zinc-300/70 dark:bg-zinc-700/70 my-auto shrink-0 opacity-60 rail-hide-narrow" />
 
               {/* 暗黑/浅色模式切换微动效按键 */}
               <button
@@ -562,8 +562,10 @@ export default function App() {
               </button>
             </div>
 
-            {/* 三合一状态监控胶囊 */}
-            <SystemStatusCapsule />
+            {/* 三合一状态监控胶囊（窄窗口隐藏，避免图标栏被撑开） */}
+            <div className="rail-hide-narrow">
+              <SystemStatusCapsule />
+            </div>
           </div>
         </aside>
 
@@ -610,7 +612,11 @@ export default function App() {
               )}
               {visitedTabs.has('illustrator') && (
                 <div className={`h-full ${tab === 'illustrator' ? 'flex flex-col' : 'hidden'}`}>
-                  <VideoIllustrator />
+                  <VideoIllustrator
+                    modelSettings={modelHubSettings}
+                    onUpdateModelHubSettings={setModelHubSettings}
+                    onOpenModelHub={() => setModelHubOpen(true)}
+                  />
                 </div>
               )}
               {visitedTabs.has('script') && (

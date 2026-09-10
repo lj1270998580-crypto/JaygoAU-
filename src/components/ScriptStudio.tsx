@@ -15,6 +15,7 @@ import type { ModelHubSettings, ModelProviderType } from '../lib/modelHubTypes';
 import { PRESET_PROVIDERS, getModelContextLimit } from '../lib/modelHubTypes';
 import { extractStyleFromSamples } from '../lib/styleExtractor';
 import { extractCleanScript } from '../lib/scriptSanitizer';
+import { useAdaptiveColumns } from '../lib/useAdaptiveColumns';
 import {
   ScriptSession,
   AttachedFile,
@@ -127,15 +128,21 @@ export function ScriptStudio({
   // 左侧栏折叠状态（满足诉求 5：对话区域默认可以再大些）
   const [isLeftCollapsed, setIsLeftCollapsed] = useState<boolean>(false);
 
-  // 可自由调节的左右栏宽度 (px) 与拖拽状态
-  const [leftWidth, setLeftWidth] = useState<number>(() => {
-    const saved = localStorage.getItem('jaygo_script_left_width');
-    return saved ? Math.max(200, Math.min(460, parseInt(saved, 10))) : 240;
+  // 可自由调节的左右栏宽度 (v0.7.6 改为自适应：窄窗口自动压缩/降级，永不裁切)
+  const cols = useAdaptiveColumns({
+    storageKey: 'jaygo_script_studio',
+    defaultLeft: 240,
+    defaultRight: 320,
+    minLeft: 200,
+    maxLeft: 460,
+    minRight: 240,
+    maxRight: 560,
+    minCenter: 360,
+    dividerTotal: 12,
+    twoColumnBelow: 900,
+    focusBelow: 620,
   });
-  const [rightWidth, setRightWidth] = useState<number>(() => {
-    const saved = localStorage.getItem('jaygo_script_right_width');
-    return saved ? Math.max(240, Math.min(560, parseInt(saved, 10))) : 320;
-  });
+  const { containerRef: scriptColumnsRef, effectiveMode: scriptMode, leftWidth, rightWidth } = cols;
 
   const dragStartRef = useRef<{
     type: 'left' | 'right' | null;
@@ -241,21 +248,11 @@ export function ScriptStudio({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // 左右栏拖拽调整宽度
+  // 左右栏拖拽调整宽度（自适应版本：由 Hook 统一钳制，不再直接写 localStorage）
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!dragStartRef.current.type) return;
-      if (dragStartRef.current.type === 'left') {
-        const deltaX = e.clientX - dragStartRef.current.startX;
-        const nextW = Math.max(200, Math.min(460, dragStartRef.current.startWidth + deltaX));
-        setLeftWidth(nextW);
-        localStorage.setItem('jaygo_script_left_width', String(nextW));
-      } else if (dragStartRef.current.type === 'right') {
-        const deltaX = dragStartRef.current.startX - e.clientX;
-        const nextW = Math.max(240, Math.min(560, dragStartRef.current.startWidth + deltaX));
-        setRightWidth(nextW);
-        localStorage.setItem('jaygo_script_right_width', String(nextW));
-      }
+      // 交由 useAdaptiveColumns 的 startResize 处理，此处仅保留兼容占位
     };
 
     const handleMouseUp = () => {
@@ -868,13 +865,13 @@ export function ScriptStudio({
         </div>
       </div>
 
-      {/* 主体三栏布局 */}
-      <div className="flex-1 flex min-h-0">
-        {/* 左栏：默认会话历史列表 ⇄ Skill 详情编辑中枢（支持折叠以扩大对话区，满足诉求 5） */}
-        {!isLeftCollapsed && (
+      {/* 主体三栏布局（自适应：窄窗口自动压缩/降级，永不裁切） */}
+      <div ref={scriptColumnsRef} className="flex-1 flex min-h-0 overflow-hidden">
+        {/* 左栏：默认会话历史列表 ⇄ Skill 详情编辑中枢（支持折叠以扩大对话区） */}
+        {!isLeftCollapsed && scriptMode !== 'focus' && (
           <div
-            style={{ width: `${leftWidth}px` }}
-            className="border-r border-zinc-200/80 dark:border-zinc-800/80 flex flex-col bg-white/50 dark:bg-zinc-900/20 overflow-hidden shrink-0"
+            style={{ width: `${leftWidth}px`, minWidth: 0 }}
+            className="border-r border-zinc-200/80 dark:border-zinc-800/80 flex flex-col bg-white/50 dark:bg-zinc-900/20 overflow-hidden shrink"
           >
             {/* 左栏顶栏选项卡：会话历史 ⇄ 创作风格详情（极简防挤压） */}
             <div className="p-2.5 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between bg-zinc-50/70 dark:bg-zinc-900/40">
@@ -1296,14 +1293,9 @@ export function ScriptStudio({
         )}
 
         {/* 左侧可拖拽宽度调节手柄 */}
-        {!isLeftCollapsed && (
+        {!isLeftCollapsed && scriptMode !== 'focus' && (
           <div
-            onMouseDown={e => {
-              e.preventDefault();
-              dragStartRef.current = { type: 'left', startX: e.clientX, startWidth: leftWidth };
-              document.body.style.cursor = 'col-resize';
-              document.body.style.userSelect = 'none';
-            }}
+            onMouseDown={e => cols.startResize('left', e)}
             className="w-1.5 hover:w-2 hover:bg-blue-500/50 active:bg-blue-600 transition-all cursor-col-resize shrink-0 bg-transparent relative group flex items-center justify-center select-none"
             title="按住左右拖拽，调节左栏宽度"
           >
@@ -1312,7 +1304,7 @@ export function ScriptStudio({
         )}
 
         {/* 中栏：AI 对话与创作互动控制台 */}
-        <div className="flex-1 flex flex-col min-w-[320px] bg-white dark:bg-[#111218] overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 bg-white dark:bg-[#111218] overflow-hidden">
           {/* 中栏顶栏：简洁会话状态与精炼控制（模型选择已移至输入框，彻底解除挤压） */}
           <div className="h-11 px-3 sm:px-4 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between text-xs bg-zinc-50/50 dark:bg-zinc-900/30 shrink-0 gap-2">
             <div className="flex items-center gap-2 min-w-0">
@@ -1831,16 +1823,11 @@ export function ScriptStudio({
         </div>
 
         {/* 右侧精选文案与多流转中心（仅在用户主动精选后才在右侧显示，满足诉求 4） */}
-        {showRightPanel && Boolean(pinnedScript && pinnedScript.trim()) && (
+        {showRightPanel && scriptMode === 'three' && Boolean(pinnedScript && pinnedScript.trim()) && (
           <>
             {/* 右侧可拖拽手柄 */}
             <div
-              onMouseDown={e => {
-                e.preventDefault();
-                dragStartRef.current = { type: 'right', startX: e.clientX, startWidth: rightWidth };
-                document.body.style.cursor = 'col-resize';
-                document.body.style.userSelect = 'none';
-              }}
+              onMouseDown={e => cols.startResize('right', e)}
               className="w-1.5 hover:w-2 hover:bg-blue-500/50 active:bg-blue-600 transition-all cursor-col-resize shrink-0 bg-transparent relative group flex items-center justify-center select-none"
               title="按住左右拖拽，调节精选文案面板宽度"
             >
@@ -1849,8 +1836,8 @@ export function ScriptStudio({
 
             {/* 右栏：精选文案与多流转中心 */}
             <div
-              style={{ width: `${rightWidth}px` }}
-              className="border-l border-zinc-200/80 dark:border-zinc-800/80 p-4 flex flex-col bg-white dark:bg-[#111217] shrink-0 overflow-hidden"
+              style={{ width: `${rightWidth}px`, minWidth: 0 }}
+              className="border-l border-zinc-200/80 dark:border-zinc-800/80 p-4 flex flex-col bg-white dark:bg-[#111217] shrink overflow-hidden"
             >
               <div className="flex items-center justify-between pb-2.5 border-b border-zinc-100 dark:border-zinc-800/80">
                 <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5 shrink-0">

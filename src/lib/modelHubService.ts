@@ -15,6 +15,48 @@ export interface ChatCompletionOptions {
   onDelta?: (delta: string) => void;
   signal?: AbortSignal;
   webSearch?: boolean;
+  /**
+   * 当模型因 max_tokens 上限被截断时抛出 LlmTruncationError（而不是把半截文本当成功返回）。
+   * 结构化 JSON 任务（如插图分镜规划）必须开启，否则截断会被下游静默误判为解析失败。
+   */
+  rejectTruncation?: boolean;
+}
+
+/**
+ * 模型输出被 Token 上限截断的错误
+ * 调用方可以据此缩小批量后重试，而不是直接退化到兜底逻辑。
+ */
+export class LlmTruncationError extends Error {
+  /** 已输出的部分内容（可用于抢救其中已完整的结构化对象） */
+  readonly partial: string;
+  constructor(partial: string, message = '模型输出达到 Token 上限，内容已被截断') {
+    super(message);
+    this.name = 'LlmTruncationError';
+    this.partial = partial;
+  }
+}
+
+/** 当前生效的供应商与模型信息（用于 UI 展示「这次到底调用了哪个模型」） */
+export interface ResolvedModelInfo {
+  providerType: string;
+  providerLabel: string;
+  model: string;
+  baseUrl: string;
+}
+
+/**
+ * 解析当前设置下实际会使用的供应商与模型，供 UI 展示。
+ * 与 chatCompletion 内部使用完全相同的解析逻辑，避免展示值与实际调用值不一致。
+ */
+export function resolveModelInfo(settings: ModelHubSettings, options?: ChatCompletionOptions): ResolvedModelInfo {
+  const { provider, model } = resolveProviderAndModel(settings, options);
+  const preset = (PRESET_PROVIDERS as Record<string, { name?: string }>)[provider.type];
+  return {
+    providerType: provider.type,
+    providerLabel: preset?.name || provider.type,
+    model,
+    baseUrl: provider.baseUrl || '',
+  };
 }
 
 export interface ConnectionTestResult {
@@ -427,6 +469,12 @@ export async function chatCompletion(
           throw new Error('模型输出 Token 达到上限：输出已被截断，请尝试缩减文案字数要求。');
         }
         throw new Error(`服务商未返回任何文本内容（HTTP ${res.status}，响应内容为空）。建议在输入框底部切换为其他模型（如通义千问、豆包或商汤）重试。`);
+      }
+
+      // 内容非空但被 Token 上限截断：必须显式抛出。
+      // 否则半截 JSON 会被下游当作「无法解析」而静默退回兜底，真实原因被完全掩盖。
+      if (options.rejectTruncation && choice?.finish_reason === 'length') {
+        throw new LlmTruncationError(cleanResult);
       }
 
       if (options.onDelta && cleanResult) {

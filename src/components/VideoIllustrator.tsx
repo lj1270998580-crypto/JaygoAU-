@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '../store';
 import { api } from '../lib/ipc';
-import { chatCompletion } from '../lib/modelHubService';
+import { chatCompletion, resolveModelInfo } from '../lib/modelHubService';
+import type { ModelHubSettings, ModelProviderType } from '../lib/modelHubTypes';
+import { PRESET_PROVIDERS } from '../lib/modelHubTypes';
 import { runIllustrationPipeline, type PipelineProgress, type PipelineDiagnostics } from '../lib/illustrator';
+import { useAdaptiveColumns } from '../lib/useAdaptiveColumns';
 import type { VideoIllustrationItem, IllustrationLayout, IllustrationDensity } from '../types';
 import {
   Sparkles,
@@ -257,8 +260,68 @@ export const VISUAL_CATEGORIES: Record<string, { label: string; icon: any; color
   },
 };
 
-export const VideoIllustrator: React.FC = () => {
+interface VideoIllustratorProps {
+  /** 统一大模型中心设置（与 AI 文案工坊共用同一份，保证规划模型一致） */
+  modelSettings?: ModelHubSettings;
+  onUpdateModelHubSettings?: (s: ModelHubSettings) => void;
+  onOpenModelHub?: () => void;
+}
+
+export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
+  modelSettings,
+  onUpdateModelHubSettings,
+  onOpenModelHub,
+}) => {
   const { settings, patchSettings, showToast, pendingIllustrator, setPendingIllustrator } = useStore();
+
+  // 当前 AI 规划实际会调用的供应商与模型（此前完全不可见）
+  const activeModel = useMemo(() => {
+    if (!modelSettings) return null;
+    try {
+      return resolveModelInfo(modelSettings);
+    } catch {
+      return null;
+    }
+  }, [modelSettings]);
+
+  // 规划模型快捷切换（与 AI 文案工坊共用同一份设置，切换后两边一致）
+  const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
+
+  const handleQuickSwitchModel = (providerType: ModelProviderType, modelId: string) => {
+    if (!modelSettings || !onUpdateModelHubSettings) return;
+    const target = modelSettings.providers?.[providerType];
+    const hasKey = Boolean(target?.apiKey?.trim());
+    const nextSettings: ModelHubSettings = {
+      ...modelSettings,
+      defaultProvider: providerType,
+      providers: {
+        ...modelSettings.providers,
+        [providerType]: {
+          ...(target || {
+            type: providerType,
+            enabled: true,
+            apiKey: '',
+            baseUrl: PRESET_PROVIDERS[providerType]?.defaultBaseUrl || '',
+            selectedModel: modelId,
+          }),
+          selectedModel: modelId,
+          enabled: true,
+        },
+      },
+    };
+    onUpdateModelHubSettings(nextSettings);
+    setShowModelPicker(false);
+
+    const preset = PRESET_PROVIDERS[providerType];
+    const modelObj = preset?.models.find((m) => m.id === modelId);
+    const label = `${preset?.name?.split(' ')[0] || providerType} · ${modelObj?.name || modelId}`;
+    if (!hasKey) {
+      showToast(`已切换至【${label}】，尚未配置 API Key，正在开启配置…`);
+      onOpenModelHub?.();
+    } else {
+      showToast(`AI 规划模型已切换：【${label}】`);
+    }
+  };
 
   // 核心状态
   const [videoUrl, setVideoUrl] = useState<string>('');
@@ -290,51 +353,56 @@ export const VideoIllustrator: React.FC = () => {
   const [borderStyle, setBorderStyle] = useState<'none' | 'clean_white' | 'rounded_card' | 'star_badge' | 'cyber_glow'>('none');
   const [isEditingOverlay, setIsEditingOverlay] = useState<boolean>(false);
 
-  // 三栏工作台栏宽与排版折叠控制 (支持左右无级拖拽调节栏宽)
-  const [leftWidth, setLeftWidth] = useState<number>(330);
-  const [rightWidth, setRightWidth] = useState<number>(370);
+  // 三栏工作台：自适应栏宽 + 布局模式（v0.7.6）
+  // 修复此前「内联固定 px + shrink-0 + 父容器 overflow-hidden」导致中窗口被裁切的问题
+  const cols = useAdaptiveColumns({
+    storageKey: 'jaygo_illustrator_studio',
+    defaultLeft: 330,
+    defaultRight: 370,
+    minLeft: 260,
+    maxLeft: 460,
+    minRight: 300,
+    maxRight: 560,
+    minCenter: 330,
+    dividerTotal: 12,
+    // 容器宽度（窗口宽 − 侧栏 196px）阈值：
+    // 三栏最小可行 = 260 + 12 + 330 + 12 + 300 = 914，故低于 940 降为双栏；
+    // 双栏最小可行 = 260 + 12 + 330 = 602，故低于 620 降为专注舞台。
+    twoColumnBelow: 940,
+    focusBelow: 620,
+  });
+  const { containerRef: columnsRef, effectiveMode, leftWidth, rightWidth, squeezed } = cols;
   const [isPackagingExpanded, setIsPackagingExpanded] = useState<boolean>(false);
-  const resizeDividerRef = useRef<{
-    side: 'left' | 'right';
-    startX: number;
-    startWidth: number;
-  } | null>(null);
 
-  const handleStartResizeLeft = (e: React.MouseEvent) => {
-    e.preventDefault();
-    resizeDividerRef.current = { side: 'left', startX: e.clientX, startWidth: leftWidth };
-    const handleMouseMove = (moveEvt: MouseEvent) => {
-      if (!resizeDividerRef.current || resizeDividerRef.current.side !== 'left') return;
-      const delta = moveEvt.clientX - resizeDividerRef.current.startX;
-      const newW = Math.max(260, Math.min(460, resizeDividerRef.current.startWidth + delta));
-      setLeftWidth(newW);
-    };
-    const handleMouseUp = () => {
-      resizeDividerRef.current = null;
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-  };
+  // 舞台容器高度自适应（替代写死的 66vh，避免大屏浪费 / 小窗溢出）
+  const stageBoxRef = useRef<HTMLDivElement>(null);
+  const [stageBox, setStageBox] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = stageBoxRef.current;
+    if (!el) return;
+    const update = () => setStageBox({ w: el.clientWidth, h: el.clientHeight });
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [effectiveMode, videoUrl]);
 
-  const handleStartResizeRight = (e: React.MouseEvent) => {
-    e.preventDefault();
-    resizeDividerRef.current = { side: 'right', startX: e.clientX, startWidth: rightWidth };
-    const handleMouseMove = (moveEvt: MouseEvent) => {
-      if (!resizeDividerRef.current || resizeDividerRef.current.side !== 'right') return;
-      const delta = resizeDividerRef.current.startX - moveEvt.clientX;
-      const newW = Math.max(300, Math.min(560, resizeDividerRef.current.startWidth + delta));
-      setRightWidth(newW);
-    };
-    const handleMouseUp = () => {
-      resizeDividerRef.current = null;
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-  };
+  // 依据容器实测尺寸计算视频舞台尺寸（横屏撑满宽度、竖屏贴合高度，均不溢出）
+  const stageSize = useMemo(() => {
+    const pad = 16;
+    const availW = Math.max(0, stageBox.w - pad);
+    const availH = Math.max(0, stageBox.h - pad);
+    if (availW <= 0 || availH <= 0) return null;
+    const ratio = videoDimensions.width / videoDimensions.height;
+    let w = availW;
+    let h = w / ratio;
+    if (h > availH) {
+      h = availH;
+      w = h * ratio;
+    }
+    return { width: Math.round(w), height: Math.round(h) };
+  }, [stageBox, videoDimensions]);
 
   // 拖拽居中辅助参考线对齐状态
   const [isSnappingV, setIsSnappingV] = useState<boolean>(false);
@@ -1075,10 +1143,10 @@ export const VideoIllustrator: React.FC = () => {
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">智能视频配插图</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/60">
-                v0.7.3 · 三栏专业工作台
+                v0.7.6 · 三栏专业工作台
               </span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 font-semibold border border-emerald-200/60 dark:border-emerald-800/60">
-                物理实体生图
+                中文母语提示词
               </span>
             </div>
             <p className="text-[11.5px] text-zinc-400 mt-0.5">
@@ -1088,6 +1156,113 @@ export const VideoIllustrator: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {/* 布局模式切换：三栏 / 双栏 / 专注舞台（窄窗口自动降级并给出提示） */}
+          <div className="flex items-center gap-0.5 p-0.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
+            {([
+              { id: 'three', label: '三栏', title: '配置 + 预览舞台 + 分镜清单（完整工作台）' },
+              { id: 'two', label: '双栏', title: '隐藏分镜栏，预览舞台更宽' },
+              { id: 'focus', label: '专注', title: '只保留预览舞台，沉浸式核对画面与插图' },
+            ] as const).map((m) => {
+              const active = cols.mode === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  title={m.title}
+                  onClick={() => cols.setMode(m.id)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
+                    active
+                      ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                      : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {effectiveMode !== cols.mode && (
+            <span
+              title={`当前可用宽度约 ${cols.containerWidth}px，已自动降级以保证内容完整显示`}
+              className="text-[10px] px-2 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/60 whitespace-nowrap"
+            >
+              窄屏已自动降级为{effectiveMode === 'two' ? '双栏' : '专注舞台'}
+            </span>
+          )}
+
+          {/* AI 规划模型胶囊：明确显示当前实际调用的供应商与模型，并可快捷切换 */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowModelPicker((v) => !v)}
+              title="AI 规划所调用的大模型（与 AI 文案工坊共用同一份设置）"
+              className="px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition cursor-pointer flex items-center gap-1.5 max-w-[280px]"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+              <span className="truncate">
+                {activeModel ? `AI 规划：${activeModel.model}` : 'AI 规划：未配置模型'}
+              </span>
+              <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
+            </button>
+
+            {showModelPicker && (
+              <div className="absolute right-0 top-full mt-1.5 w-[320px] max-h-[380px] overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-[#15161d] shadow-2xl z-50 p-1.5 animate-in fade-in slide-in-from-top-1">
+                <div className="px-2 py-1.5 text-[10.5px] text-zinc-400 border-b border-zinc-100 dark:border-zinc-800 mb-1">
+                  与「AI 文案工坊」共用同一份模型设置，切换后两边一致
+                </div>
+                {Object.entries(PRESET_PROVIDERS).map(([ptype, preset]) => {
+                  const conf = modelSettings?.providers?.[ptype as ModelProviderType];
+                  const hasKey = Boolean(conf?.apiKey?.trim());
+                  const models = (conf?.customModelName
+                    ? preset.models
+                    : preset.models).slice(0, 5);
+                  return (
+                    <div key={ptype} className="mb-1">
+                      <div className="px-2 py-1 text-[10px] font-semibold text-zinc-500 flex items-center gap-1.5">
+                        <span className="truncate">{preset.name}</span>
+                        {hasKey ? (
+                          <span className="text-emerald-500 shrink-0">已配密匙</span>
+                        ) : (
+                          <span className="text-zinc-400 shrink-0">未配密匙</span>
+                        )}
+                      </div>
+                      {models.map((m) => {
+                        const isActive =
+                          activeModel?.providerType === ptype && activeModel?.model === m.id;
+                        return (
+                          <button
+                            key={`${ptype}-${m.id}`}
+                            type="button"
+                            onClick={() => handleQuickSwitchModel(ptype as ModelProviderType, m.id)}
+                            className={`w-full text-left px-2 py-1.5 rounded-lg text-[11px] transition cursor-pointer flex items-center justify-between gap-2 ${
+                              isActive
+                                ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-300 font-semibold'
+                                : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
+                            }`}
+                          >
+                            <span className="truncate">{m.name || m.id}</span>
+                            {isActive && <Check className="w-3 h-3 shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowModelPicker(false);
+                    onOpenModelHub?.();
+                  }}
+                  className="w-full mt-1 px-2 py-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-[11px] font-medium text-zinc-700 dark:text-zinc-200 transition cursor-pointer"
+                >
+                  打开统一大模型中心（配置密匙 / 自定义模型）
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={() => setShowKeyConfig((v) => !v)}
@@ -1150,13 +1325,14 @@ export const VideoIllustrator: React.FC = () => {
       {/* ========================================================================= */}
       {/* 主创作工作区：全新三栏布局（左栏配置文案 + 中栏视频预览 + 右栏分镜详情，支持拖拽调节宽度） */}
       {/* ========================================================================= */}
-      <div className="flex-1 flex overflow-hidden min-h-0">
+      <div ref={columnsRef} className="flex-1 flex overflow-hidden min-h-0">
         {/* ========================================================================= */}
-        {/* 左栏：常规设置、文案大输入框与排版包装 (宽度支持左右拖拽调节) */}
+        {/* 左栏：常规设置、文案大输入框与排版包装 (宽度自适应，可拖拽调节) */}
         {/* ========================================================================= */}
+        {effectiveMode !== 'focus' && (
         <div
-          style={{ width: `${leftWidth}px` }}
-          className="flex flex-col bg-white dark:bg-[#111217] shrink-0 border-r border-zinc-200 dark:border-zinc-800/80 min-w-[260px] max-w-[460px] overflow-y-auto p-3 space-y-3"
+          style={{ width: `${leftWidth}px`, minWidth: 0 }}
+          className="flex flex-col bg-white dark:bg-[#111217] border-r border-zinc-200 dark:border-zinc-800/80 overflow-y-auto overflow-x-hidden p-3 space-y-3 shrink"
         >
           {/* 路由模式切换 */}
           <div>
@@ -1473,49 +1649,54 @@ export const VideoIllustrator: React.FC = () => {
             )}
           </div>
         </div>
+        )}
 
         {/* 左栏与中栏调节把手 (按住左右拖拽调节左栏宽度) */}
+        {effectiveMode !== 'focus' && (
         <div
-          onMouseDown={handleStartResizeLeft}
+          onMouseDown={(e) => cols.startResize('left', e)}
           title="按住左右拖拽调节左栏宽度"
           className="w-1.5 hover:w-2 bg-zinc-200/80 dark:bg-zinc-800/80 hover:bg-indigo-500 active:bg-indigo-600 cursor-col-resize transition-all shrink-0 flex items-center justify-center group relative z-10 select-none"
         >
           <div className="w-0.5 h-6 rounded-full bg-zinc-400 dark:bg-zinc-600 group-hover:bg-white transition-colors" />
         </div>
+        )}
 
         {/* ========================================================================= */}
         {/* 中栏：视频预览舞台 (居中大视窗、真实画幅、无多余遮挡、纯图标控制) */}
         {/* ========================================================================= */}
         <div
+          ref={stageBoxRef}
           onClick={() => setIsEditingOverlay(false)} // 点击背景区域退出编辑模式，返回纯净无边框预览
-          className="flex-1 flex flex-col p-3 bg-zinc-100/50 dark:bg-[#090a0f] overflow-y-auto min-w-[320px] items-center justify-center select-none"
+          className="flex-1 flex flex-col p-3 bg-zinc-100/50 dark:bg-[#090a0f] overflow-hidden min-w-0 items-center justify-center select-none"
         >
           {videoUrl ? (
-            <div className="flex-1 flex flex-col items-center justify-center max-w-3xl w-full mx-auto my-auto">
+            <div className="flex-1 flex flex-col items-center justify-center w-full h-full min-w-0 min-h-0">
               {/* 舞台顶栏信息：分辨率、画幅、坐标提示 */}
-              <div className="w-full flex items-center justify-between mb-2 px-1 text-[11px] text-zinc-400 shrink-0">
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-md bg-zinc-200 dark:bg-zinc-800 font-mono text-zinc-700 dark:text-zinc-300 font-medium">
+              <div className="w-full flex items-center justify-between mb-2 px-1 text-[11px] text-zinc-400 shrink-0 gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="px-2 py-0.5 rounded-md bg-zinc-200 dark:bg-zinc-800 font-mono text-zinc-700 dark:text-zinc-300 font-medium shrink-0">
                     {videoDimensions.width}×{videoDimensions.height} · {videoDimensions.width >= videoDimensions.height ? '横屏视频' : '竖屏视频'}
                   </span>
-                  <span className="truncate max-w-[200px] text-zinc-500">{videoTitle}</span>
+                  <span className="truncate text-zinc-500">{videoTitle}</span>
                 </div>
 
-                <div className="font-mono text-[10.5px] text-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-200/50 dark:border-indigo-900/40">
+                <div className="font-mono text-[10.5px] text-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-200/50 dark:border-indigo-900/40 shrink-0">
                   X {Math.round(globalLayout.xPercent * 100)}% · Y {Math.round(globalLayout.yPercent * 100)}% · 宽 {Math.round(globalLayout.widthPercent * 100)}%
                 </div>
               </div>
 
-              {/* 核心视频舞台 (Video Stage)：宽高比 100% 等同于视频原生尺寸，垂直居中 */}
-              <div className="relative w-full flex items-center justify-center bg-zinc-950/40 rounded-2xl p-2 border border-zinc-200 dark:border-zinc-800 shadow-inner">
+              {/* 核心视频舞台：尺寸由实测容器宽高计算，横竖屏均自适应且永不溢出 */}
+              <div className="relative flex-1 min-h-0 w-full flex items-center justify-center bg-zinc-950/40 rounded-2xl p-2 border border-zinc-200 dark:border-zinc-800 shadow-inner">
                 <div
                   ref={videoContainerRef}
-                  className="relative rounded-xl overflow-hidden shadow-2xl bg-black select-none max-w-full"
+                  className="relative rounded-xl overflow-hidden shadow-2xl bg-black select-none"
                   style={{
                     aspectRatio: `${videoDimensions.width} / ${videoDimensions.height}`,
-                    maxHeight: '66vh',
-                    width: videoDimensions.width >= videoDimensions.height ? '100%' : 'auto',
-                    height: videoDimensions.width >= videoDimensions.height ? 'auto' : '66vh',
+                    width: stageSize ? `${stageSize.width}px` : undefined,
+                    height: stageSize ? `${stageSize.height}px` : undefined,
+                    maxWidth: '100%',
+                    maxHeight: '100%',
                   }}
                 >
                   <video
@@ -1694,20 +1875,23 @@ export const VideoIllustrator: React.FC = () => {
         </div>
 
         {/* 中栏与右栏调节把手 (按住左右拖拽调节右栏宽度) */}
+        {effectiveMode === 'three' && (
         <div
-          onMouseDown={handleStartResizeRight}
+          onMouseDown={(e) => cols.startResize('right', e)}
           title="按住左右拖拽调节右栏宽度"
           className="w-1.5 hover:w-2 bg-zinc-200/80 dark:bg-zinc-800/80 hover:bg-indigo-500 active:bg-indigo-600 cursor-col-resize transition-all shrink-0 flex items-center justify-center group relative z-10 select-none"
         >
           <div className="w-0.5 h-6 rounded-full bg-zinc-400 dark:bg-zinc-600 group-hover:bg-white transition-colors" />
         </div>
+        )}
 
         {/* ========================================================================= */}
-        {/* 右栏：插图分镜清单、实时动态状态看板与导出区域 (宽度支持拖拽调节) */}
+        {/* 右栏：插图分镜清单、实时动态状态看板与导出区域 (宽度自适应，可拖拽调节) */}
         {/* ========================================================================= */}
+        {effectiveMode === 'three' && (
         <div
-          style={{ width: `${rightWidth}px` }}
-          className="flex flex-col bg-white dark:bg-[#111217] shrink-0 border-l border-zinc-200 dark:border-zinc-800/80 min-w-[300px] max-w-[560px] overflow-hidden"
+          style={{ width: `${rightWidth}px`, minWidth: 0 }}
+          className="flex flex-col bg-white dark:bg-[#111217] border-l border-zinc-200 dark:border-zinc-800/80 overflow-hidden shrink"
         >
           {/* 顶栏：分镜数量与全部生成按钮 */}
           <div className="p-3 border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between shrink-0">
@@ -1794,10 +1978,23 @@ export const VideoIllustrator: React.FC = () => {
                 </div>
               )}
               <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-zinc-600 dark:text-zinc-400 font-mono">
+                {activeModel && (
+                  <span className="text-purple-600 dark:text-purple-400">
+                    模型 {activeModel.model}
+                  </span>
+                )}
                 <span>分镜 {planDiagnostics.totalBeats}</span>
                 <span>信息图 {planDiagnostics.infographicCount}</span>
                 <span>标准图 {planDiagnostics.standardCount}</span>
                 <span>锚点覆盖 {Math.round(planDiagnostics.averageCoverage * 100)}%</span>
+                {typeof planDiagnostics.batches === 'number' && planDiagnostics.batches > 1 && (
+                  <span>分片 {planDiagnostics.batches} 批</span>
+                )}
+                {(planDiagnostics.splits || 0) > 0 && (
+                  <span className="text-amber-600 dark:text-amber-400">
+                    截断自动降片 {planDiagnostics.splits} 次
+                  </span>
+                )}
                 {planDiagnostics.diversityAdjusted > 0 && (
                   <span className="text-indigo-600 dark:text-indigo-400">
                     多样性校正 {planDiagnostics.diversityAdjusted} 处
@@ -2084,6 +2281,7 @@ export const VideoIllustrator: React.FC = () => {
             </button>
           </div>
         </div>
+        )}
       </div>
 
       {/* ========================================================================= */}

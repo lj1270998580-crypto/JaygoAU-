@@ -17,6 +17,7 @@ import { executeWorkflowProject, type WorkflowExecutionContext } from '../lib/wo
 import { parseNaturalLanguageWorkflow } from '../lib/workflowParser';
 import type { ModelHubSettings } from '../lib/modelHubTypes';
 import { getAllSkills } from '../lib/skillParser';
+import { useAdaptiveColumns } from '../lib/useAdaptiveColumns';
 
 interface Props {
   modelSettings: ModelHubSettings;
@@ -220,6 +221,24 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
   const [logs, setLogs] = useState<string[]>([]);
   const [runResult, setRunResult] = useState<WorkflowExecutionContext | null>(null);
   const [showConsole, setShowConsole] = useState(false);
+
+  // v0.7.6：左右两栏自适应。此前左右栏固定 224/320px 且 shrink-0，
+  // 窄窗口下中栏被挤到几乎不可用（中栏是 min-w-0 的弹性列）。
+  // 这里只取宽度做钳制，不启用布局降级（流水线编辑器任何一栏都不应被隐藏）。
+  const { containerRef: wfColumnsRef, leftWidth: wfLeftWidth, rightWidth: wfRightWidth } =
+    useAdaptiveColumns({
+      storageKey: 'jaygo_workflow_studio',
+      defaultLeft: 224,
+      defaultRight: 320,
+      minLeft: 190,
+      maxLeft: 280,
+      minRight: 260,
+      maxRight: 420,
+      minCenter: 420,
+      dividerTotal: 0,
+      twoColumnBelow: 0,
+      focusBelow: 0,
+    });
 
   // AI 自然语言一键创建弹窗
   const [copilotOpen, setCopilotOpen] = useState(false);
@@ -438,10 +457,13 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
         </div>
       </div>
 
-      {/* 主体左右两栏 */}
-      <div className="flex-1 flex min-h-0">
+      {/* 主体左右两栏（自适应：窄窗口自动压缩左右栏，保证中栏不被挤没） */}
+      <div ref={wfColumnsRef} className="flex-1 flex min-h-0 overflow-hidden">
         {/* 左侧：项目管理列表 */}
-        <div className="w-56 border-r border-zinc-200/80 dark:border-zinc-800/80 p-3.5 flex flex-col bg-white/40 dark:bg-zinc-900/10 shrink-0 overflow-y-auto space-y-3">
+        <div
+          style={{ width: `${wfLeftWidth}px`, minWidth: 0 }}
+          className="border-r border-zinc-200/80 dark:border-zinc-800/80 p-3.5 flex flex-col bg-white/40 dark:bg-zinc-900/10 shrink overflow-y-auto overflow-x-hidden space-y-3"
+        >
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
               流水线项目 ({projects.length})
@@ -1300,7 +1322,10 @@ export function WorkflowStudio({ modelSettings, onOpenModelHub }: Props) {
 
         {/* 右侧：实时日志与产物看板 */}
         {showConsole && (
-          <div className="w-80 border-l border-zinc-200/80 dark:border-zinc-800/80 p-4 flex flex-col bg-white dark:bg-[#111217] shrink-0 overflow-hidden space-y-3 animate-in slide-in-from-right-4 duration-200">
+          <div
+            style={{ width: `${wfRightWidth}px`, minWidth: 0 }}
+            className="border-l border-zinc-200/80 dark:border-zinc-800/80 p-4 flex flex-col bg-white dark:bg-[#111217] shrink overflow-hidden space-y-3 animate-in slide-in-from-right-4 duration-200"
+          >
             <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800/80">
               <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
                 <span>📋</span> 执行控制台与产物
