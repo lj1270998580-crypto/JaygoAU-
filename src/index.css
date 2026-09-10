@@ -329,38 +329,6 @@ html.dark .app-bg {
     opacity: 0 !important;
     pointer-events: none !important;
   }
-
-  /* ---------------------------------------------------------------------
-     窄窗口侧栏降级为图标栏（v0.7.6）
-     此前窄窗口下侧栏仍占 196px，把内容区压得很紧；而完全收起（Ctrl+B）后
-     导航就彻底消失了。这里在窄窗口自动收窄为 60px 图标栏，保留导航可达性。
-     --------------------------------------------------------------------- */
-  @media (max-width: 1279px) {
-    .rail:not(.rail-collapsed) {
-      width: 60px !important;
-      min-width: 60px !important;
-      padding-left: 8px !important;
-      padding-right: 8px !important;
-    }
-    .rail .rail-group-title {
-      display: none !important;
-    }
-    .rail .rail-tip {
-      display: none !important;
-    }
-    .rail .rail-item {
-      justify-content: center !important;
-      padding-left: 0 !important;
-      padding-right: 0 !important;
-      gap: 0 !important;
-    }
-    .rail .rail-hide-narrow {
-      display: none !important;
-    }
-    .rail .rail-center-narrow {
-      justify-content: center !important;
-    }
-  }
   .rail-group-title {
     @apply px-2 pt-2.5 pb-1 text-[10.5px] font-medium tracking-wider text-zinc-400 dark:text-zinc-500 uppercase select-none flex items-center justify-between;
   }

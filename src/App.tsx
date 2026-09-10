@@ -107,43 +107,43 @@ interface NavItem {
 
 const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
-    title: '音频生产',
+    title: '声音制作',
     items: [
-      { key: 'synth', label: '语音合成', icon: Icon.synth },
-      { key: 'clone', label: '声音复刻', icon: Icon.clone },
-      { key: 'voices', label: '音色中心', icon: Icon.voices },
+      { key: 'synth', label: '文字转语音', icon: Icon.synth },
+      { key: 'clone', label: '声音克隆', icon: Icon.clone },
+      { key: 'voices', label: '我的音色', icon: Icon.voices },
     ],
   },
   {
-    title: '视听创作',
+    title: '内容创作',
     items: [
       { key: 'script', label: 'AI 文案工坊', icon: Icon.script },
-      { key: 'workflow', label: '定时流水线', icon: Icon.workflow },
-      { key: 'avatar', label: '蝉镜数字人', icon: Icon.avatar },
-      { key: 'illustrator', label: '视频配插图', icon: Icon.illustrator },
-      { key: 'extractor', label: '媒体提取', icon: Icon.extractor },
-      { key: 'transcribe', label: '视音频转录', icon: Icon.transcribe },
+      { key: 'workflow', label: '自动化流水线', icon: Icon.workflow },
+      { key: 'avatar', label: '数字人口播', icon: Icon.avatar },
+      { key: 'illustrator', label: 'AI 视频配图', icon: Icon.illustrator },
+      { key: 'extractor', label: '无水印下载', icon: Icon.extractor },
+      { key: 'transcribe', label: '音视频转文字', icon: Icon.transcribe },
     ],
   },
   {
-    title: '资产管理',
+    title: '素材管理',
     items: [
-      { key: 'library', label: '本地音频', icon: Icon.library },
+      { key: 'library', label: '音频素材库', icon: Icon.library },
     ],
   },
 ];
 
 const TAB_BREADCRUMBS: Record<Tab, { group: string; label: string }> = {
-  synth: { group: '音频生产', label: '语音合成' },
-  clone: { group: '音频生产', label: '声音复刻' },
-  voices: { group: '音频生产', label: '音色中心' },
-  script: { group: '视听创作', label: 'AI 文案工坊' },
-  workflow: { group: '视听创作', label: '定时流水线' },
-  avatar: { group: '视听创作', label: '蝉镜数字人' },
-  illustrator: { group: '视听创作', label: '视频配插图' },
-  extractor: { group: '视听创作', label: '媒体提取' },
-  transcribe: { group: '视听创作', label: '视音频转录' },
-  library: { group: '资产管理', label: '本地音频' },
+  synth: { group: '声音制作', label: '文字转语音' },
+  clone: { group: '声音制作', label: '声音克隆' },
+  voices: { group: '声音制作', label: '我的音色' },
+  script: { group: '内容创作', label: 'AI 文案工坊' },
+  workflow: { group: '内容创作', label: '自动化流水线' },
+  avatar: { group: '内容创作', label: '数字人口播' },
+  illustrator: { group: '内容创作', label: 'AI 视频配图' },
+  extractor: { group: '内容创作', label: '无水印下载' },
+  transcribe: { group: '内容创作', label: '音视频转文字' },
+  library: { group: '素材管理', label: '音频素材库' },
   settings: { group: '系统管理', label: '设置' },
 };
 
@@ -486,7 +486,7 @@ export default function App() {
           {/* 上部：品牌展厅与核心创作导航 */}
           <div className="flex flex-col overflow-y-auto no-scrollbar">
             {/* 侧边栏专属品牌展厅卡片（消除顶栏重复，恢复饱满视觉锚点） */}
-            <div className="px-1.5 pt-1 pb-3 mb-2 border-b border-zinc-200/70 dark:border-zinc-800/80 rail-hide-narrow">
+            <div className="px-1.5 pt-1 pb-3 mb-2 border-b border-zinc-200/70 dark:border-zinc-800/80">
               <BrandLogo size={28} showText={true} subtext="AI 自媒体创作工作台" />
             </div>
 
@@ -530,10 +530,10 @@ export default function App() {
                 <span className={`transition-transform duration-300 ${tab === 'settings' ? 'rotate-45' : ''}`}>
                   {Icon.settings}
                 </span>
-                <span className="truncate rail-hide-narrow">设置</span>
+                <span className="truncate">设置</span>
               </button>
 
-              <div className="w-[1px] h-4 bg-zinc-300/70 dark:bg-zinc-700/70 my-auto shrink-0 opacity-60 rail-hide-narrow" />
+              <div className="w-[1px] h-4 bg-zinc-300/70 dark:bg-zinc-700/70 my-auto shrink-0 opacity-60" />
 
               {/* 暗黑/浅色模式切换微动效按键 */}
               <button
@@ -562,10 +562,8 @@ export default function App() {
               </button>
             </div>
 
-            {/* 三合一状态监控胶囊（窄窗口隐藏，避免图标栏被撑开） */}
-            <div className="rail-hide-narrow">
-              <SystemStatusCapsule />
-            </div>
+            {/* 三合一状态监控胶囊 */}
+            <SystemStatusCapsule />
           </div>
         </aside>
 

@@ -11,6 +11,7 @@ import type {
   StyleBible,
   PromptBlocks,
   PipelineProgress,
+  VisualType,
 } from './types';
 import type { RawAsrUtterance } from './timelineAligner';
 import type { IllustrationDensity } from '../../types';
@@ -44,7 +45,7 @@ export interface PlannedIllustrationResult {
   visualType: string;
   type: 'infographic' | 'standard';
   model: 'sensenova-u1-fast' | 'sensenova-u1.5-lite';
-  category: 'data_stat' | 'step_framework' | 'vs_comparison' | 'concept_metaphor' | 'scene_narrative';
+  category: VisualType;
   styleId: string;
   ratio: string;
   prompt: string;
@@ -185,13 +186,9 @@ export async function runIllustrationPipeline(
     // 关键修复：把图种传入编译器，信息图使用独立的图表化编译分支
     const promptBlocks = compileScenePrompt(plan, styleBible, { type });
 
-    // 映射 category
-    let cat: 'data_stat' | 'step_framework' | 'vs_comparison' | 'concept_metaphor' | 'scene_narrative' = 'scene_narrative';
-    if (beat.visualType === 'data_stat') cat = 'data_stat';
-    else if (beat.visualType === 'step_framework') cat = 'step_framework';
-    else if (beat.visualType === 'vs_comparison') cat = 'vs_comparison';
-    else if (beat.visualType === 'concept_metaphor') cat = 'concept_metaphor';
-    else cat = 'scene_narrative';
+    // 映射 category：直接沿用真实 visualType，不再把
+    // historical_recreation / product_showcase 静默塌缩成 scene_narrative
+    const cat = beat.visualType;
 
     // 概念提取
     let concept = plan.communicationGoal.replace(/^1秒读懂[：:]?\s*/, '');

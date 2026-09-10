@@ -258,6 +258,18 @@ export const VISUAL_CATEGORIES: Record<string, { label: string; icon: any; color
     color: 'text-rose-500 bg-rose-500/10 border-rose-500/20',
     desc: '避坑红线 · 左右优劣 · 打勾打叉',
   },
+  historical_recreation: {
+    label: '历史还原',
+    icon: Film,
+    color: 'text-stone-500 bg-stone-500/10 border-stone-500/20',
+    desc: '年代场景 · 纪实还原 · 时代器物',
+  },
+  product_showcase: {
+    label: '实体陈列',
+    icon: Layers,
+    color: 'text-teal-500 bg-teal-500/10 border-teal-500/20',
+    desc: '材质细节 · 产品特写 · 静物陈列',
+  },
 };
 
 interface VideoIllustratorProps {
@@ -372,7 +384,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     focusBelow: 620,
   });
   const { containerRef: columnsRef, effectiveMode, leftWidth, rightWidth, squeezed } = cols;
-  const [isPackagingExpanded, setIsPackagingExpanded] = useState<boolean>(false);
+  const [isPackagingExpanded, setIsPackagingExpanded] = useState<boolean>(true);
 
   // 舞台容器高度自适应（替代写死的 66vh，避免大屏浪费 / 小窗溢出）
   const stageBoxRef = useRef<HTMLDivElement>(null);
@@ -389,19 +401,25 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   }, [effectiveMode, videoUrl]);
 
   // 依据容器实测尺寸计算视频舞台尺寸（横屏撑满宽度、竖屏贴合高度，均不溢出）
+  // 关键：高度必须由「取整后的宽度」按画幅推导，且不能再用 maxWidth/maxHeight 单独钳制 ——
+  // 否则窗口或栏宽变化时，某一维被钳制而另一维不变，视频就会被拉伸变形。
   const stageSize = useMemo(() => {
     const pad = 16;
     const availW = Math.max(0, stageBox.w - pad);
     const availH = Math.max(0, stageBox.h - pad);
     if (availW <= 0 || availH <= 0) return null;
     const ratio = videoDimensions.width / videoDimensions.height;
+    if (!Number.isFinite(ratio) || ratio <= 0) return null;
+
     let w = availW;
     let h = w / ratio;
     if (h > availH) {
       h = availH;
       w = h * ratio;
     }
-    return { width: Math.round(w), height: Math.round(h) };
+    const rw = Math.max(1, Math.floor(w));
+    const rh = Math.max(1, Math.round(rw / ratio));
+    return { width: rw, height: rh };
   }, [stageBox, videoDimensions]);
 
   // 拖拽居中辅助参考线对齐状态
@@ -1692,11 +1710,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                   ref={videoContainerRef}
                   className="relative rounded-xl overflow-hidden shadow-2xl bg-black select-none"
                   style={{
-                    aspectRatio: `${videoDimensions.width} / ${videoDimensions.height}`,
                     width: stageSize ? `${stageSize.width}px` : undefined,
                     height: stageSize ? `${stageSize.height}px` : undefined,
-                    maxWidth: '100%',
-                    maxHeight: '100%',
                   }}
                 >
                   <video
