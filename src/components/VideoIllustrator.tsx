@@ -493,7 +493,10 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   // v0.7.16：历史作品。此前工作台是纯内存状态，点重置或关掉应用就全丢，
   // 而重新规划一次要跑好几分钟的大模型请求。
   const [historyRecords, setHistoryRecords] = useState<IllustrationHistoryRecord[]>([]);
-  const [historyOpen, setHistoryOpen] = useState<boolean>(false);
+  // v0.7.17：历史作品改为整页切换（与「数字人」板块一致）。
+  // 此前是塞在左栏里的一个 max-h-56 小面板，左栏本来就窄，一屏看不到两条，
+  // 缩略信息也挤成一团，基本没法用。
+  const [activeView, setActiveView] = useState<'create' | 'history'>('create');
 
   // 导出合成状态
   const [isExporting, setExporting] = useState<boolean>(false);
@@ -585,9 +588,11 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   // 从本地文件或网络直链载入视频
   const loadFromUrl = (url: string, title?: string) => {
     setVideoUrl(url);
-    if (!url.startsWith('http')) {
-      setVideoPath(url);
-    }
+    // v0.7.17 修复：此前只在非 http 时才 setVideoPath，导致「先载入本地视频 A、
+    // 再载入网络视频 B」时 videoPath 仍残留 A —— 而导出用的是
+    // `videoPath || videoUrl`，于是会拿 A 去合成，用户完全看不出为什么导出的
+    // 是自己上一个视频。现在明确区分：网络视频必须清空本地路径。
+    setVideoPath(url.startsWith('http') ? '' : url);
     setVideoTitle(title || '本地导入视频');
     setCurrentTime(0);
     setIsPlaying(false);
@@ -1403,7 +1408,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     setPlanDiagnostics(null);
     setPlanError(null);
     setModelCalls([]);
-    setHistoryOpen(false);
+    setActiveView('create');
     showToast(`已载入作品「${rec.title}」（${rec.illustrations?.length || 0} 张插图）`, 'ok');
   };
 
@@ -1425,10 +1430,21 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
 
   /** 重置工作台（历史记录保留，可随时载回） */
   const handleResetWorkspace = () => {
+    // v0.7.17：连**视频一起清空**。
+    // 此前重置只清了文案与插图，视频仍然留在预览区里，用户无法上传一个新视频
+    // 开始新一轮配图 —— 必须先手动重新选文件，而且旧视频的时长/尺寸还残留着。
+    setVideoUrl('');
+    setVideoPath('');
+    setVideoTitle('');
+    setVideoDuration(0);
+    setVideoDimensions({ width: 1080, height: 1920 });
+    setCurrentTime(0);
+    setIsPlaying(false);
+    setAsrUtterances([]);
+
     setScriptText('');
     setIllustrations([]);
     setSelectedIllustrationId(null);
-    setAsrUtterances([]);
     setPlanDiagnostics(null);
     setPlanError(null);
     setModelCalls([]);
@@ -1436,8 +1452,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     setGlobalLayout({ ...DEFAULT_LAYOUT });
     setTransitionEffect('fade');
     setBorderStyle('none');
-    setVideoDuration(0);
-    showToast('工作台已重置（历史作品仍保留，可从「历史作品」载回）', 'ok');
+    showToast('工作台已重置，可以上传新视频了（历史作品仍保留）', 'ok');
   };
 
   // 启动时载入历史作品
@@ -1552,6 +1567,38 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
               窄屏已自动降级为{effectiveMode === 'two' ? '双栏' : '专注舞台'}
             </span>
           )}
+
+          {/* v0.7.17：视图切换（与「数字人」板块一致的整页切换） */}
+          <div className="flex bg-zinc-100 dark:bg-zinc-800/60 p-0.5 rounded-lg border border-zinc-200/60 dark:border-zinc-700/60 text-xs shrink-0">
+            <button
+              type="button"
+              onClick={() => setActiveView('create')}
+              className={`px-3 py-1.5 rounded-md font-medium transition cursor-pointer ${
+                activeView === 'create'
+                  ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+              }`}
+            >
+              制作配图
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveView('history')}
+              className={`px-3 py-1.5 rounded-md font-medium transition flex items-center gap-1.5 cursor-pointer ${
+                activeView === 'history'
+                  ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+              }`}
+            >
+              <HistoryIcon className="w-3.5 h-3.5" />
+              <span>历史作品</span>
+              {historyRecords.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300 font-mono">
+                  {historyRecords.length}
+                </span>
+              )}
+            </button>
+          </div>
 
           {/* AI 规划模型胶囊：明确显示当前实际调用的供应商与模型，并可快捷切换 */}
           <div className="relative">
@@ -1687,7 +1734,10 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
       {/* ========================================================================= */}
       {/* 主创作工作区：全新三栏布局（左栏配置文案 + 中栏视频预览 + 右栏分镜详情，支持拖拽调节宽度） */}
       {/* ========================================================================= */}
-      <div ref={columnsRef} className="flex-1 flex overflow-hidden min-h-0">
+      <div
+        ref={columnsRef}
+        className={`flex-1 overflow-hidden min-h-0 ${activeView === 'create' ? 'flex' : 'hidden'}`}
+      >
         {/* ========================================================================= */}
         {/* 左栏：常规设置、文案大输入框与排版包装 (宽度自适应，可拖拽调节) */}
         {/* ========================================================================= */}
@@ -1848,26 +1898,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             <span>{isPlanning ? (pipelineProgress ? `${pipelineProgress.stageName} (${pipelineProgress.percent}%)` : 'AI 智能规划中…') : 'AI 智能规划'}</span>
           </button>
 
-          {/* v0.7.16：历史作品 + 保存 + 重置 */}
-          <div className="grid grid-cols-3 gap-1.5">
-            <button
-              type="button"
-              onClick={() => setHistoryOpen((v) => !v)}
-              className={`py-1.5 px-2 rounded-lg text-[11px] font-medium border transition cursor-pointer flex items-center justify-center gap-1 ${
-                historyOpen
-                  ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
-                  : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900'
-              }`}
-              title="查看并载入历史作品"
-            >
-              <HistoryIcon className="w-3 h-3 shrink-0" />
-              历史作品
-              {historyRecords.length > 0 && (
-                <span className="text-[9px] px-1 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-500">
-                  {historyRecords.length}
-                </span>
-              )}
-            </button>
+          {/* v0.7.17：历史作品已改为整页切换，左栏这里只保留「保存 / 重置」两个动作 */}
+          <div className="grid grid-cols-2 gap-1.5">
             <button
               type="button"
               onClick={handleSaveHistory}
@@ -1882,54 +1914,12 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
               type="button"
               onClick={handleResetWorkspace}
               className="py-1.5 px-2 rounded-lg text-[11px] font-medium border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 dark:hover:bg-rose-950/30 dark:hover:text-rose-400 dark:hover:border-rose-900 cursor-pointer flex items-center justify-center gap-1"
-              title="清空当前工作台（历史作品会保留）"
+              title="清空当前工作台（含视频），历史作品会保留"
             >
               <RotateCcw className="w-3 h-3 shrink-0" />
               重置
             </button>
           </div>
-
-          {/* 历史作品面板 */}
-          {historyOpen && (
-            <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/70 bg-indigo-50/40 dark:bg-indigo-950/20 p-2 space-y-1.5 max-h-56 overflow-y-auto">
-              {historyRecords.length === 0 ? (
-                <p className="text-[10.5px] text-zinc-500 dark:text-zinc-400 text-center py-2">
-                  还没有历史作品。配好图后点【保存作品】即可存档，之后随时载回。
-                </p>
-              ) : (
-                historyRecords.map((rec) => (
-                  <div
-                    key={rec.id}
-                    className="flex items-center gap-1.5 bg-white dark:bg-zinc-900/70 rounded-lg border border-zinc-200 dark:border-zinc-800 px-2 py-1.5"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[11px] font-medium text-zinc-800 dark:text-zinc-200 truncate" title={rec.title}>
-                        {rec.title}
-                      </div>
-                      <div className="text-[9.5px] text-zinc-400 font-mono">
-                        {new Date(rec.createdAt).toLocaleString('zh-CN')} · {rec.illustrations?.length || 0} 张
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleLoadHistory(rec)}
-                      className="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer"
-                    >
-                      载入
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteHistory(rec)}
-                      className="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-rose-600 hover:border-rose-200 cursor-pointer"
-                      title="删除该历史作品（同时清理它独占的插图文件）"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
 
           {/* 折叠式“插图包装与排版设置”卡片 */}
           <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 p-2.5 space-y-2">
@@ -2899,6 +2889,143 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         </div>
         )}
       </div>
+
+      {/* ========================================================================= */}
+      {/* 历史作品整页视图（v0.7.17） */}
+      {/* ========================================================================= */}
+      {activeView === 'history' && (
+        <div className="flex-1 overflow-y-auto min-h-0 p-5">
+          <div className="max-w-[1400px] mx-auto space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                  <HistoryIcon className="w-4 h-4 text-indigo-500" />
+                  历史作品
+                  <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/60">
+                    {historyRecords.length} 份
+                  </span>
+                </h2>
+                <p className="text-[11.5px] text-zinc-400 mt-1">
+                  每份存档包含文案、分镜、插图、排版位置、动效与边框设置，点击卡片即可恢复整个现场
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveHistory}
+                disabled={illustrations.length === 0}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-40 cursor-pointer flex items-center gap-1.5"
+                title="把当前工作台存为新的一份历史作品"
+              >
+                <Save className="w-3.5 h-3.5" />
+                把当前工作另存为一份
+              </button>
+            </div>
+
+            {historyRecords.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-24 text-center">
+                <div className="w-14 h-14 rounded-2xl bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center mb-3">
+                  <HistoryIcon className="w-6 h-6 text-zinc-300 dark:text-zinc-600" />
+                </div>
+                <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">还没有历史作品</p>
+                <p className="text-[11.5px] text-zinc-400 mt-1">
+                  在「制作配图」页配好插图后点【保存作品】，之后随时可以回到这里载入
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
+                {historyRecords.map((rec) => {
+                  const previews = (rec.illustrations || []).filter((it) => it.localPath || it.imageUrl).slice(0, 4);
+                  const okCount = (rec.illustrations || []).filter((it) => it.status === 'success').length;
+                  return (
+                    <div
+                      key={rec.id}
+                      className="group rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#111217] overflow-hidden hover:border-indigo-300 dark:hover:border-indigo-800 hover:shadow-lg transition flex flex-col"
+                    >
+                      {/* 缩略图拼贴：最多 4 张 */}
+                      <button
+                        type="button"
+                        onClick={() => handleLoadHistory(rec)}
+                        className="block w-full aspect-video bg-zinc-100 dark:bg-zinc-900 relative overflow-hidden cursor-pointer"
+                        title="点击载入这份作品"
+                      >
+                        {previews.length === 0 ? (
+                          <div className="absolute inset-0 flex items-center justify-center text-[11px] text-zinc-400">
+                            无插图预览
+                          </div>
+                        ) : (
+                          <div className={`absolute inset-0 grid gap-0.5 ${previews.length === 1 ? 'grid-cols-1' : 'grid-cols-2 grid-rows-2'}`}>
+                            {previews.map((it) => (
+                              <div key={it.id} className="overflow-hidden bg-zinc-200 dark:bg-zinc-800">
+                                {it.localPath || it.imageUrl ? (
+                                  <img
+                                    src={it.imageUrl || `file:///${(it.localPath || '').replace(/\\/g, '/')}`}
+                                    alt=""
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                  />
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-indigo-600/0 group-hover:bg-indigo-600/20 transition flex items-center justify-center">
+                          <span className="opacity-0 group-hover:opacity-100 transition px-3 py-1 rounded-lg bg-indigo-600 text-white text-[11px] font-medium shadow">
+                            载入这份作品
+                          </span>
+                        </div>
+                      </button>
+
+                      <div className="p-2.5 flex-1 flex flex-col gap-1.5">
+                        <div className="text-[12px] font-semibold text-zinc-800 dark:text-zinc-200 line-clamp-2" title={rec.title}>
+                          {rec.title}
+                        </div>
+                        <div className="text-[10px] text-zinc-400 font-mono">
+                          {new Date(rec.createdAt).toLocaleString('zh-CN')}
+                        </div>
+                        <div className="flex flex-wrap gap-1 text-[10px]">
+                          <span className="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
+                            {rec.illustrations?.length || 0} 张分镜
+                          </span>
+                          {okCount > 0 && (
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400">
+                              已生成 {okCount}
+                            </span>
+                          )}
+                          <span className="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
+                            {rec.videoDuration ? `${Math.round(rec.videoDuration)}s` : '—'}
+                          </span>
+                          {rec.density && (
+                            <span className="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
+                              {rec.density === 'dense' ? '密集' : rec.density === 'sparse' ? '精炼' : '标准'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-auto pt-1.5 flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleLoadHistory(rec)}
+                            className="flex-1 py-1 rounded-lg text-[11px] font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition cursor-pointer"
+                          >
+                            载入
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteHistory(rec)}
+                            className="px-2 py-1 rounded-lg text-[11px] border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-rose-600 hover:border-rose-200 dark:hover:border-rose-900 transition cursor-pointer"
+                            title="删除该作品（同时清理它独占的插图文件）"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* 视频大视窗全屏放大预览 Modal (响应用户诉求 1：支持大屏沉浸播放与插图动效精细核对) */}
