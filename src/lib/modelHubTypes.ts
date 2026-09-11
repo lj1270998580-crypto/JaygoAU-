@@ -207,6 +207,7 @@ export interface ConfiguredProvider {
   baseUrl: string;
   selectedModel: string;
   customModelName?: string; // 手动填写的特定 Model ID 或火山 Endpoint ID
+  customProviderName?: string; // 手动填写的自定义供应商显示名称（如 OpenRouter、硅基流动、本地 Ollama）
   lastPingMs?: number;
   lastTestOk?: boolean;
 }
@@ -301,6 +302,7 @@ export const DEFAULT_MODEL_HUB_SETTINGS: ModelHubSettings = {
       baseUrl: '',
       selectedModel: 'custom-model',
       customModelName: '',
+      customProviderName: '',
     },
   },
 };

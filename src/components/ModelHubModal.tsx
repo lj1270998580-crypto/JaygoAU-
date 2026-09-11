@@ -124,6 +124,19 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
     }));
   };
 
+  const handleCustomProviderNameChange = (val: string) => {
+    updateFormData(prev => ({
+      ...prev,
+      providers: {
+        ...prev.providers,
+        [activeTab]: {
+          ...prev.providers[activeTab],
+          customProviderName: val,
+        },
+      },
+    }));
+  };
+
   const handleSetDefault = (type: ModelProviderType) => {
     updateFormData(prev => ({
       ...prev,
@@ -233,7 +246,11 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
                 >
                   <div className="flex items-center gap-2 truncate">
                     <span className="shrink-0">{p.icon}</span>
-                    <span className="truncate">{PROVIDER_NAMES[type] || p.name}</span>
+                    <span className="truncate">
+                      {type === 'custom' && cfg.customProviderName?.trim()
+                        ? cfg.customProviderName.trim()
+                        : (PROVIDER_NAMES[type] || p.name)}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0 pl-1">
                     {isDefault && (
@@ -293,6 +310,23 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
               </button>
             </div>
 
+            {/* 自定义供应商名称输入框（解决用户无法分辨供应商的问题） */}
+            {activeTab === 'custom' && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 flex items-center justify-between">
+                  <span>自定义供应商名称 (自定义别名)</span>
+                  <span className="text-[11px] text-zinc-400">设置后将在各工作台模型选择框中清晰展示</span>
+                </label>
+                <input
+                  type="text"
+                  value={currentProvider.customProviderName || ''}
+                  onChange={e => handleCustomProviderNameChange(e.target.value)}
+                  placeholder="例如: OpenRouter、硅基流动、本地 Ollama、DeepBrick、Together 等"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition"
+                />
+              </div>
+            )}
+
             {/* API Key 输入框 */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
@@ -347,13 +381,18 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
               </div>
 
               {activeTab === 'custom' ? (
-                <input
-                  type="text"
-                  value={currentProvider.customModelName || ''}
-                  onChange={e => handleCustomModelNameChange(e.target.value)}
-                  placeholder="例如: llama3-70b 或 qwen-72b-chat"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 font-mono"
-                />
+                <div className="space-y-1.5">
+                  <input
+                    type="text"
+                    value={currentProvider.customModelName || ''}
+                    onChange={e => handleCustomModelNameChange(e.target.value)}
+                    placeholder="输入具体的模型 ID，例如: openrouter/free、gpt-4o、deepseek-ai/DeepSeek-V3"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 font-mono"
+                  />
+                  <p className="text-[11px] text-zinc-400">
+                    填写的模型 ID 将在快捷切换菜单与各工作台顶部模型胶囊中完整显示
+                  </p>
+                </div>
               ) : (
                 <div className="space-y-2">
                   {/* 已拉取到在线列表时，优先使用服务商返回的真实模型 ID */}

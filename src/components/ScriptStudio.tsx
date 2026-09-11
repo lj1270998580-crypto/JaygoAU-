@@ -732,14 +732,17 @@ export function ScriptStudio({
 
     onUpdateModelHubSettings?.(nextSettings);
     const preset = PRESET_PROVIDERS[providerType];
+    const provName = (providerType === 'custom' && targetProvider?.customProviderName?.trim())
+      ? targetProvider.customProviderName.trim()
+      : (preset?.name?.split(' ')[0] || providerType);
     const modelObj = preset?.models.find(m => m.id === modelId);
     const mName = modelObj?.name || modelId;
 
     if (!hasKey) {
-      showToast(`已切换至【${preset?.name?.split(' ')[0] || providerType} · ${mName}】，尚未配置 API Key，正在开启配置…`);
+      showToast(`已切换至【${provName} · ${mName}】，尚未配置 API Key，正在开启配置…`);
       onOpenModelHub();
     } else {
-      showToast(`已切换模型：【${preset?.name?.split(' ')[0] || providerType} · ${mName}】`);
+      showToast(`已切换模型：【${provName} · ${mName}】`);
     }
   };
 
@@ -1690,16 +1693,30 @@ export function ScriptStudio({
                           setStyleDropdownOpen(false);
                         }}
                         className="flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800/80 hover:bg-zinc-200/80 dark:hover:bg-zinc-700/80 text-[11px] font-medium text-zinc-700 dark:text-zinc-200 border border-zinc-200/80 dark:border-zinc-700/80 transition shadow-2xs cursor-pointer"
-                        title="点击快速切换 AI 创作模型"
+                        title={(() => {
+                          if (currentProviderKey === 'custom') {
+                            const cName = currentProviderConfig?.customProviderName?.trim() || '自定义';
+                            const mName = currentProviderConfig?.customModelName?.trim() || currentModelName;
+                            return `当前模型：[${cName}] ${mName}`;
+                          }
+                          const pName = PRESET_PROVIDERS[currentProviderKey]?.name || currentProviderKey;
+                          const found = PRESET_PROVIDERS[currentProviderKey]?.models?.find(m => m.id === currentModelName);
+                          return `当前模型：[${pName}] ${found ? found.name : currentModelName}`;
+                        })()}
                       >
                         <Bot className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                        <span className="truncate max-w-[70px] sm:max-w-[100px]">
+                        <span className="truncate max-w-[80px] sm:max-w-[120px]">
                           {(() => {
+                            if (currentProviderKey === 'custom') {
+                              const cName = currentProviderConfig?.customProviderName?.trim() || '自定义';
+                              const mName = currentProviderConfig?.customModelName?.trim() || currentModelName;
+                              return `${cName}: ${mName}`;
+                            }
                             const found = Object.values(PRESET_PROVIDERS)
                               .flatMap(p => p.models)
                               .find(m => m.id === currentModelName);
                             const raw = found ? found.name : currentModelName;
-                            return raw.replace(/DeepSeek/i, 'DS').replace(/豆包/i, '豆包').slice(0, 8);
+                            return raw.replace(/DeepSeek/i, 'DS').replace(/豆包/i, '豆包').slice(0, 10);
                           })()}
                         </span>
                         <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
@@ -1733,16 +1750,27 @@ export function ScriptStudio({
                             {Object.entries(PRESET_PROVIDERS).map(([pType, preset]) => {
                               const provConfig = modelSettings?.providers?.[pType as ModelProviderType];
                               const hasKey = Boolean(provConfig?.apiKey?.trim());
+                              const provTitle = (pType === 'custom' && provConfig?.customProviderName?.trim())
+                                ? provConfig.customProviderName.trim()
+                                : preset.name;
+                              const models = (pType === 'custom'
+                                ? (provConfig?.customModelName?.trim()
+                                    ? [{ id: provConfig.customModelName.trim(), name: provConfig.customModelName.trim() }]
+                                    : preset.models)
+                                : (provConfig?.customModelName?.trim()
+                                    ? [{ id: provConfig.customModelName.trim(), name: `${provConfig.customModelName.trim()} (自定义)` }, ...preset.models]
+                                    : preset.models)).slice(0, 6);
+
                               return (
                                 <div key={pType} className="space-y-0.5">
                                   <div className="px-2 py-0.5 text-[10px] font-semibold text-zinc-400 flex items-center justify-between">
-                                    <span>{preset.icon} {preset.name}</span>
-                                    <span className={`text-[9px] ${hasKey ? 'text-emerald-500' : 'text-amber-500'}`}>
+                                    <span className="truncate max-w-[140px] font-bold">{preset.icon} {provTitle}</span>
+                                    <span className={`text-[9px] shrink-0 ${hasKey ? 'text-emerald-500' : 'text-amber-500'}`}>
                                       {hasKey ? '● 已就绪' : '○ 需配Key'}
                                     </span>
                                   </div>
-                                  {preset.models.map(m => {
-                                    const isSelected = currentProviderKey === pType && currentModelName === m.id;
+                                  {models.map(m => {
+                                    const isSelected = currentProviderKey === pType && (currentModelName === m.id || (pType === 'custom' && !currentModelName));
                                     return (
                                       <div
                                         key={m.id}

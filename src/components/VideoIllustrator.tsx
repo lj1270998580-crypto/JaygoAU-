@@ -360,6 +360,16 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     }
   }, [modelSettings]);
 
+  // 当前生效模型的清晰可读名称（包含自定义供应商名，如 [OpenRouter] openrouter/free）
+  const activeModelDisplay = useMemo(() => {
+    if (!activeModel) return 'AI 规划：未配置模型';
+    const conf = modelSettings?.providers?.[activeModel.providerType as ModelProviderType];
+    const provName = (activeModel.providerType === 'custom' && conf?.customProviderName?.trim())
+      ? conf.customProviderName.trim()
+      : (PRESET_PROVIDERS[activeModel.providerType as ModelProviderType]?.name?.split(' ')[0] || activeModel.providerType);
+    return `AI 规划: [${provName}] ${activeModel.model}`;
+  }, [activeModel, modelSettings]);
+
   // 规划模型快捷切换（与 AI 文案工坊共用同一份设置，切换后两边一致）
   const [showModelPicker, setShowModelPicker] = useState<boolean>(false);
 
@@ -389,8 +399,11 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     setShowModelPicker(false);
 
     const preset = PRESET_PROVIDERS[providerType];
+    const provName = (providerType === 'custom' && target?.customProviderName?.trim())
+      ? target.customProviderName.trim()
+      : (preset?.name?.split(' ')[0] || providerType);
     const modelObj = preset?.models.find((m) => m.id === modelId);
-    const label = `${preset?.name?.split(' ')[0] || providerType} · ${modelObj?.name || modelId}`;
+    const label = `${provName} · ${modelObj?.name || modelId}`;
     if (!hasKey) {
       showToast(`已切换至【${label}】，尚未配置 API Key，正在开启配置…`);
       onOpenModelHub?.();
@@ -471,19 +484,16 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   // 修复此前「内联固定 px + shrink-0 + 父容器 overflow-hidden」导致中窗口被裁切的问题
   const cols = useAdaptiveColumns({
     storageKey: 'jaygo_illustrator_studio',
-    defaultLeft: 330,
-    defaultRight: 370,
-    minLeft: 260,
+    defaultLeft: 310,
+    defaultRight: 340,
+    minLeft: 240,
     maxLeft: 460,
-    minRight: 300,
+    minRight: 270,
     maxRight: 560,
-    minCenter: 330,
+    minCenter: 280,
     dividerTotal: 12,
-    // 容器宽度（窗口宽 − 侧栏 196px）阈值：
-    // 三栏最小可行 = 260 + 12 + 330 + 12 + 300 = 914，故低于 940 降为双栏；
-    // 双栏最小可行 = 260 + 12 + 330 = 602，故低于 620 降为专注舞台。
-    twoColumnBelow: 940,
-    focusBelow: 620,
+    twoColumnBelow: 860,
+    focusBelow: 580,
   });
   const { containerRef: columnsRef, effectiveMode, leftWidth, rightWidth, squeezed } = cols;
   const [isPackagingExpanded, setIsPackagingExpanded] = useState<boolean>(false);
@@ -1826,45 +1836,44 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
 
   return (
     <div className="flex-1 h-full flex flex-col bg-zinc-50 dark:bg-[#0c0d11] text-zinc-800 dark:text-zinc-200 overflow-hidden select-none">
-      {/* 顶部标题栏：呼吸感良好，展示 v0.7.3 特性 */}
-      <div className="py-3 px-5 border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between bg-white dark:bg-[#111217] shrink-0 min-h-[58px]">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-rose-500 via-purple-500 to-indigo-500 flex items-center justify-center text-white shadow-md shrink-0">
-            <Sparkles className="w-4.5 h-4.5" />
+      {/* 顶部标题栏：呼吸感良好，中窗口防挤压 */}
+      <div className="py-2.5 px-4 border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between bg-white dark:bg-[#111217] shrink-0 min-h-[52px] gap-2 overflow-x-auto">
+        <div className="flex items-center gap-2.5 shrink-0 whitespace-nowrap">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-rose-500 via-purple-500 to-indigo-500 flex items-center justify-center text-white shadow-sm shrink-0">
+            <Sparkles className="w-4 h-4" />
           </div>
           <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">智能视频配插图</span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/60">
-                v0.7.26 · 专业工作台
+            <div className="flex items-center gap-1.5 whitespace-nowrap">
+              <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">智能视频配插图</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/60 whitespace-nowrap">
+                v0.7.27
               </span>
             </div>
-            <p className="text-[11.5px] text-zinc-400 mt-0.5">
+            <p className="text-[11px] text-zinc-400 hidden xl:block whitespace-nowrap">
               AI 视觉导演 · 智能分镜规划与实体插图
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          {/* v0.7.12：移除三栏/双栏/专注切换按钮，固定三栏。
-              窄窗口的自动降级保护仍然保留（避免内容被裁切），只是不再提供手动入口。 */}
+        <div className="flex items-center gap-1.5 shrink-0 min-w-0">
+          {/* 窄屏降级提示 */}
           {effectiveMode !== cols.mode && (
             <span
               title={`当前可用宽度约 ${cols.containerWidth}px，已自动降级以保证内容完整显示`}
-              className="text-[10px] px-2 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/60 whitespace-nowrap"
+              className="text-[10px] px-2 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/60 whitespace-nowrap hidden md:inline-block"
             >
-              窄屏已自动降级为{effectiveMode === 'two' ? '双栏' : '专注舞台'}
+              已降级为{effectiveMode === 'two' ? '双栏' : '专注'}
             </span>
           )}
 
-          {/* v0.7.17：视图切换（与「数字人」板块一致的整页切换） */}
+          {/* 视图切换 */}
           <div className="flex bg-zinc-100 dark:bg-zinc-800/60 p-0.5 rounded-lg border border-zinc-200/60 dark:border-zinc-700/60 text-xs shrink-0">
             <button
               type="button"
               onClick={() => setActiveView('create')}
-              className={`px-3 py-1.5 rounded-md font-medium transition cursor-pointer ${
+              className={`px-2.5 py-1 rounded-md font-medium transition cursor-pointer ${
                 activeView === 'create'
-                  ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs'
+                  ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs font-semibold'
                   : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
               }`}
             >
@@ -1873,9 +1882,9 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             <button
               type="button"
               onClick={() => setActiveView('history')}
-              className={`px-3 py-1.5 rounded-md font-medium transition flex items-center gap-1.5 cursor-pointer ${
+              className={`px-2.5 py-1 rounded-md font-medium transition flex items-center gap-1 cursor-pointer ${
                 activeView === 'history'
-                  ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs'
+                  ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs font-semibold'
                   : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
               }`}
             >
@@ -1889,12 +1898,12 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             </button>
           </div>
 
-          {/* v0.7.26：宽屏双栏工作台切换 */}
+          {/* 宽屏双栏工作台切换 */}
           {activeView === 'create' && (
             <button
               type="button"
               onClick={() => setIsSidebarCollapsed((v) => !v)}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition cursor-pointer flex items-center gap-1 shrink-0 ${
                 isSidebarCollapsed
                   ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500/60 text-indigo-600 dark:text-indigo-400 font-bold'
                   : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100'
@@ -1915,13 +1924,13 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             </button>
           )}
 
-          {/* v0.7.26：剪映草稿与视频导出下拉按钮 */}
+          {/* 剪映草稿与视频导出下拉按钮 */}
           <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => setShowExportMenu((v) => !v)}
               disabled={illustrations.filter((i) => i.status === 'success').length === 0}
-              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-sm transition cursor-pointer flex items-center gap-1.5 disabled:opacity-40"
+              className="px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-sm transition cursor-pointer flex items-center gap-1 disabled:opacity-40"
               title="导出剪映 Pro 工程草稿或合成视频"
             >
               <Download className="w-3.5 h-3.5" />
@@ -1986,40 +1995,48 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             )}
           </div>
 
-          {/* AI 规划模型胶囊：明确显示当前实际调用的供应商与模型，并可快捷切换 */}
-          <div className="relative">
+          {/* AI 规划模型胶囊：展示 [供应商] 模型名称，中窗口自适应宽度截断 */}
+          <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => setShowModelPicker((v) => !v)}
-              title="AI 规划所调用的大模型（与 AI 文案工坊共用同一份设置）"
-              className="px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition cursor-pointer flex items-center gap-1.5 max-w-[280px]"
+              title={activeModelDisplay}
+              className="px-2.5 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition cursor-pointer flex items-center gap-1.5 max-w-[160px] xl:max-w-[240px]"
             >
               <Sparkles className="w-3.5 h-3.5 text-purple-500 shrink-0" />
               <span className="truncate">
-                {activeModel ? `AI 规划：${activeModel.model}` : 'AI 规划：未配置模型'}
+                {activeModelDisplay}
               </span>
               <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
             </button>
 
             {showModelPicker && (
-              <div className="absolute right-0 top-full mt-1.5 w-[320px] max-h-[380px] overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-[#15161d] shadow-2xl z-50 p-1.5 animate-in fade-in slide-in-from-top-1">
+              <div className="absolute right-0 top-full mt-1.5 w-[330px] max-h-[380px] overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-[#15161d] shadow-2xl z-50 p-1.5 animate-in fade-in slide-in-from-top-1">
                 <div className="px-2 py-1.5 text-[10.5px] text-zinc-400 border-b border-zinc-100 dark:border-zinc-800 mb-1">
                   与「AI 文案工坊」共用同一份模型设置，切换后两边一致
                 </div>
                 {Object.entries(PRESET_PROVIDERS).map(([ptype, preset]) => {
                   const conf = modelSettings?.providers?.[ptype as ModelProviderType];
                   const hasKey = Boolean(conf?.apiKey?.trim());
-                  const models = (conf?.customModelName
-                    ? preset.models
-                    : preset.models).slice(0, 5);
+                  const provTitle = (ptype === 'custom' && conf?.customProviderName?.trim())
+                    ? conf.customProviderName.trim()
+                    : preset.name;
+                  const models = (ptype === 'custom'
+                    ? (conf?.customModelName?.trim()
+                        ? [{ id: conf.customModelName.trim(), name: conf.customModelName.trim() }]
+                        : preset.models)
+                    : (conf?.customModelName?.trim()
+                        ? [{ id: conf.customModelName.trim(), name: `${conf.customModelName.trim()} (自定义覆盖)` }, ...preset.models]
+                        : preset.models)).slice(0, 6);
+
                   return (
                     <div key={ptype} className="mb-1">
-                      <div className="px-2 py-1 text-[10px] font-semibold text-zinc-500 flex items-center gap-1.5">
-                        <span className="truncate">{preset.name}</span>
+                      <div className="px-2 py-1 text-[10px] font-semibold text-zinc-500 flex items-center justify-between gap-1.5">
+                        <span className="truncate font-bold">{provTitle}</span>
                         {hasKey ? (
-                          <span className="text-emerald-500 shrink-0">已配密匙</span>
+                          <span className="text-emerald-500 shrink-0 text-[9.5px]">已配密匙</span>
                         ) : (
-                          <span className="text-zinc-400 shrink-0">未配密匙</span>
+                          <span className="text-zinc-400 shrink-0 text-[9.5px]">未配密匙</span>
                         )}
                       </div>
                       {models.map((m) => {
@@ -2061,11 +2078,12 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
           <button
             type="button"
             onClick={() => setShowKeyConfig((v) => !v)}
-            className="px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition cursor-pointer flex items-center gap-1.5"
+            className="px-2.5 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition cursor-pointer flex items-center gap-1.5 shrink-0"
+            title="商汤 TokenPlan API Key 配置"
           >
-            <Key className="w-3.5 h-3.5 text-indigo-500" />
-            <span>商汤 TokenPlan {snApiKey ? '密匙就绪' : '配置密匙'}</span>
-            <ChevronDown className="w-3 h-3 text-zinc-400" />
+            <Key className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+            <span className="truncate max-w-[110px] lg:max-w-none">{snApiKey ? 'TokenPlan 密匙就绪' : '配置密匙'}</span>
+            <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
           </button>
         </div>
       </div>
@@ -2271,13 +2289,13 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
 
           {/* v0.7.26：故事弧线角色主体一致性锁 (✨ 智能分段 / 🔒 全局锁定 / ⚡ 独立生成) */}
           <div className="rounded-xl border border-indigo-200/70 dark:border-indigo-800/50 bg-indigo-50/30 dark:bg-indigo-950/20 p-2.5 space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+            <div className="flex items-center justify-between gap-1">
+              <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5 shrink-0">
                 <UserCheck className="w-3.5 h-3.5 text-indigo-500" />
                 <span>角色主体一致性</span>
               </label>
-              <span className="text-[9.5px] font-medium text-indigo-600 dark:text-indigo-400">
-                {characterMode === 'auto' ? 'AI 故事弧线自适应' : characterMode === 'custom' ? '全片全局固定' : '镜头独立生成'}
+              <span className="text-[9.5px] font-medium text-indigo-600 dark:text-indigo-400 shrink-0 whitespace-nowrap">
+                {characterMode === 'auto' ? '✨ 智能自适应' : characterMode === 'custom' ? '🔒 全局固定' : '⚡ 独立生图'}
               </span>
             </div>
 
@@ -2295,7 +2313,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                     showToast(`角色一致性已切换为【${m.label}】`, 'ok');
                   }}
                   title={m.desc}
-                  className={`py-1 rounded-md text-[11px] font-medium transition cursor-pointer text-center truncate ${
+                  className={`py-1 px-1 rounded-md text-[10.5px] font-medium transition cursor-pointer text-center truncate ${
                     characterMode === m.id
                       ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
                       : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
