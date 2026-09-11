@@ -1632,7 +1632,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">智能视频配插图</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/60">
-                v0.7.24 · 专业工作台
+                v0.7.25 · 专业工作台
               </span>
             </div>
             <p className="text-[11.5px] text-zinc-400 mt-0.5">

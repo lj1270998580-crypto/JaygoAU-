@@ -5,9 +5,45 @@ import {
   Check,
   Palette,
   Wand2,
+  Sparkles,
 } from 'lucide-react';
 import { STYLE_OPTIONS, type StyleConfig } from './VideoIllustrator';
 import { STYLE_PLANNER_GUIDANCE } from '../lib/illustrator/styleBible';
+
+// 导入由商汤官方 SenseNova 引擎实测生成的各画风真实样张
+import modernBusinessImg from '../assets/style-previews/modern_business.jpg';
+import coloredPencilImg from '../assets/style-previews/colored_pencil.jpg';
+import classicalOilImg from '../assets/style-previews/classical_oil.jpg';
+import cinematicRealImg from '../assets/style-previews/cinematic_real.jpg';
+import chineseInkImg from '../assets/style-previews/chinese_ink.jpg';
+import animeCartoonImg from '../assets/style-previews/anime_cartoon.jpg';
+import isometric3dImg from '../assets/style-previews/isometric_3d.jpg';
+import watercolorBookImg from '../assets/style-previews/watercolor_book.jpg';
+import minimalLineImg from '../assets/style-previews/minimal_line.jpg';
+import cyberpunkImg from '../assets/style-previews/cyberpunk.jpg';
+import infographicCleanImg from '../assets/style-previews/infographic_clean.jpg';
+import chineseGuochaoImg from '../assets/style-previews/chinese-guochao.jpg';
+import claymationImg from '../assets/style-previews/claymation.jpg';
+import chalkboardImg from '../assets/style-previews/chalkboard.jpg';
+import swissStyleImg from '../assets/style-previews/swiss-style.jpg';
+
+const STYLE_PREVIEW_IMAGES: Record<string, string> = {
+  modern_business: modernBusinessImg,
+  colored_pencil: coloredPencilImg,
+  classical_oil: classicalOilImg,
+  cinematic_real: cinematicRealImg,
+  chinese_ink: chineseInkImg,
+  anime_cartoon: animeCartoonImg,
+  isometric_3d: isometric3dImg,
+  watercolor_book: watercolorBookImg,
+  minimal_line: minimalLineImg,
+  cyberpunk: cyberpunkImg,
+  infographic_clean: infographicCleanImg,
+  'chinese-guochao': chineseGuochaoImg,
+  claymation: claymationImg,
+  chalkboard: chalkboardImg,
+  'swiss-style': swissStyleImg,
+};
 
 interface StyleSelectorModalProps {
   open: boolean;
@@ -127,192 +163,26 @@ const STYLE_DISPLAY_MAP: Record<string, StyleDisplayMeta> = {
   },
 };
 
-/** 风格视觉示意矢量图组件 */
+/** 风格视觉真实样张组件（采用商汤官方生图实测高清样本） */
 const StyleVisualPreview: React.FC<{ styleId: string }> = ({ styleId }) => {
-  switch (styleId) {
-    case 'modern_business':
-      return (
-        <svg viewBox="0 0 100 64" className="w-full h-full">
-          <defs>
-            <linearGradient id="mb-bg" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#2B4C7E" />
-              <stop offset="100%" stopColor="#1E293B" />
-            </linearGradient>
-          </defs>
-          <rect width="100" height="64" fill="url(#mb-bg)" rx="6" />
-          <rect x="12" y="16" width="36" height="32" rx="4" fill="#3B82F6" fillOpacity="0.4" />
-          <rect x="22" y="10" width="40" height="38" rx="4" fill="#60A5FA" fillOpacity="0.3" />
-          <rect x="56" y="22" width="32" height="26" rx="3" fill="#F4A261" fillOpacity="0.8" />
-          <circle cx="32" cy="26" r="6" fill="#F8FAFC" fillOpacity="0.8" />
-          <line x1="20" y1="38" x2="44" y2="38" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeOpacity="0.7" />
-          <line x1="62" y1="32" x2="80" y2="32" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      );
+  const imgSrc = STYLE_PREVIEW_IMAGES[styleId];
+  if (!imgSrc) return null;
 
-    case 'chinese_ink':
-      return (
-        <svg viewBox="0 0 100 64" className="w-full h-full">
-          <rect width="100" height="64" fill="#F4F1EA" rx="6" />
-          <path d="M 4 52 C 24 36, 44 48, 62 34 C 74 24, 88 38, 96 30 L 96 64 L 4 64 Z" fill="#27272A" fillOpacity="0.8" />
-          <path d="M 20 48 C 38 28, 54 36, 72 22 C 84 14, 92 24, 96 18 L 96 64 L 20 64 Z" fill="#71717A" fillOpacity="0.4" />
-          <circle cx="28" cy="20" r="7" fill="#DC2626" fillOpacity="0.65" />
-          <rect x="80" y="8" width="8" height="12" fill="#B91C1C" rx="1" />
-          <line x1="84" y1="10" x2="84" y2="18" stroke="#FEF2F2" strokeWidth="1" strokeLinecap="round" />
-        </svg>
-      );
-
-    case 'classical_oil':
-      return (
-        <svg viewBox="0 0 100 64" className="w-full h-full">
-          <defs>
-            <radialGradient id="oil-light" cx="30%" cy="30%" r="70%">
-              <stop offset="0%" stopColor="#D97706" stopOpacity="0.9" />
-              <stop offset="50%" stopColor="#78350F" stopOpacity="0.8" />
-              <stop offset="100%" stopColor="#1C1917" />
-            </radialGradient>
-          </defs>
-          <rect width="100" height="64" fill="url(#oil-light)" rx="6" />
-          <circle cx="38" cy="28" r="14" fill="#FDE68A" fillOpacity="0.5" />
-          <path d="M 16 54 C 28 38, 48 36, 68 44 C 80 50, 88 46, 94 56" stroke="#92400E" strokeWidth="4" fill="none" strokeLinecap="round" />
-          <path d="M 12 50 C 26 42, 46 40, 64 48 C 76 54, 84 48, 90 58" stroke="#B45309" strokeWidth="2" fill="none" strokeLinecap="round" />
-        </svg>
-      );
-
-    case 'colored_pencil':
-      return (
-        <svg viewBox="0 0 100 64" className="w-full h-full">
-          <rect width="100" height="64" fill="#FEFDF9" rx="6" />
-          {[0, 4, 8, 12, 16, 20, 24, 28, 32].map((i) => (
-            <line
-              key={`h1-${i}`}
-              x1={10 + i * 2}
-              y1={46 - i}
-              x2={38 + i * 2}
-              y2={18 - i}
-              stroke="#F43F5E"
-              strokeWidth="1.2"
-              strokeOpacity="0.75"
-              strokeLinecap="round"
-            />
-          ))}
-          {[0, 4, 8, 12, 16, 20].map((i) => (
-            <line
-              key={`h2-${i}`}
-              x1={46 + i * 2}
-              y1={54 - i}
-              x2={74 + i * 2}
-              y2={26 - i}
-              stroke="#0EA5E9"
-              strokeWidth="1.2"
-              strokeOpacity="0.75"
-              strokeLinecap="round"
-            />
-          ))}
-          <circle cx="68" cy="24" r="10" stroke="#F59E0B" strokeWidth="2" fill="#FEF3C7" fillOpacity="0.4" strokeDasharray="3 1.5" />
-        </svg>
-      );
-
-    case 'isometric_3d':
-      return (
-        <svg viewBox="0 0 100 64" className="w-full h-full">
-          <rect width="100" height="64" fill="#0F172A" rx="6" />
-          <polygon points="50,14 74,26 50,38 26,26" fill="#818CF8" />
-          <polygon points="26,26 50,38 50,54 26,42" fill="#4F46E5" />
-          <polygon points="74,26 50,38 50,54 74,42" fill="#6366F1" />
-          <polygon points="80,10 90,15 80,20 70,15" fill="#EC4899" fillOpacity="0.8" />
-          <polygon points="70,15 80,20 80,26 70,21" fill="#BE185D" fillOpacity="0.8" />
-          <polygon points="90,15 80,20 80,26 90,21" fill="#DB2777" fillOpacity="0.8" />
-        </svg>
-      );
-
-    case 'cinematic_real':
-      return (
-        <svg viewBox="0 0 100 64" className="w-full h-full">
-          <defs>
-            <linearGradient id="cine-grad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#0B0F19" />
-              <stop offset="60%" stopColor="#1E293B" />
-              <stop offset="100%" stopColor="#38BDF8" stopOpacity="0.4" />
-            </linearGradient>
-          </defs>
-          <rect width="100" height="64" fill="url(#cine-grad)" rx="6" />
-          <circle cx="68" cy="24" r="16" fill="#38BDF8" fillOpacity="0.25" />
-          <circle cx="34" cy="42" r="12" fill="#60A5FA" fillOpacity="0.15" />
-          <rect x="24" y="20" width="34" height="28" rx="2" fill="none" stroke="#94A3B8" strokeWidth="1" strokeDasharray="4 2" />
-          <line x1="16" y1="34" x2="22" y2="34" stroke="#F8FAFC" strokeWidth="1" />
-          <line x1="60" y1="34" x2="66" y2="34" stroke="#F8FAFC" strokeWidth="1" />
-          <line x1="41" y1="12" x2="41" y2="18" stroke="#F8FAFC" strokeWidth="1" />
-          <line x1="41" y1="50" x2="41" y2="56" stroke="#F8FAFC" strokeWidth="1" />
-        </svg>
-      );
-
-    case 'anime_cartoon':
-      return (
-        <svg viewBox="0 0 100 64" className="w-full h-full">
-          <rect width="100" height="64" fill="#EFF6FF" rx="6" />
-          <path d="M 20 64 C 24 34, 40 22, 62 18 C 76 16, 88 28, 96 64 Z" fill="#60A5FA" stroke="#1D4ED8" strokeWidth="1.5" />
-          <circle cx="48" cy="30" r="8" fill="#F472B6" />
-          <circle cx="70" cy="36" r="6" fill="#FBBF24" />
-          <path d="M 6 48 Q 24 36 44 46 T 84 40" fill="none" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-      );
-
-    case 'watercolor_book':
-      return (
-        <svg viewBox="0 0 100 64" className="w-full h-full">
-          <rect width="100" height="64" fill="#FDFBF7" rx="6" />
-          <circle cx="36" cy="30" r="18" fill="#34D399" fillOpacity="0.4" />
-          <circle cx="58" cy="26" r="16" fill="#60A5FA" fillOpacity="0.45" />
-          <circle cx="48" cy="42" r="14" fill="#FBBF24" fillOpacity="0.4" />
-          <path d="M 20 48 Q 48 30 76 44" fill="none" stroke="#059669" strokeWidth="1.2" strokeLinecap="round" strokeOpacity="0.6" />
-        </svg>
-      );
-
-    case 'minimal_line':
-      return (
-        <svg viewBox="0 0 100 64" className="w-full h-full">
-          <rect width="100" height="64" fill="#FAFAFA" rx="6" />
-          <circle cx="34" cy="28" r="12" fill="none" stroke="#18181B" strokeWidth="1.5" />
-          <line x1="34" y1="40" x2="34" y2="56" stroke="#18181B" strokeWidth="1.5" />
-          <path d="M 52 18 L 82 18 M 52 28 L 74 28 M 52 38 L 86 38" stroke="#18181B" strokeWidth="1.2" strokeLinecap="round" />
-          <circle cx="78" cy="46" r="4" fill="#E11D48" />
-        </svg>
-      );
-
-    case 'cyberpunk':
-      return (
-        <svg viewBox="0 0 100 64" className="w-full h-full">
-          <rect width="100" height="64" fill="#090A0F" rx="6" />
-          <line x1="0" y1="46" x2="100" y2="46" stroke="#EC4899" strokeWidth="1.5" strokeOpacity="0.8" />
-          {[14, 28, 42, 56, 70, 84].map((x) => (
-            <line key={`grid-${x}`} x1={x} y1="46" x2={50 + (x - 50) * 1.8} y2="64" stroke="#06B6D4" strokeWidth="1" strokeOpacity="0.5" />
-          ))}
-          <circle cx="50" cy="26" r="14" fill="#F43F5E" fillOpacity="0.7" />
-          <rect x="22" y="18" width="16" height="28" fill="#06B6D4" fillOpacity="0.4" />
-          <rect x="62" y="12" width="18" height="34" fill="#8B5CF6" fillOpacity="0.4" />
-        </svg>
-      );
-
-    case 'chalkboard':
-      return (
-        <svg viewBox="0 0 100 64" className="w-full h-full">
-          <rect width="100" height="64" fill="#1C2826" rx="6" />
-          <rect x="4" y="4" width="92" height="56" rx="3" fill="none" stroke="#78350F" strokeWidth="2" strokeOpacity="0.6" />
-          <line x1="14" y1="18" x2="52" y2="18" stroke="#FEF08A" strokeWidth="1.5" strokeDasharray="3 1.5" />
-          <line x1="14" y1="28" x2="42" y2="28" stroke="#F8FAFC" strokeWidth="1.2" strokeDasharray="2 1" />
-          <circle cx="70" cy="32" r="10" fill="none" stroke="#38BDF8" strokeWidth="1.5" strokeDasharray="4 2" />
-        </svg>
-      );
-
-    default:
-      return (
-        <svg viewBox="0 0 100 64" className="w-full h-full">
-          <rect width="100" height="64" fill="#18181B" rx="6" />
-          <circle cx="50" cy="32" r="16" fill="#6366F1" fillOpacity="0.5" />
-          <line x1="20" y1="48" x2="80" y2="48" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      );
-  }
+  return (
+    <div className="w-full h-full relative overflow-hidden bg-zinc-100 dark:bg-zinc-900 group/img">
+      <img
+        src={imgSrc}
+        alt={styleId}
+        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out select-none"
+        loading="lazy"
+      />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-end p-2 pointer-events-none">
+        <span className="text-[10px] text-white/95 font-medium drop-shadow-md">
+          官方模型真实出图效果
+        </span>
+      </div>
+    </div>
+  );
 };
 
 export const StyleSelectorModal: React.FC<StyleSelectorModalProps> = ({
@@ -370,11 +240,11 @@ export const StyleSelectorModal: React.FC<StyleSelectorModalProps> = ({
                   图片画风全景参考大厅
                 </h3>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 font-semibold border border-rose-200/60 dark:border-rose-800/60">
-                  官方多维度视觉预设
+                  商汤官方实测真图效果
                 </span>
               </div>
               <p className="text-[11px] text-zinc-400 mt-0.5">
-                直观预览每种画风的代表色调、光影质感与推荐题材；首选「自动」由模型智能分析文案调性全片统一
+                真实展示商汤 SenseNova 引擎实测出图效果与色彩质感；首选「自动」由模型智能分析文案调性全片统一
               </p>
             </div>
           </div>
@@ -467,16 +337,26 @@ export const StyleSelectorModal: React.FC<StyleSelectorModalProps> = ({
               </div>
             </div>
 
-            <button
-              type="button"
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
-                selectedStyleId === 'auto'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/60'
-              }`}
-            >
-              {selectedStyleId === 'auto' ? '已选择该推荐' : '选用自动匹配'}
-            </button>
+            <div className="flex items-center gap-3 self-end md:self-center">
+              {/* 4 风格真实样张微缩拼贴 */}
+              <div className="hidden sm:grid grid-cols-2 gap-1 w-24 h-14 rounded-lg overflow-hidden border border-indigo-200/60 dark:border-indigo-800/60 shadow-inner shrink-0" title="AI 将从全部真实官方画风库中精选匹配">
+                <img src={classicalOilImg} alt="" className="w-full h-full object-cover" />
+                <img src={chineseInkImg} alt="" className="w-full h-full object-cover" />
+                <img src={coloredPencilImg} alt="" className="w-full h-full object-cover" />
+                <img src={cyberpunkImg} alt="" className="w-full h-full object-cover" />
+              </div>
+
+              <button
+                type="button"
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+                  selectedStyleId === 'auto'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/60'
+                }`}
+              >
+                {selectedStyleId === 'auto' ? '已选择该推荐' : '选用自动匹配'}
+              </button>
+            </div>
           </div>
 
           {/* 固定风格卡片网格 */}
