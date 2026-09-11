@@ -62,6 +62,7 @@ import {
   type LayoutSpec,
 } from '../lib/illustrator/layoutBible';
 import LayoutSelectorModal from './LayoutSelectorModal';
+import StyleSelectorModal from './StyleSelectorModal';
 
 export interface StyleConfig {
   id: string;
@@ -409,6 +410,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   const [defaultStyle, setDefaultStyle] = useState<string>('auto');
   const [selectedLayoutId, setSelectedLayoutId] = useState<string>('auto');
   const [showLayoutModal, setShowLayoutModal] = useState<boolean>(false);
+  const [showStyleModal, setShowStyleModal] = useState<boolean>(false);
   // v0.7.20：信息图（数据/对比/流程）单独一套画风。
   // 叙事图要插画质感、信息图要清晰可读的数据可视化，用同一套是矛盾的
   //（选水墨则信息图也变得不适合读数；选信息图表则叙事图没有人物场景）。
@@ -609,7 +611,13 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   useEffect(() => {
     const key = (settings as any).sensenovaApiKey || '';
     setSnApiKey(key);
-    if ((settings as any).sensenovaDefaultStyle) setDefaultStyle((settings as any).sensenovaDefaultStyle);
+    // v0.7.24：严格校验已保存的标准画风，若为旧版遗留的 infographic_clean 或无效值，一律默认使用 auto
+    const savedStyle = (settings as any).sensenovaDefaultStyle;
+    if (savedStyle && savedStyle !== 'infographic_clean' && STYLE_OPTIONS.some((s) => s.id === savedStyle)) {
+      setDefaultStyle(savedStyle);
+    } else {
+      setDefaultStyle('auto');
+    }
     if ((settings as any).sensenovaDefaultRatio) setDefaultRatio((settings as any).sensenovaDefaultRatio);
     if ((settings as any).sensenovaRoutingMode) setRoutingMode((settings as any).sensenovaRoutingMode);
 
@@ -1405,6 +1413,11 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
       updatedAt: now,
       scriptText,
       videoDuration: videoDuration || 0,
+      // v0.7.24：保存视频路径、网络直链、标题与原始尺寸，载入时完整恢复
+      videoUrl: videoUrl || undefined,
+      videoPath: videoPath || undefined,
+      videoTitle: videoTitle || undefined,
+      videoDimensions: videoDimensions || undefined,
       density,
       styleId: defaultStyle,
       infographicStyleId: infographicStyle,
@@ -1459,8 +1472,18 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   const handleLoadHistory = (rec: IllustrationHistoryRecord) => {
     setScriptText(rec.scriptText || '');
     setVideoDuration(rec.videoDuration || 0);
+    // v0.7.24：恢复作品关联的视频播放舞台与尺寸
+    if (rec.videoPath || rec.videoUrl) {
+      const vUrl = rec.videoPath || rec.videoUrl!;
+      setVideoUrl(vUrl);
+      setVideoPath(rec.videoPath || (vUrl.startsWith('http') ? '' : vUrl));
+      setVideoTitle(rec.videoTitle || '已载入作品关联视频');
+    }
+    if (rec.videoDimensions) {
+      setVideoDimensions(rec.videoDimensions);
+    }
     setDensity(rec.density || 'standard');
-    setDefaultStyle(rec.styleId || defaultStyle);
+    setDefaultStyle(rec.styleId || 'auto');
     if (rec.infographicStyleId) setInfographicStyle(rec.infographicStyleId);
     if (rec.infographicLayout) setSelectedLayoutId(rec.infographicLayout);
     setDefaultRatio(rec.ratio || '16:9');
@@ -1609,7 +1632,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">智能视频配插图</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/60">
-                v0.7.21 · 专业工作台
+                v0.7.24 · 专业工作台
               </span>
             </div>
             <p className="text-[11.5px] text-zinc-400 mt-0.5">
@@ -1840,31 +1863,44 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             </div>
           </div>
 
-          {/* 图片画风（默认自动 AI 语义匹配，全片统一） */}
+          {/* 图片画风（默认自动 AI 语义匹配，全片统一，支持画风大厅具象化参考） */}
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
                 <Palette className="w-3.5 h-3.5 text-rose-500" />
                 <span>图片画风</span>
               </label>
-              <span className="text-[9.5px] text-zinc-400">
-                {defaultStyle === 'auto' ? '全片风格统一' : (STYLE_OPTIONS.find((s) => s.id === defaultStyle)?.badge || '')}
+              <button
+                type="button"
+                onClick={() => setShowStyleModal(true)}
+                className="text-[10.5px] text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
+              >
+                <span>画风大厅</span>
+                <ChevronRight className="w-3 h-3" />
+              </button>
+            </div>
+
+            {/* 可视化画风卡片触发器 */}
+            <div
+              onClick={() => setShowStyleModal(true)}
+              className="w-full px-2.5 py-1.5 rounded-lg border border-rose-200 dark:border-rose-900/70 bg-rose-50/50 dark:bg-rose-950/20 hover:border-rose-400 dark:hover:border-rose-700 transition cursor-pointer flex items-center justify-between text-xs group mb-1.5"
+              title="点击打开图片画风全景参考大厅（带代表色板、光影质感与真实效果预览）"
+            >
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300 font-semibold shrink-0">
+                  {defaultStyle === 'auto' ? '全片统一' : (STYLE_OPTIONS.find((s) => s.id === defaultStyle)?.badge || '画风')}
+                </span>
+                <span className="font-medium text-zinc-800 dark:text-zinc-200 truncate">
+                  {defaultStyle === 'auto' ? '✨ 自动 (AI 语义分析匹配)' : (STYLE_OPTIONS.find((s) => s.id === defaultStyle)?.label || defaultStyle)}
+                </span>
+              </div>
+              <span className="text-[10.5px] text-rose-600 dark:text-rose-400 shrink-0 font-medium group-hover:translate-x-0.5 transition-transform">
+                选画风 ›
               </span>
             </div>
-            <select
-              value={defaultStyle}
-              onChange={(e) => setDefaultStyle(e.target.value)}
-              className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-800 dark:text-zinc-200 font-medium focus:ring-1 focus:ring-indigo-500 outline-none cursor-pointer"
-            >
-              {STYLE_OPTIONS.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.badge ? `[${s.badge}] ` : ''}{s.label}
-                </option>
-              ))}
-            </select>
           </div>
 
-          {/* 信息图版式（60+ 种官方版式可视化线框与分类选择） */}
+          {/* 信息图版式（88+ 种官方版式可视化线框与分类选择） */}
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
@@ -1876,14 +1912,14 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                 onClick={() => setShowLayoutModal(true)}
                 className="text-[10.5px] text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
               >
-                <span>60+ 版式库</span>
+                <span>88+ 版式库</span>
                 <ChevronRight className="w-3 h-3" />
               </button>
             </div>
             <div
               onClick={() => setShowLayoutModal(true)}
               className="w-full px-2.5 py-1.5 rounded-lg border border-cyan-200 dark:border-cyan-900/70 bg-cyan-50/50 dark:bg-cyan-950/20 hover:border-cyan-400 dark:hover:border-cyan-700 transition cursor-pointer flex items-center justify-between text-xs group"
-              title="点击打开 60+ 种官方信息图版式选择面板（带线框结构示意图）"
+              title="点击打开 88+ 种官方全量信息图版式大厅（带线框结构示意图）"
             >
               <div className="flex items-center gap-1.5 min-w-0">
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-100 dark:bg-cyan-900/60 text-cyan-700 dark:text-cyan-300 font-semibold shrink-0">
@@ -3090,6 +3126,12 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                         <div className="text-[12px] font-semibold text-zinc-800 dark:text-zinc-200 line-clamp-2" title={rec.title}>
                           {rec.title}
                         </div>
+                        {rec.videoTitle && (
+                          <div className="flex items-center gap-1 text-[10.5px] text-indigo-600 dark:text-indigo-400 font-medium truncate" title={`关联原视频: ${rec.videoTitle}`}>
+                            <Video className="w-3 h-3 shrink-0" />
+                            <span className="truncate">{rec.videoTitle}</span>
+                          </div>
+                        )}
                         <div className="text-[10px] text-zinc-400 font-mono">
                           {new Date(rec.createdAt).toLocaleString('zh-CN')}
                         </div>
@@ -3105,6 +3147,12 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                           <span className="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
                             {rec.videoDuration ? `${Math.round(rec.videoDuration)}s` : '—'}
                           </span>
+                          {(rec.videoUrl || rec.videoPath) && (
+                            <span className="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-medium flex items-center gap-0.5">
+                              <Video className="w-2.5 h-2.5" />
+                              含原视频
+                            </span>
+                          )}
                           {rec.density && (
                             <span className="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
                               {rec.density === 'dense' ? '密集' : rec.density === 'sparse' ? '精炼' : '标准'}
@@ -3339,7 +3387,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         </div>
       )}
 
-      {/* 60+ 种信息图版式可视化选择弹窗 */}
+      {/* 88+ 种信息图版式可视化选择弹窗 */}
       <LayoutSelectorModal
         open={showLayoutModal}
         onClose={() => setShowLayoutModal(false)}
@@ -3348,6 +3396,19 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
           setSelectedLayoutId(layoutId);
           const name = layoutId === 'auto' ? 'AI 智能自适应匹配' : LAYOUTS[layoutId]?.label || layoutId;
           showToast(`已选定信息图版式：【${name}】`, 'ok');
+        }}
+      />
+
+      {/* 图片画风全景参考大厅弹窗（带具象化艺术预览、调色盘、质感说明） */}
+      <StyleSelectorModal
+        open={showStyleModal}
+        onClose={() => setShowStyleModal(false)}
+        selectedStyleId={defaultStyle}
+        onSelect={(styleId) => {
+          setDefaultStyle(styleId);
+          const st = STYLE_OPTIONS.find((s) => s.id === styleId);
+          const name = styleId === 'auto' ? '自动 (AI 语义分析匹配)' : (st?.label || styleId);
+          showToast(`已选定图片画风：【${name}】`, 'ok');
         }}
       />
     </div>

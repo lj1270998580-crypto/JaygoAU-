@@ -7,6 +7,7 @@ import { AdaptiveConcurrency, createAdaptiveConcurrency } from './modelConcurren
 import { enforceVisualDiversity } from './visualDirector';
 import { getStyleBible, STYLE_BIBLES, STYLE_PLANNER_GUIDANCE } from './styleBible';
 import { LAYOUTS, layoutCandidatesFor, fallbackLayoutFor } from './layoutBible';
+import { isSalesPitch } from './semanticParser';
 
 /**
  * v0.7.15：语义解析 + 视觉导演 合并为**单次**大模型调用。
@@ -211,13 +212,17 @@ export async function planIllustrationsUnified(
 
   const styleBlock = buildStyleBlock(styleId, infographicStyleId);
 
-  const totalBudget = resolveTotalBudget(density, videoDuration, Math.ceil(segments.length / SCREEN_BATCH_SIZE));
+  // v0.7.24：前置过滤营销带货/引流/促销话术，确保商业推销与赠品话术绝不进入 AI 配图规划
+  const cleanSegments = segments.filter((seg) => !isSalesPitch(seg.text));
+  const effectiveSegments = cleanSegments.length > 0 ? cleanSegments : segments;
+
+  const totalBudget = resolveTotalBudget(density, videoDuration, Math.ceil(effectiveSegments.length / SCREEN_BATCH_SIZE));
 
   // =========================================================================
   // v0.7.20 两阶段规划 + v0.7.21 真实全生命周期平滑递增进度
   // =========================================================================
 
-  const screenBatches = chunkArray(segments, SCREEN_BATCH_SIZE);
+  const screenBatches = chunkArray(effectiveSegments, SCREEN_BATCH_SIZE);
   // 预估细化阶段批次（约占总预算的一半除以批尺寸，至少 1 批）
   const estimatedDetailBatches = Math.max(1, Math.ceil(totalBudget / DETAIL_BATCH_SIZE));
   const estimatedTotalBatches = screenBatches.length + estimatedDetailBatches;
@@ -231,7 +236,7 @@ export async function planIllustrationsUnified(
   // —— 阶段 A：粗筛 ——
   const screenResults = await ctrl.run(screenBatches, async (batch, bi) => {
     const picked = await screenBatchWithRetry(
-      batch, bi, modelHubSettings, ctrl, screenBatches.length, styleBlock, segments.length, totalBudget
+      batch, bi, modelHubSettings, ctrl, screenBatches.length, styleBlock, effectiveSegments.length, totalBudget
     );
     screened++;
     onBatch?.(screened, estimatedTotalBatches);
@@ -358,11 +363,12 @@ async function screenBatchOnce(
 **不要照着错别字理解**。
 
 【第二步 —— 判断值不值得配图】
-以下情况 illustrate 应为 false：
+以下情况 illustrate 必须为 false：
+- 【商业营销/推销带货一律禁止配图（铁律）】：凡推销商品、卖课、价格优惠促销（“原价…现价…”、“只要9块9”、“价值>329元”）、赠品资料诱导（“还加赠18份协议/资料/工具包”、“免费领”）、引导下单互动（“点击下方链接”、“小黄车/购物车”、“拍下”、“私信/评论区回复”）、限额饥饿营销（“仅限前50名”、“先到先得”、“赶紧抢/上车”）等，一律判定为推销，illustrate 必须为 false！短视频配图绝不在推销处插画！
 - 口头禅、寒暄、语气词、无信息量的过渡句（「好了」「其实呢」「对吧」「嗯 对 不对」）
 - 与相邻句表达同一件事、画面必然重复的句子
 - 纯情绪感叹、没有可视内容
-值得配图的是：有具体信息、有数据、有对比、有步骤、有明确场景或强比喻的句子。
+值得配图的是：有实质干货知识、客观数据、核心观点对比、操作步骤、明确叙事场景或强比喻的句子。
 本批共 ${batch.length} 句，请挑**大约 ${budget} 句**（可上下浮动 1 句）。
 ${styleBlock}
 

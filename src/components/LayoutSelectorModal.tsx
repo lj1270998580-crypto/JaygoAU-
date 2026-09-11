@@ -59,6 +59,108 @@ const LayoutWireframePreview: React.FC<{ layoutId: string; category: LayoutCateg
         </svg>
       );
 
+    case 'nine-grid':
+      return (
+        <svg viewBox="0 0 100 64" className="w-full h-full text-indigo-500/70 dark:text-indigo-400/80">
+          {[0, 1, 2].map((r) =>
+            [0, 1, 2].map((c) => (
+              <rect
+                key={`${r}-${c}`}
+                x={8 + c * 29}
+                y={6 + r * 18}
+                width="26"
+                height="15"
+                rx="2"
+                fill="currentColor"
+                fillOpacity={r === 1 && c === 1 ? '0.35' : '0.15'}
+                stroke="currentColor"
+                strokeWidth="1"
+              />
+            ))
+          )}
+        </svg>
+      );
+
+    case 'comparison-matrix':
+      return (
+        <svg viewBox="0 0 100 64" className="w-full h-full text-indigo-500/70 dark:text-indigo-400/80">
+          <rect x="8" y="8" width="84" height="48" rx="3" fill="none" stroke="currentColor" strokeWidth="1.2" />
+          <line x1="8" y1="22" x2="92" y2="22" stroke="currentColor" strokeWidth="1.2" />
+          <line x1="8" y1="36" x2="92" y2="36" stroke="currentColor" strokeWidth="1" strokeDasharray="2 2" strokeOpacity="0.6" />
+          <line x1="8" y1="50" x2="92" y2="50" stroke="currentColor" strokeWidth="1" strokeDasharray="2 2" strokeOpacity="0.6" />
+          <line x1="36" y1="8" x2="36" y2="56" stroke="currentColor" strokeWidth="1.2" />
+          <line x1="64" y1="8" x2="64" y2="56" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2 2" strokeOpacity="0.6" />
+        </svg>
+      );
+
+    case 'asymmetry':
+      return (
+        <svg viewBox="0 0 100 64" className="w-full h-full text-indigo-500/70 dark:text-indigo-400/80">
+          <rect x="6" y="8" width="58" height="48" rx="4" fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
+          <rect x="70" y="14" width="24" height="14" rx="2" fill="currentColor" fillOpacity="0.15" stroke="currentColor" strokeWidth="1" />
+          <rect x="70" y="34" width="24" height="22" rx="2" fill="currentColor" fillOpacity="0.1" stroke="currentColor" strokeWidth="1" />
+        </svg>
+      );
+
+    case 'breaking-the-grid':
+      return (
+        <svg viewBox="0 0 100 64" className="w-full h-full text-indigo-500/70 dark:text-indigo-400/80">
+          <rect x="18" y="14" width="68" height="42" rx="4" fill="currentColor" fillOpacity="0.1" stroke="currentColor" strokeWidth="1.2" strokeDasharray="3 2" />
+          <circle cx="36" cy="22" r="16" fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="1.5" />
+          <line x1="56" y1="28" x2="80" y2="28" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <line x1="56" y1="38" x2="74" y2="38" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      );
+
+    case 'three-tier':
+      return (
+        <svg viewBox="0 0 100 64" className="w-full h-full text-indigo-500/70 dark:text-indigo-400/80">
+          <rect x="14" y="6" width="72" height="14" rx="2.5" fill="currentColor" fillOpacity="0.35" stroke="currentColor" strokeWidth="1.2" />
+          <rect x="10" y="24" width="80" height="15" rx="2.5" fill="currentColor" fillOpacity="0.25" stroke="currentColor" strokeWidth="1.2" />
+          <rect x="6" y="43" width="88" height="16" rx="2.5" fill="currentColor" fillOpacity="0.15" stroke="currentColor" strokeWidth="1.2" />
+        </svg>
+      );
+
+    case 'speech-bubbles':
+      return (
+        <svg viewBox="0 0 100 64" className="w-full h-full text-indigo-500/70 dark:text-indigo-400/80">
+          <rect x="8" y="8" width="52" height="22" rx="4" fill="currentColor" fillOpacity="0.25" stroke="currentColor" strokeWidth="1.2" />
+          <polygon points="16,30 24,30 18,36" fill="currentColor" fillOpacity="0.25" />
+          <rect x="40" y="32" width="52" height="22" rx="4" fill="currentColor" fillOpacity="0.15" stroke="currentColor" strokeWidth="1.2" />
+          <polygon points="76,32 84,32 82,26" fill="currentColor" fillOpacity="0.15" />
+        </svg>
+      );
+
+    case 'left-text-right-image':
+      return (
+        <svg viewBox="0 0 100 64" className="w-full h-full text-indigo-500/70 dark:text-indigo-400/80">
+          <rect x="52" y="8" width="42" height="48" rx="4" fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.2" />
+          <line x1="8" y1="16" x2="44" y2="16" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+          <line x1="8" y1="26" x2="40" y2="26" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="8" y1="34" x2="42" y2="34" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="8" y1="42" x2="32" y2="42" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      );
+
+    case 'top-image-bottom-text':
+      return (
+        <svg viewBox="0 0 100 64" className="w-full h-full text-indigo-500/70 dark:text-indigo-400/80">
+          <rect x="8" y="6" width="84" height="30" rx="3" fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.2" />
+          <line x1="12" y1="44" x2="88" y2="44" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <line x1="12" y1="52" x2="68" y2="52" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      );
+
+    case 'wave-path':
+      return (
+        <svg viewBox="0 0 100 64" className="w-full h-full text-indigo-500/70 dark:text-indigo-400/80">
+          <path d="M 6 38 C 22 16, 42 16, 50 32 C 58 48, 78 48, 94 26" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="3 2" />
+          <circle cx="16" cy="30" r="4" fill="currentColor" />
+          <circle cx="50" cy="32" r="4" fill="currentColor" />
+          <circle cx="84" cy="34" r="4" fill="currentColor" />
+        </svg>
+      );
+
     case 'linear-progression':
     case 'one-way-flow':
     case 'z-pattern':
@@ -269,10 +371,10 @@ export const LayoutSelectorModal: React.FC<LayoutSelectorModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                  信息图版式库 (60+ 种专业架构)
+                  信息图版式全集大厅 (88+ 种官方架构)
                 </h3>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-50 dark:bg-cyan-950/60 text-cyan-600 dark:text-cyan-400 font-semibold border border-cyan-200/60 dark:border-cyan-800/60">
-                  对齐官方 sn-infographic
+                  对齐商汤官方 sn-infographic 完整规范
                 </span>
               </div>
               <p className="text-[11px] text-zinc-400 mt-0.5">

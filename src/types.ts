@@ -270,6 +270,11 @@ export interface IllustrationHistoryRecord {
   updatedAt: number;
   scriptText: string;
   videoDuration: number;
+  /** v0.7.24：关联视频本地路径或网络直链，载入时无损还原播放舞台 */
+  videoUrl?: string;
+  videoPath?: string;
+  videoTitle?: string;
+  videoDimensions?: { width: number; height: number };
   density: IllustrationDensity;
   styleId: string;
   /** v0.7.20：信息图专用画风 */
