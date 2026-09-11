@@ -6,6 +6,7 @@ import { extractJsonArrayLoose, chunkArray } from './jsonExtract';
 import { AdaptiveConcurrency, createAdaptiveConcurrency } from './modelConcurrency';
 import { enforceVisualDiversity } from './visualDirector';
 import { getStyleBible, STYLE_BIBLES, STYLE_PLANNER_GUIDANCE } from './styleBible';
+import { LAYOUTS, layoutCandidatesFor, fallbackLayoutFor } from './layoutBible';
 
 /**
  * v0.7.15：语义解析 + 视觉导演 合并为**单次**大模型调用。
@@ -73,6 +74,8 @@ interface RawItem {
   seg_id?: string;
   illustrate?: boolean;
   score?: number;
+  /** v0.7.19：信息版式 id（从该片段的候选清单中选） */
+  layout?: string;
   visual_type?: string;
   communication_goal?: string;
   primary_subject?: string;
@@ -98,6 +101,23 @@ interface RawItem {
 function pickEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   const v = String(value ?? '').trim() as T;
   return allowed.includes(v) ? v : fallback;
+}
+
+/**
+ * v0.7.19：在调用大模型**之前**粗略猜一下这句的信息形态，
+ * 只用于给它一份合适的「候选版式」清单（模型仍可自行改选）。
+ *
+ * 这里不是内容判断，只是关键词分桶给出候选集 —— 真正的选择仍由大模型完成。
+ */
+function guessVisualType(text: string): VisualType {
+  const t = text || '';
+  if (/对比|区别|还是|相比|不如|优劣|好坏|vs/i.test(t)) return 'vs_comparison';
+  if (/第一步|步骤|流程|首先|然后|接着|如何操作|怎么做/.test(t)) return 'step_framework';
+  if (/\d+(\.\d+)?%|百分之|万|亿|金额|税率|成本|收益|涨幅|比例/.test(t)) return 'data_stat';
+  if (/历史|当年|古代|年代|时期|朝代|以前/.test(t)) return 'historical_recreation';
+  if (/产品|物件|设备|工具|清单|系列/.test(t)) return 'product_showcase';
+  if (/意味着|本质|象征|如同|就像|好比|道理|意义/.test(t)) return 'concept_metaphor';
+  return 'scene_narrative';
 }
 
 function str(value: unknown, fallback = ''): string {
@@ -226,12 +246,18 @@ async function planBatchOnce(
   budget: number,
   styleBlock: string
 ): Promise<UnifiedPlanItem[] | null> {
-  const promptList = batch.map((s, idx) => ({
-    seg_id: `SU_${String(batchIndex * BATCH_SIZE + idx + 1).padStart(2, '0')}`,
-    时间起: Number(s.startTime.toFixed(2)),
-    时间止: Number(s.endTime.toFixed(2)),
-    旁白: s.text,
-  }));
+  const promptList = batch.map((s, idx) => {
+    // v0.7.19：为该片段给出候选版式（按 visual_type 映射，取自官方 layout 表）
+    const guessType = guessVisualType(s.text);
+    const candidates = layoutCandidatesFor(guessType);
+    return {
+      seg_id: `SU_${String(batchIndex * BATCH_SIZE + idx + 1).padStart(2, '0')}`,
+      时间起: Number(s.startTime.toFixed(2)),
+      时间止: Number(s.endTime.toFixed(2)),
+      旁白: s.text,
+      候选版式: candidates.map((id) => `${id}(${LAYOUTS[id]?.label || id})`).join(' | '),
+    };
+  });
 
   const systemPrompt = `你是一位世界级的视频视觉导演，同时具备极强的中文语义理解能力。
 你的任务：读一段口播旁白，直接决定「这一句要不要配图、配什么图、怎么构图」。
@@ -275,6 +301,14 @@ ${styleBlock}
 所有字段值必须使用**简体中文**。目标生图模型是中文原生模型。
 visual_anchors 的 concept 也必须是中文。
 
+【layout 信息版式 —— 新增且重要】
+每个片段都给了「候选版式」清单（格式「id(中文名)」）。
+你必须**从该片段的候选清单里选恰好一个 id** 填进 layout 字段。
+版式决定「信息怎么排」，是画面结构；画风决定「长什么样」，是渲染质感，两者独立。
+- 讲对比就用对比类版式，讲步骤就用流程类版式，讲数据就用仪表盘类版式。
+- 同一批内尽量不要连续两次用同一个版式，让版面有节奏变化。
+- 候选清单是按这句旁白的信息结构给的，通常主选（第一个）就合适，但你要按实际语义判断。
+
 visual_type 只能取以下值之一：
 scene_narrative(场景叙事) / concept_metaphor(概念隐喻) / data_stat(数据图表)
 / step_framework(步骤流程) / vs_comparison(正反对比) / historical_recreation(历史重现)
@@ -301,6 +335,7 @@ depth 只能取：deep / shallow / layered
     "seg_id": "SU_01",
     "illustrate": true,
     "score": 0.82,
+    "layout": "binary-comparison",
     "reason": "给出了具体的税负对比，值得配图",
     "visual_type": "vs_comparison",
     "communication_goal": "1秒读懂：公司持有房产与个人持有的税负差异",
@@ -373,6 +408,12 @@ depth 只能取：deep / shallow / layered
       beatId: expectedId,
       communicationGoal: str(raw.communication_goal, `1秒读懂：${seg.text.slice(0, 16)}`),
       visualType,
+      // v0.7.19：版式优先用模型选的；无效或缺失时按 visualType 兜底
+      layout: pickEnum<string>(
+        raw.layout,
+        layoutCandidatesFor(visualType),
+        fallbackLayoutFor(visualType)
+      ),
       scene: {
         primarySubject: str(raw.primary_subject, seg.text.slice(0, 12)),
         action: str(raw.action, '静态呈现'),

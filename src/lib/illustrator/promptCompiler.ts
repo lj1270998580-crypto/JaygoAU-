@@ -23,6 +23,7 @@
 // =========================================================================
 
 import type { ScenePlan, StyleBible, PromptBlocks, ShotType } from './types';
+import { layoutPromptText } from './layoutBible';
 
 const SHOT_DESC_MAP: Record<ShotType, string> = {
   wide: '横向宽幅的建立镜头',
@@ -133,6 +134,15 @@ export function compileScenePrompt(
     subjectAndAction = sentence(`一张清晰的信息图。${scenePlan.scene.primarySubject}`);
 
     lines.push(subjectAndAction);
+
+    // v0.7.19：注入信息版式（对齐官方 sn-infographic 的 layout 轴）。
+    // 此前完全没有版式概念，信息图只能靠模型自由发挥，
+    // 结果永远长成「标题 + 几个卡片」那一个样子。
+    const layoutText = layoutPromptText(scenePlan.layout, scenePlan.visualType);
+    if (layoutText) {
+      lines.push(sentence(layoutText));
+    }
+
     if (scenePlan.scene.action) {
       lines.push(sentence(scenePlan.scene.action));
     }

@@ -73,6 +73,12 @@ export interface ScenePlan {
   beatId: string;
   communicationGoal: string; // 1秒读懂的核心传达目标
   visualType: VisualType;
+  /**
+   * v0.7.19：信息版式（对齐 SenseNova 官方 sn-infographic 的 layout 轴）。
+   * 版式决定「信息怎么排」，画风决定「画面长什么样」，两者互相独立。
+   * 取值见 layoutBible.ts 的 LAYOUTS。
+   */
+  layout?: string;
   scene: {
     primarySubject: string; // 画面核心主体
     action: string;         // 主体动作或核心状态

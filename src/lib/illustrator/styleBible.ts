@@ -74,6 +74,23 @@ export const STYLE_PLANNER_GUIDANCE: Record<string, StylePlannerGuidance> = {
     suitableSubjects: ['清晰的数据图表与对比表', '流程步骤与层级结构', '量化的指标与刻度', '简洁的图形化概念示意'],
     avoidSubjects: ['写实人物与场景插画', '油画笔触与手绘肌理', '抽象氛围渲染'],
   },
+  // v0.7.19 新增（对齐官方 66 风格）
+  'chinese-guochao': {
+    suitableSubjects: ['中式厅堂与屏风', '印章、折扇、灯笼、祥云纹样', '山水与花鸟元素', '传统器物与节庆场景'],
+    avoidSubjects: ['现代办公白板', '手机与电脑界面', '西装人物', '赛博霓虹'],
+  },
+  claymation: {
+    suitableSubjects: ['黏土捏塑的人物与小场景', '圆润的手工道具', '微缩的家居与办公模型', '食物与日常物件'],
+    avoidSubjects: ['锐利写实材质', '复杂文字排版', '冷硬金属质感'],
+  },
+  chalkboard: {
+    suitableSubjects: ['板书式的公式与要点', '粉笔手绘的示意图与箭头', '圈画强调的关键词', '简笔人物与图示'],
+    avoidSubjects: ['写实摄影', '繁复装饰', '高饱和彩色插画'],
+  },
+  'swiss-style': {
+    suitableSubjects: ['严格网格中的文字与几何块', '极简图标与色块', '版式化的信息层级', '摄影与排版的组合'],
+    avoidSubjects: ['手绘涂鸦', '装饰花纹', '三维立体效果', '复杂背景插画'],
+  },
 };
 
 export const STYLE_BIBLES: Record<string, StyleBible> = {
@@ -418,6 +435,107 @@ export const STYLE_BIBLES: Record<string, StyleBible> = {
       '悬浮的抽象符号',
       '乱码错位文字',
     ],
+  },
+
+  // ===== v0.7.19 新增：对齐官方 sn-infographic 的 66 种风格，补齐实际缺口 =====
+  'chinese-guochao': {
+    styleId: 'chinese-guochao',
+    label: '新中式国潮',
+    badge: '国潮',
+    visualMedium: '新中式国潮视觉设计，传统东方纹样与当代平面构成结合，配色浓郁而克制，兼具古典气韵与现代张力',
+    realism: 0.55,
+    palette: {
+      temperature: 'warm',
+      saturation: 'vibrant',
+      contrast: 'high',
+      dominantTones: ['朱砂红', '石青', '黛墨黑', '描金', '月白'],
+    },
+    lighting: {
+      type: '平面化装饰性光照',
+      direction: '无固定光源',
+      shadow: '不使用写实投影，靠色块与描金线条区分层级',
+    },
+    cameraLanguage: {
+      recommendedLens: '正视平面海报视角',
+      compositionRule: '对称或回纹式布局，主图居中，四周以传统纹样收边',
+    },
+    texture: '宣纸底纹与烫金线条，局部漆器质感',
+    forbidden: ['西式写实光影', '欧美卡通造型', '霓虹赛博元素', '杂乱乱码文字'],
+  },
+
+  claymation: {
+    styleId: 'claymation',
+    label: '黏土定格',
+    badge: '手工质感',
+    visualMedium: '黏土定格动画质感，手工捏塑的圆润造型与可见的指痕肌理，柔和影棚打光，温暖亲切',
+    realism: 0.6,
+    palette: {
+      temperature: 'warm',
+      saturation: 'natural',
+      contrast: 'soft',
+      dominantTones: ['奶油白', '陶土橙', '薄荷绿', '柔雾蓝', '浅木色'],
+    },
+    lighting: {
+      type: '定格动画影棚柔光箱照明',
+      direction: '柔和顶光配合正面补光',
+      shadow: '短而柔的实体投影，强调立体体积',
+    },
+    cameraLanguage: {
+      recommendedLens: '微距定格摄影视角',
+      compositionRule: '微缩场景式构图，主体居中偏下，营造小人国般的亲切感',
+    },
+    texture: '黏土手捏肌理、细微指纹与哑光表面',
+    forbidden: ['锋利硬边', '金属高光', '复杂写实细节', '扁平矢量感'],
+  },
+
+  chalkboard: {
+    styleId: 'chalkboard',
+    label: '黑板教学',
+    badge: '知识科普',
+    visualMedium: '黑板粉笔手绘教学风格，深色板面上粉笔笔迹的颗粒质感，知识讲解的经典形态',
+    realism: 0.4,
+    palette: {
+      temperature: 'cool',
+      saturation: 'muted',
+      contrast: 'high',
+      dominantTones: ['深墨绿黑板', '白色粉笔', '浅黄色重点', '淡蓝辅助线', '少量红色标注'],
+    },
+    lighting: {
+      type: '教室顶部日光灯均匀照明',
+      direction: '正面均匀光',
+      shadow: '无阴影，纯平面呈现',
+    },
+    cameraLanguage: {
+      recommendedLens: '正视黑板拍摄视角',
+      compositionRule: '板书式布局，重点用粉笔圈画强调，留出讲解顺序的空白',
+    },
+    texture: '黑板哑光颗粒与粉笔灰笔迹',
+    forbidden: ['三维渲染光泽', '照片级写实', '高饱和荧光色', '复杂渐变'],
+  },
+
+  'swiss-style': {
+    styleId: 'swiss-style',
+    label: '瑞士国际主义',
+    badge: '理性排版',
+    visualMedium: '瑞士国际主义平面设计，严格的网格系统、无衬线字体与理性留白，克制的红黑配色',
+    realism: 0.45,
+    palette: {
+      temperature: 'neutral',
+      saturation: 'muted',
+      contrast: 'high',
+      dominantTones: ['纯白底', '正黑', '国际红', '中灰', '少量原色点缀'],
+    },
+    lighting: {
+      type: '平面设计无光源',
+      direction: '无方向',
+      shadow: '完全无阴影',
+    },
+    cameraLanguage: {
+      recommendedLens: '正视平面视角',
+      compositionRule: '严格网格对齐，大量理性留白，层级靠字号与位置而非装饰区分',
+    },
+    texture: '纯净平涂，无任何肌理',
+    forbidden: ['装饰性花纹', '手绘笔触', '立体投影', '花哨渐变'],
   },
 };
 
