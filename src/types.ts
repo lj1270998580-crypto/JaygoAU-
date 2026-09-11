@@ -199,7 +199,29 @@ export interface JaygoAPI {
     size?: string;
     style?: string;
     imageBase64?: string;
-  }): Promise<{ ok: boolean; imageUrl?: string; localPath?: string; model?: string; prompt?: string; error?: string }>;
+    /** v0.7.26：生成数量（用于候选变体） */
+    n?: number;
+  }): Promise<{
+    ok: boolean;
+    imageUrl?: string;
+    localPath?: string;
+    variants?: string[];
+    variantPaths?: string[];
+    model?: string;
+    prompt?: string;
+    error?: string;
+  }>;
+  /** v0.7.26：检测本地剪映草稿目录 */
+  illustratorDetectJianying(): Promise<{ installed: boolean; draftRootPath: string | null }>;
+  /** v0.7.26：一键导出剪映工程草稿 */
+  illustratorExportJianying(args: {
+    draftDirName?: string;
+    draftContent: any;
+    draftMeta: any;
+    customRootPath?: string;
+  }): Promise<{ ok: boolean; draftPath?: string; error?: string }>;
+  /** v0.7.26：直接打开文件夹 */
+  illustratorOpenFolder(folderPath: string): Promise<boolean>;
   exportVideoWithOverlays(a: {
     videoPath: string;
     outputPath?: string;
@@ -262,6 +284,8 @@ export interface JaygoAPI {
  * 生成出来的图片本身已经持久保存在 userData/illustrations/ 下，
  * 因此这里只保存元数据与文件路径，不复制图片本体。
  */
+export type CharacterConsistencyMode = 'auto' | 'custom' | 'off';
+
 export interface IllustrationHistoryRecord {
   id: string;
   /** 展示用标题（取文案首句） */
@@ -283,6 +307,8 @@ export interface IllustrationHistoryRecord {
   infographicLayout?: string;
   ratio: string;
   routingMode: 'smart' | 'infographic' | 'standard';
+  characterMode?: CharacterConsistencyMode;
+  customCharacterPrompt?: string;
   transitionEffect: 'fade' | 'slide' | 'zoom' | 'none';
   borderStyle: 'none' | 'clean_white' | 'rounded_card' | 'star_badge' | 'cyber_glow';
   /** 全局叠加层位置与尺寸（相对画面百分比） */
@@ -312,6 +338,12 @@ export interface VideoIllustrationItem {
   imageUrl?: string;
   localPath?: string;
   referenceImage?: string; // 图生图参考图 (Base64 或路径)
+  /** v0.7.26：单张候选变体图片列表 */
+  variants?: string[];
+  /** v0.7.26：所属连贯故事弧线 ID */
+  storyArcId?: string;
+  /** v0.7.26：该镜头绑定的故事主角外貌锚点 */
+  characterAnchor?: string;
   error?: string;
   beatId?: string;
   visualScore?: number; // 视觉价值评分 V (0.00 ~ 1.00)

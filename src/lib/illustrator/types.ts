@@ -79,6 +79,10 @@ export interface ScenePlan {
    * 取值见 layoutBible.ts 的 LAYOUTS。
    */
   layout?: string;
+  /** v0.7.26：所属故事弧线 ID（相同故事弧线保持主角一致） */
+  storyArcId?: string;
+  /** v0.7.26：故事主角外貌特征锚点（仅叙事镜头生效，信息图严格禁止） */
+  characterAnchor?: string;
   scene: {
     primarySubject: string; // 画面核心主体
     action: string;         // 主体动作或核心状态

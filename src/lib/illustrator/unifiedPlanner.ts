@@ -1,6 +1,6 @@
 import type { TimelineSegment } from './timelineAligner';
 import type { ScenePlan, ShotType, VisualType } from './types';
-import type { IllustrationDensity } from '../../types';
+import type { CharacterConsistencyMode, IllustrationDensity } from '../../types';
 import { chatCompletion, resolveModelInfo } from '../modelHubService';
 import { extractJsonArrayLoose, chunkArray } from './jsonExtract';
 import { AdaptiveConcurrency, createAdaptiveConcurrency } from './modelConcurrency';
@@ -111,6 +111,10 @@ interface RawItem {
   visual_elements?: Array<{ desc?: string; corresponds_to?: string }>;
   /** v0.7.20：阶段 A 给出的一句话主体提示 */
   subject_hint?: string;
+  /** v0.7.26：故事弧线 ID（相同故事连续分镜赋予相同 ID） */
+  story_arc_id?: string;
+  /** v0.7.26：故事主角外貌特征锚点（仅叙事，信息图为空） */
+  character_anchor?: string;
   reason?: string;
 }
 
@@ -200,10 +204,24 @@ export async function planIllustrationsUnified(
     infographicStyleId?: string;
     /** v0.7.21：信息图版式选择（空或 'auto' 表示大模型自动挑选） */
     infographicLayout?: string;
+    /** v0.7.26：故事角色一致性模式 */
+    characterMode?: CharacterConsistencyMode;
+    /** v0.7.26：用户自定义主角外貌设定描述 */
+    customCharacterPrompt?: string;
     onBatch?: (done: number, total: number) => void;
   }
 ): Promise<UnifiedPlanItem[]> {
-  const { density, videoDuration, modelHubSettings, styleId, infographicStyleId, infographicLayout, onBatch } = opts;
+  const {
+    density,
+    videoDuration,
+    modelHubSettings,
+    styleId,
+    infographicStyleId,
+    infographicLayout,
+    characterMode,
+    customCharacterPrompt,
+    onBatch,
+  } = opts;
 
   if (!segments || segments.length === 0) return [];
   if (!modelHubSettings) {
@@ -271,7 +289,15 @@ export async function planIllustrationsUnified(
 
   const detailResults = await ctrl.run(detailBatches, async (batch, bi) => {
     const items = await detailBatchWithRetry(
-      batch, bi, modelHubSettings, ctrl, detailBatches.length, styleBlock, infographicLayout
+      batch,
+      bi,
+      modelHubSettings,
+      ctrl,
+      detailBatches.length,
+      styleBlock,
+      infographicLayout,
+      characterMode,
+      customCharacterPrompt
     );
     detailed++;
     onBatch?.(screenBatches.length + detailed, actualTotalBatches);
@@ -430,14 +456,24 @@ async function detailBatchWithRetry(
   ctrl: AdaptiveConcurrency,
   totalBatches: number,
   styleBlock: string,
-  infographicLayout?: string
+  infographicLayout?: string,
+  characterMode?: CharacterConsistencyMode,
+  customCharacterPrompt?: string
 ): Promise<UnifiedPlanItem[]> {
   const MAX_ATTEMPTS = 3;
   let lastErr: any = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const items = await detailBatchOnce(batch, batchIndex, modelHubSettings, styleBlock, infographicLayout);
+      const items = await detailBatchOnce(
+        batch,
+        batchIndex,
+        modelHubSettings,
+        styleBlock,
+        infographicLayout,
+        characterMode,
+        customCharacterPrompt
+      );
       if (items) return items;
       lastErr = new Error('模型未返回可解析的 JSON 结果');
     } catch (err: any) {
@@ -458,7 +494,9 @@ async function detailBatchOnce(
   batchIndex: number,
   modelHubSettings: any,
   styleBlock: string,
-  infographicLayout?: string
+  infographicLayout?: string,
+  characterMode?: CharacterConsistencyMode,
+  customCharacterPrompt?: string
 ): Promise<UnifiedPlanItem[] | null> {
   const fixedLayout = infographicLayout && infographicLayout !== 'auto' && LAYOUTS[infographicLayout] ? infographicLayout : '';
   const promptList = batch.map((c, idx) => {
@@ -471,6 +509,23 @@ async function detailBatchOnce(
       候选版式: candidates.map((id) => `${id}(${LAYOUTS[id]?.label || id})`).join(' | '),
     };
   });
+
+  let characterGuidance = '';
+  if (characterMode === 'custom' && customCharacterPrompt?.trim()) {
+    characterGuidance = `
+【固定主角角色一致性 —— 用户指定设定】
+用户已指定全片人物主角设定为：「${customCharacterPrompt.trim()}」。
+- 对于需要出现人物的叙事/场景类镜头，统一将主角外貌描述填充在 character_anchor 字段，story_arc_id 填 "custom_global"；
+- 【信息图免污染铁律】：数据图表（data_stat）、步骤流程（step_framework）、正反对比（vs_comparison）或任何信息图版式分镜，严禁填写 character_anchor（必须留空串 ""），画面严禁强行塞入人物主角！`;
+  } else if (characterMode === 'auto') {
+    characterGuidance = `
+【故事弧线智能角色一致性 —— 连贯故事锁】
+如果这一批镜头中包含连贯的人物故事、具体案例或情景还原：
+1. 请研判哪些镜头属于同一个连贯故事弧线，为同一弧线的镜头分配相同的 story_arc_id（例如 "story_1"、"story_2"）；
+2. 并在 character_anchor 字段中为该故事弧线设定统一的具象外貌特征（例如："一位戴细黑框眼镜、留利落黑色短发的28岁青年男性，身穿深蓝色连帽卫衣"）。同一故事弧线内的所有分镜，character_anchor 必须严格保持一致！
+3. 若镜头切换到了全新独立案例/故事，请开启新的 story_arc_id，并自适应设计独立的人物外貌设定；
+4. 【信息图免污染铁律】：凡属于数据图表（data_stat）、步骤流程（step_framework）、正反对比（vs_comparison）或任何信息图版式（layout 字段有效且为图表结构）的分镜，禁止填写 character_anchor（留空串 ""），画面应聚焦于数据与结构表达，绝不强行塞入人物主角！`;
+  }
 
   const systemPrompt = `你是一位世界级的视频视觉导演，同时具备极强的中文语义理解能力。
 你的任务：读一段口播旁白，直接决定「这一句要不要配图、配什么图、怎么构图」。
@@ -490,6 +545,7 @@ async function detailBatchOnce(
 画面必须让观众在 1 秒内看懂这句话在讲什么。
 用具体物理实体、真实场景、人物姿态与环境来构建，不要悬浮的抽象符号。
 ${styleBlock}
+${characterGuidance}
 
 【反同质化 —— 极其重要，实测最容易被违反的一条】
 最容易出现的毛病不是「主体重复」，而是**构图套路重复**：
@@ -560,6 +616,8 @@ depth 只能取：deep / shallow / layered
     "illustrate": true,
     "score": 0.82,
     "layout": "binary-comparison",
+    "story_arc_id": "story_1",
+    "character_anchor": "留黑色短发的30岁干练职场男性",
     "reason": "给出了具体的税负对比，值得配图",
     "visual_type": "vs_comparison",
     "communication_goal": "1秒读懂：公司持有房产与个人持有的税负差异",
@@ -632,11 +690,32 @@ depth 只能取：deep / shallow / layered
       fallbackLayoutFor(visualType)
     );
 
+    // v0.7.26：故事弧线角色一致性（信息图免污染铁律）
+    const isInfographic = visualType === 'data_stat' ||
+      visualType === 'step_framework' ||
+      visualType === 'vs_comparison' ||
+      (Boolean(chosenLayout) && chosenLayout !== 'narrative-focus');
+
+    let finalCharacterAnchor: string | undefined = undefined;
+    let finalStoryArcId: string | undefined = undefined;
+
+    if (!isInfographic) {
+      if (characterMode === 'custom' && customCharacterPrompt?.trim()) {
+        finalCharacterAnchor = customCharacterPrompt.trim();
+        finalStoryArcId = 'custom_global';
+      } else if (characterMode === 'auto') {
+        finalCharacterAnchor = str(raw.character_anchor, '') || undefined;
+        finalStoryArcId = str(raw.story_arc_id, '') || undefined;
+      }
+    }
+
     const plan: ScenePlan = {
       beatId: expectedId,
       communicationGoal: str(raw.communication_goal, `1秒读懂：${cand.sourceText.slice(0, 16)}`),
       visualType,
       layout: chosenLayout,
+      storyArcId: finalStoryArcId,
+      characterAnchor: finalCharacterAnchor,
       scene: {
         primarySubject: str(raw.primary_subject, cand.sourceText.slice(0, 12)),
         action: str(raw.action, '静态呈现'),

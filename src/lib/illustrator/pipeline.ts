@@ -14,7 +14,7 @@ import type {
   VisualType,
 } from './types';
 import type { RawAsrUtterance } from './timelineAligner';
-import type { IllustrationDensity } from '../../types';
+import type { CharacterConsistencyMode, IllustrationDensity } from '../../types';
 import { alignScriptTimeline } from './timelineAligner';
 import { planIllustrationsUnified, recommendStyle } from './unifiedPlanner';
 import { createDirectorDiagnostics, type DirectorDiagnostics } from './visualDirector';
@@ -25,7 +25,7 @@ export interface PipelineOptions {
   scriptText: string;
   videoDuration: number;
   density: IllustrationDensity;
-  /** 叙事/场景类画面的画风（传 'auto' 时由大模型研判文案调性后自动匹配全片统一画风） */
+  /** 叙事/场景类画风（传 'auto' 时由大模型研判文案调性后自动匹配全片统一画风） */
   styleId: string;
   /**
    * v0.7.20：信息图（数据/对比/流程）专用画风。
@@ -36,6 +36,10 @@ export interface PipelineOptions {
   infographicStyleId?: string;
   /** v0.7.21：信息图版式（空或 'auto' 表示大模型按每句自动挑选；指定时优先采用该版式） */
   infographicLayout?: string;
+  /** v0.7.26：故事角色一致性模式 */
+  characterMode?: CharacterConsistencyMode;
+  /** v0.7.26：用户自定义主角形象外貌描述 */
+  customCharacterPrompt?: string;
   ratio: string;
   routingMode: 'smart' | 'infographic' | 'standard';
   asrUtterances?: RawAsrUtterance[];
@@ -64,6 +68,10 @@ export interface PlannedIllustrationResult {
   scenePlan: ScenePlan;
   visualScore: number;
   shot: string;
+  /** v0.7.26：所属故事弧线 ID */
+  storyArcId?: string;
+  /** v0.7.26：故事主角外貌特征锚点 */
+  characterAnchor?: string;
 }
 
 /**
@@ -89,6 +97,8 @@ export async function runIllustrationPipeline(
     styleId,
     infographicStyleId,
     infographicLayout,
+    characterMode,
+    customCharacterPrompt,
     ratio,
     routingMode,
     asrUtterances,
@@ -174,6 +184,8 @@ export async function runIllustrationPipeline(
     styleId: resolvedStyleId,
     infographicStyleId,
     infographicLayout,
+    characterMode,
+    customCharacterPrompt,
     onBatch: batchReporter('directing', 2, 'AI 分镜规划', 30, 55),
   });
 
@@ -253,6 +265,8 @@ export async function runIllustrationPipeline(
       scenePlan: plan,
       visualScore: item.score,
       shot: plan.composition.shot,
+      storyArcId: plan.storyArcId,
+      characterAnchor: plan.characterAnchor,
     };
   });
 

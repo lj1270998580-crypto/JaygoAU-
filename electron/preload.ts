@@ -254,6 +254,18 @@ const api = {
     ipcRenderer.on('export-video-progress', listener);
     return () => ipcRenderer.removeListener('export-video-progress', listener);
   },
+  // ---- 剪映草稿工程导出 (v0.7.26) ----
+  illustratorDetectJianying: (): Promise<{ installed: boolean; draftRootPath: string | null }> =>
+    ipcRenderer.invoke('illustrator-detect-jianying'),
+  illustratorExportJianying: (args: {
+    draftDirName?: string;
+    draftContent: any;
+    draftMeta: any;
+    customRootPath?: string;
+  }): Promise<{ ok: boolean; draftPath?: string; error?: string }> =>
+    ipcRenderer.invoke('illustrator-export-jianying', args),
+  illustratorOpenFolder: (folderPath: string): Promise<boolean> =>
+    ipcRenderer.invoke('illustrator-open-folder', folderPath),
 };
 
 contextBridge.exposeInMainWorld('JaygoAPI', api);

@@ -6,7 +6,9 @@ import type { ModelHubSettings, ModelProviderType } from '../lib/modelHubTypes';
 import { PRESET_PROVIDERS } from '../lib/modelHubTypes';
 import { runIllustrationPipeline, type PipelineProgress, type PipelineDiagnostics } from '../lib/illustrator';
 import { useAdaptiveColumns } from '../lib/useAdaptiveColumns';
-import type { VideoIllustrationItem, IllustrationLayout, IllustrationDensity, IllustrationHistoryRecord } from '../types';
+import type { VideoIllustrationItem, IllustrationLayout, IllustrationDensity, IllustrationHistoryRecord, CharacterConsistencyMode } from '../types';
+import { AdvancedTimelineModal } from './AdvancedTimelineModal';
+import { buildJianyingDraftData, createJianyingZipBlob } from '../lib/illustrator/jianyingExporter';
 import {
   Sparkles,
   Wand2,
@@ -51,7 +53,10 @@ import {
   Edit3,
   ChevronUp,
   ChevronRight,
+  ChevronLeft,
   GripVertical,
+  UserCheck,
+  ImagePlus,
 } from 'lucide-react';
 
 // =========================================================================
@@ -417,6 +422,19 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   const [infographicStyle, setInfographicStyle] = useState<string>('infographic_clean');
   const [defaultRatio, setDefaultRatio] = useState<string>('16:9');
   const [density, setDensity] = useState<IllustrationDensity>('standard');
+  /** v0.7.26：故事角色一致性模式 */
+  const [characterMode, setCharacterMode] = useState<CharacterConsistencyMode>('auto');
+  /** v0.7.26：用户指定全局主角设定描述 */
+  const [customCharacterPrompt, setCustomCharacterPrompt] = useState<string>('');
+  /** v0.7.26：宽屏双栏工作台模式（隐藏设置侧边栏） */
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
+  /** v0.7.26：专业波形时间轴抽屉模态框 */
+  const [showAdvancedTimeline, setShowAdvancedTimeline] = useState<boolean>(false);
+  /** v0.7.26：剪映导出与菜单状态 */
+  const [isExportingJianying, setIsExportingJianying] = useState<boolean>(false);
+  const [jianyingDraftResult, setJianyingDraftResult] = useState<{ path?: string; isZip?: boolean } | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState<boolean>(false);
+
   const [scriptText, setScriptText] = useState<string>('');
   const [asrUtterances, setAsrUtterances] = useState<Array<{ text: string; startTime: number; endTime: number }>>([]);
   const [isAsrExtracting, setIsAsrExtracting] = useState<boolean>(false);
@@ -1010,6 +1028,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         styleId: defaultStyle,
         infographicStyleId: infographicStyle,
         infographicLayout: selectedLayoutId,
+        characterMode,
+        customCharacterPrompt,
         ratio: defaultRatio || '16:9',
         routingMode,
         asrUtterances: asrUtterances.length > 0 ? asrUtterances : undefined,
@@ -1042,6 +1062,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         category: it.category,
         style: it.styleId,
         ratio: it.ratio,
+        storyArcId: it.storyArcId,
+        characterAnchor: it.characterAnchor,
         status: 'idle',
       }));
 
@@ -1161,6 +1183,182 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         )
       );
       showToast(`插图【${item.concept}】生成失败：${err?.message || '未知错误'}`, 'err');
+    }
+  };
+
+  // v0.7.26：并发生成 3 个候选变体供用户挑选
+  const generateItemVariants = async (itemId: string) => {
+    const item = illustrations.find((it) => it.id === itemId);
+    if (!item) return;
+
+    setIllustrations((prev) =>
+      prev.map((it) => (it.id === itemId ? { ...it, status: 'generating', error: undefined } : it))
+    );
+    showToast(`正在为【${item.concept}】并发生成 3 个候选变体…`, 'info');
+
+    const ratioObj = RATIO_OPTIONS.find((r) => r.id === item.ratio) || RATIO_OPTIONS[0];
+
+    try {
+      const res = await api.sensenovaGenerateImage({
+        apiKey: snApiKey.trim(),
+        model: item.model,
+        prompt: sanitizePromptForImageGen(item.prompt),
+        negativePrompt: item.negativePrompt,
+        size: ratioObj.size,
+        style: item.style,
+        imageBase64: item.referenceImage,
+        n: 3,
+      });
+
+      if (res.ok && res.variants && res.variants.length > 0) {
+        setIllustrations((prev) =>
+          prev.map((it) =>
+            it.id === itemId
+              ? {
+                  ...it,
+                  status: 'success',
+                  imageUrl: res.imageUrl,
+                  localPath: res.localPath,
+                  variants: res.variants,
+                }
+              : it
+          )
+        );
+        showToast(`成功生成 ${res.variants.length} 个候选变体！可点击下方缩略图切换选用`, 'ok');
+      } else if (res.ok && (res.imageUrl || res.localPath)) {
+        setIllustrations((prev) =>
+          prev.map((it) =>
+            it.id === itemId
+              ? {
+                  ...it,
+                  status: 'success',
+                  imageUrl: res.imageUrl,
+                  localPath: res.localPath,
+                  variants: [res.imageUrl!],
+                }
+              : it
+          )
+        );
+        showToast('已生成候选图片', 'ok');
+      } else {
+        throw new Error(res.error || '未生成有效变体');
+      }
+    } catch (err: any) {
+      setIllustrations((prev) =>
+        prev.map((it) =>
+          it.id === itemId ? { ...it, status: 'failed', error: err?.message || '生成变体失败' } : it
+        )
+      );
+      showToast(`生成变体失败：${err?.message || '未知错误'}`, 'err');
+    }
+  };
+
+  // 选用指定候选变体
+  const handleSelectVariant = (itemId: string, variantUrl: string) => {
+    const localP = variantUrl.replace(/^file:\/\/\//, '').replace(/\//g, '\\');
+    setIllustrations((prev) =>
+      prev.map((it) =>
+        it.id === itemId
+          ? {
+              ...it,
+              imageUrl: variantUrl,
+              localPath: localP,
+            }
+          : it
+      )
+    );
+    showToast('已切换为此候选变体！', 'ok');
+  };
+
+  // v0.7.26：单张分镜上传垫图参考
+  const handleUploadItemReferenceImage = async (itemId: string) => {
+    try {
+      const filePath = await api.pickImageFile();
+      if (!filePath) return;
+      const fileUrl = `file:///${filePath.replace(/\\/g, '/')}`;
+      const blob = await fetch(fileUrl).then((r) => r.blob());
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64Uri = reader.result as string;
+        setIllustrations((prev) =>
+          prev.map((it) => (it.id === itemId ? { ...it, referenceImage: base64Uri } : it))
+        );
+        showToast('垫图参考已绑定！生成时将结合此图作为垫图参考', 'ok');
+      };
+      reader.readAsDataURL(blob);
+    } catch (err: any) {
+      showToast(`垫图载入失败：${err?.message || '未知错误'}`, 'err');
+    }
+  };
+
+  // 移除垫图参考
+  const handleRemoveItemReferenceImage = (itemId: string) => {
+    setIllustrations((prev) =>
+      prev.map((it) => (it.id === itemId ? { ...it, referenceImage: undefined } : it))
+    );
+    showToast('已移除垫图参考', 'ok');
+  };
+
+  // v0.7.26：导出为剪映工程草稿 (直存项目目录 或 ZIP 下载)
+  const handleExportJianying = async (mode: 'direct' | 'zip') => {
+    const targetSource = videoPath || videoUrl;
+    if (!targetSource) {
+      showToast('请先载入视频文件', 'err');
+      return;
+    }
+    const readyItems = illustrations.filter((it) => it.status === 'success' && it.localPath);
+    if (readyItems.length === 0) {
+      showToast('尚无已生成的插图，请先生成插图', 'err');
+      return;
+    }
+
+    setIsExportingJianying(true);
+    try {
+      showToast('正在构建剪映专业版多轨草稿工程…', 'info');
+      const draftName = (videoTitle || 'JaygoAI_插图草稿')
+        .replace(/[\\/:*?"<>|]/g, '_')
+        .trim();
+
+      const exportOpts = {
+        projectName: draftName,
+        videoPath: targetSource,
+        videoDuration,
+        videoDimensions,
+        illustrations: readyItems,
+        globalLayout,
+        transitionEffect,
+      };
+
+      if (mode === 'direct') {
+        const { draftContent, draftMeta } = buildJianyingDraftData(exportOpts);
+        const res = await api.illustratorExportJianying({
+          draftDirName: `${draftName}_${Date.now()}`,
+          draftContent,
+          draftMeta,
+        });
+
+        if (res.ok && res.draftPath) {
+          setJianyingDraftResult({ path: res.draftPath, isZip: false });
+          showToast('已成功导出至剪映草稿目录！打开剪映即可直接看到', 'ok');
+        } else {
+          throw new Error(res.error || '写入剪映草稿目录失败');
+        }
+      } else {
+        const zipBlob = await createJianyingZipBlob(exportOpts);
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${draftName}_剪映草稿_${Date.now()}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('剪映草稿 ZIP 包已开始下载！', 'ok');
+      }
+    } catch (err: any) {
+      showToast(err?.message || '导出剪映工程失败', 'err');
+    } finally {
+      setIsExportingJianying(false);
     }
   };
 
@@ -1424,6 +1622,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
       infographicLayout: selectedLayoutId,
       ratio: defaultRatio,
       routingMode,
+      characterMode,
+      customCharacterPrompt: customCharacterPrompt || undefined,
       transitionEffect,
       borderStyle,
       globalLayout,
@@ -1486,6 +1686,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     setDefaultStyle(rec.styleId || 'auto');
     if (rec.infographicStyleId) setInfographicStyle(rec.infographicStyleId);
     if (rec.infographicLayout) setSelectedLayoutId(rec.infographicLayout);
+    if (rec.characterMode) setCharacterMode(rec.characterMode);
+    if (rec.customCharacterPrompt) setCustomCharacterPrompt(rec.customCharacterPrompt);
     setDefaultRatio(rec.ratio || '16:9');
     setRoutingMode(rec.routingMode || 'smart');
     setTransitionEffect(rec.transitionEffect || 'fade');
@@ -1540,6 +1742,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     setGlobalLayout({ ...DEFAULT_LAYOUT });
     setTransitionEffect('fade');
     setBorderStyle('none');
+    setCharacterMode('auto');
+    setCustomCharacterPrompt('');
     showToast('工作台已重置，可以上传新视频了（历史作品仍保留）', 'ok');
   };
 
@@ -1632,7 +1836,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">智能视频配插图</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/60">
-                v0.7.25 · 专业工作台
+                v0.7.26 · 专业工作台
               </span>
             </div>
             <p className="text-[11.5px] text-zinc-400 mt-0.5">
@@ -1683,6 +1887,103 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                 </span>
               )}
             </button>
+          </div>
+
+          {/* v0.7.26：宽屏双栏工作台切换 */}
+          {activeView === 'create' && (
+            <button
+              type="button"
+              onClick={() => setIsSidebarCollapsed((v) => !v)}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                isSidebarCollapsed
+                  ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500/60 text-indigo-600 dark:text-indigo-400 font-bold'
+                  : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100'
+              }`}
+              title={isSidebarCollapsed ? '展开左侧设置栏' : '收起左侧设置栏，进入双栏宽屏编辑工作台'}
+            >
+              {isSidebarCollapsed ? (
+                <>
+                  <ChevronRight className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>展开设置</span>
+                </>
+              ) : (
+                <>
+                  <ChevronLeft className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>宽屏工作台</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {/* v0.7.26：剪映草稿与视频导出下拉按钮 */}
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowExportMenu((v) => !v)}
+              disabled={illustrations.filter((i) => i.status === 'success').length === 0}
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-sm transition cursor-pointer flex items-center gap-1.5 disabled:opacity-40"
+              title="导出剪映 Pro 工程草稿或合成视频"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>导出工程 / 视频</span>
+              <ChevronDown className="w-3 h-3" />
+            </button>
+            {showExportMenu && (
+              <div className="absolute right-0 top-full mt-1.5 w-64 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-[#181a22] shadow-2xl z-50 p-2 space-y-1 animate-in fade-in slide-in-from-top-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowExportMenu(false);
+                    handleExportJianying('direct');
+                  }}
+                  disabled={isExportingJianying}
+                  className="w-full text-left p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer flex items-center gap-2"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-500 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">导出为剪映工程草稿</div>
+                    <div className="text-[10px] text-zinc-400 truncate">直存本地剪映，打开剪映即可见</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowExportMenu(false);
+                    handleExportJianying('zip');
+                  }}
+                  disabled={isExportingJianying}
+                  className="w-full text-left p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer flex items-center gap-2"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-indigo-500/20 text-indigo-500 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                    <Download className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">下载剪映工程 ZIP 包</div>
+                    <div className="text-[10px] text-zinc-400 truncate">解压后放入剪映草稿目录</div>
+                  </div>
+                </button>
+                <div className="border-t border-zinc-100 dark:border-zinc-800 my-1" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowExportMenu(false);
+                    handleExportVideo();
+                  }}
+                  disabled={isExporting}
+                  className="w-full text-left p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer flex items-center gap-2"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-purple-500/20 text-purple-500 dark:text-purple-400 flex items-center justify-center shrink-0">
+                    <Film className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">直接压制成品视频</div>
+                    <div className="text-[10px] text-zinc-400 truncate">FFmpeg 自动叠图压制 MP4</div>
+                  </div>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* AI 规划模型胶囊：明确显示当前实际调用的供应商与模型，并可快捷切换 */}
@@ -1826,7 +2127,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         {/* ========================================================================= */}
         {/* 左栏：常规设置、文案大输入框与排版包装 (宽度自适应，可拖拽调节) */}
         {/* ========================================================================= */}
-        {effectiveMode !== 'focus' && (
+        {effectiveMode !== 'focus' && !isSidebarCollapsed && (
         <div
           style={{ width: `${leftWidth}px`, minWidth: 0 }}
           className="flex flex-col bg-white dark:bg-[#111217] border-r border-zinc-200 dark:border-zinc-800/80 overflow-y-auto overflow-x-hidden p-3 space-y-3 shrink"
@@ -1965,6 +2266,60 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                   {d.label}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* v0.7.26：故事弧线角色主体一致性锁 (✨ 智能分段 / 🔒 全局锁定 / ⚡ 独立生成) */}
+          <div className="rounded-xl border border-indigo-200/70 dark:border-indigo-800/50 bg-indigo-50/30 dark:bg-indigo-950/20 p-2.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+                <UserCheck className="w-3.5 h-3.5 text-indigo-500" />
+                <span>角色主体一致性</span>
+              </label>
+              <span className="text-[9.5px] font-medium text-indigo-600 dark:text-indigo-400">
+                {characterMode === 'auto' ? 'AI 故事弧线自适应' : characterMode === 'custom' ? '全片全局固定' : '镜头独立生成'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-1 bg-zinc-100 dark:bg-zinc-900/80 p-0.5 rounded-lg border border-zinc-200/80 dark:border-zinc-800">
+              {[
+                { id: 'auto', label: '✨ 智能分段', desc: 'AI 自动研判连贯故事弧线，同一故事保持人物一致，多故事自适应设计，信息图自动免污染' },
+                { id: 'custom', label: '🔒 全局锁定', desc: '自定义固定主角形象，全片叙事镜头保持统一主角' },
+                { id: 'off', label: '⚡ 独立生成', desc: '关闭一致性，每个叙事镜头独立生图' },
+              ].map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => {
+                    setCharacterMode(m.id as any);
+                    showToast(`角色一致性已切换为【${m.label}】`, 'ok');
+                  }}
+                  title={m.desc}
+                  className={`py-1 rounded-md text-[11px] font-medium transition cursor-pointer text-center truncate ${
+                    characterMode === m.id
+                      ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            {characterMode === 'custom' && (
+              <div className="space-y-1 animate-in fade-in slide-in-from-top-1">
+                <input
+                  type="text"
+                  value={customCharacterPrompt}
+                  onChange={(e) => setCustomCharacterPrompt(e.target.value)}
+                  placeholder="输入主角设定：如穿白卫衣的25岁短发男生，戴黑框眼镜"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-zinc-900 text-xs text-zinc-800 dark:text-zinc-200 focus:ring-1 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+            )}
+
+            <div className="text-[10px] text-zinc-400 leading-tight">
+              💡 信息图/图表分镜具备免污染铁律，系统将绝对禁止注入人物设定，确保图表纯净专业。
             </div>
           </div>
 
@@ -2225,7 +2580,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         )}
 
         {/* 左栏与中栏调节把手 (按住左右拖拽调节左栏宽度) */}
-        {effectiveMode !== 'focus' && (
+        {effectiveMode !== 'focus' && !isSidebarCollapsed && (
         <div
           onMouseDown={(e) => cols.startResize('left', e)}
           title="按住左右拖拽调节左栏宽度"
@@ -2404,6 +2759,17 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {/* v0.7.26：专业波形时间轴展开按钮 */}
+                        <button
+                          type="button"
+                          onClick={() => setShowAdvancedTimeline(true)}
+                          className="px-2.5 py-1 rounded-md bg-white/20 hover:bg-white/30 text-amber-200 hover:text-white transition cursor-pointer shrink-0 flex items-center gap-1"
+                          title="展开专业波形时间轴，微调起止时间与口播停顿磁吸吸附"
+                        >
+                          <Sliders className="w-3.5 h-3.5" />
+                          <span className="text-[11px] font-semibold">专业时间轴</span>
+                        </button>
+
                         <button
                           type="button"
                           onClick={handleAddIllustration}
@@ -2837,6 +3203,15 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                             📐 {LAYOUTS[item.scenePlan.layout]?.label || item.scenePlan.layout}
                           </span>
                         )}
+
+                        {item.storyArcId && (
+                          <span
+                            className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 font-medium truncate max-w-[90px]"
+                            title={item.characterAnchor ? `角色主体: ${item.characterAnchor}` : `故事弧线: ${item.storyArcId}`}
+                          >
+                            👤 {item.characterAnchor ? item.characterAnchor.slice(0, 6) : item.storyArcId.replace('arc_', '故事#')}
+                          </span>
+                        )}
                       </div>
 
                       <button
@@ -2944,20 +3319,106 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                         </div>
                       </div>
 
-                      {/* 重新生成微型按钮 */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          generateSingleItem(item.id);
-                        }}
-                        disabled={item.status === 'generating'}
-                        className="px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-[10.5px] font-medium transition cursor-pointer shrink-0 flex items-center gap-1 disabled:opacity-50"
-                      >
-                        <RefreshCw className={`w-3 h-3 ${item.status === 'generating' ? 'animate-spin text-indigo-500' : ''}`} />
-                        <span>{item.status === 'success' ? '重新生成' : '生成'}</span>
-                      </button>
+                      {/* v0.7.26：单张垫图、3候选变体与重新生成按钮 */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {/* 垫图参考 */}
+                        {item.referenceImage ? (
+                          <div className="flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-md text-[10px] text-amber-600 dark:text-amber-400">
+                            <img src={item.referenceImage} alt="垫图" className="w-3.5 h-3.5 rounded object-cover" />
+                            <span className="text-[9px]">已垫图</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRemoveItemReferenceImage(item.id);
+                              }}
+                              className="text-zinc-400 hover:text-rose-500 ml-0.5 cursor-pointer font-bold"
+                              title="移除垫图参考"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUploadItemReferenceImage(item.id);
+                            }}
+                            className="px-1.5 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-[10px] font-medium text-zinc-600 dark:text-zinc-300 transition cursor-pointer shrink-0 flex items-center gap-0.5"
+                            title="为该分镜上传参考垫图（图生图微调）"
+                          >
+                            <ImagePlus className="w-3 h-3 text-amber-500" />
+                            <span>垫图</span>
+                          </button>
+                        )}
+
+                        {/* 并发生成 3 个候选变体 */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            generateItemVariants(item.id);
+                          }}
+                          disabled={item.status === 'generating'}
+                          className="px-1.5 py-1 rounded-md border border-indigo-200 dark:border-indigo-800/80 bg-indigo-50/60 dark:bg-indigo-950/40 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-400 text-[10px] font-medium transition cursor-pointer shrink-0 flex items-center gap-0.5 disabled:opacity-50"
+                          title="并发生成 3 个候选变体供挑选"
+                        >
+                          <Sparkles className="w-3 h-3 text-indigo-500" />
+                          <span>3变体</span>
+                        </button>
+
+                        {/* 重新生成微型按钮 */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            generateSingleItem(item.id);
+                          }}
+                          disabled={item.status === 'generating'}
+                          className="px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-[10.5px] font-medium transition cursor-pointer shrink-0 flex items-center gap-1 disabled:opacity-50"
+                        >
+                          <RefreshCw className={`w-3 h-3 ${item.status === 'generating' ? 'animate-spin text-indigo-500' : ''}`} />
+                          <span>{item.status === 'success' ? '重新生成' : '生成'}</span>
+                        </button>
+                      </div>
                     </div>
+
+                    {/* v0.7.26：候选变体横向排开，点击直接切换选用 */}
+                    {item.variants && item.variants.length > 0 && (
+                      <div className="mt-2 pt-1.5 border-t border-zinc-100 dark:border-zinc-800/60" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-1 text-[10px] text-zinc-400">
+                          <span className="flex items-center gap-1 font-medium">
+                            <Sparkles className="w-2.5 h-2.5 text-indigo-400" />
+                            <span>候选变体 ({item.variants.length} 个，点击立即选用):</span>
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                          {item.variants.map((vUrl, vIdx) => {
+                            const isCur = item.imageUrl === vUrl;
+                            return (
+                              <div
+                                key={vIdx}
+                                onClick={() => handleSelectVariant(item.id, vUrl)}
+                                className={`relative w-11 h-11 rounded-lg border-2 overflow-hidden shrink-0 cursor-pointer transition-all ${
+                                  isCur
+                                    ? 'border-indigo-500 ring-2 ring-indigo-500/50 scale-105 shadow'
+                                    : 'border-zinc-200 dark:border-zinc-700 opacity-70 hover:opacity-100'
+                                }`}
+                                title={`点击选用候选变体 #${vIdx + 1}`}
+                              >
+                                <img src={vUrl} alt={`变体 ${vIdx + 1}`} className="w-full h-full object-cover" />
+                                {isCur && (
+                                  <div className="absolute top-0 right-0 bg-indigo-500 text-white p-0.5 rounded-bl">
+                                    <Check className="w-2 h-2" />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
 
                     {/* 可编辑的提示词多行文本框 */}
                     <div className="mt-2 pt-1.5 border-t border-zinc-100 dark:border-zinc-800/60">
@@ -3000,6 +3461,44 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                     className="h-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-300"
                     style={{ width: `${exportProgress}%` }}
                   />
+                </div>
+              </div>
+            )}
+
+            {jianyingDraftResult && (
+              <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between text-xs animate-in fade-in">
+                <div className="flex items-center gap-2 truncate mr-2">
+                  <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="font-bold text-emerald-700 dark:text-emerald-300">
+                      {jianyingDraftResult.isZip ? '剪映草稿 ZIP 已下载' : '已成功写入剪映草稿目录！'}
+                    </div>
+                    {jianyingDraftResult.path && (
+                      <div className="text-[10px] text-zinc-400 truncate">
+                        {jianyingDraftResult.path}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {jianyingDraftResult.path && !jianyingDraftResult.isZip && (
+                    <button
+                      type="button"
+                      onClick={() => api.illustratorOpenFolder?.(jianyingDraftResult.path!)}
+                      className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition cursor-pointer flex items-center gap-1 text-[11px]"
+                      title="在文件资源管理器中打开该剪映草稿目录"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      <span>打开目录</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setJianyingDraftResult(null)}
+                    className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
             )}
@@ -3410,6 +3909,35 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
           const name = styleId === 'auto' ? '自动 (AI 语义分析匹配)' : (st?.label || styleId);
           showToast(`已选定图片画风：【${name}】`, 'ok');
         }}
+      />
+
+      {/* v0.7.26：专业波形时间轴全屏/抽屉模态框 */}
+      <AdvancedTimelineModal
+        isOpen={showAdvancedTimeline}
+        onClose={() => setShowAdvancedTimeline(false)}
+        videoDuration={videoDuration}
+        currentTime={currentTime}
+        onSeek={(t) => {
+          if (videoRef.current) {
+            videoRef.current.currentTime = t;
+          }
+          setCurrentTime(t);
+        }}
+        isPlaying={isPlaying}
+        onTogglePlay={() => {
+          if (videoRef.current) {
+            if (isPlaying) videoRef.current.pause();
+            else videoRef.current.play();
+          }
+        }}
+        illustrations={illustrations}
+        onUpdateIllustration={(id, patch) => {
+          setIllustrations((prev) =>
+            prev.map((it) => (it.id === id ? { ...it, ...patch } : it))
+          );
+        }}
+        asrUtterances={asrUtterances}
+        videoSrc={videoUrl || undefined}
       />
     </div>
   );

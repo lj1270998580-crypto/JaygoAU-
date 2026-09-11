@@ -259,6 +259,14 @@ export function compileScenePrompt(
       sentence('单镜头完整画面，单一物理场景，主体人物全画面仅出现一位')
     );
 
+    // v0.7.26：故事弧线角色一致性主角锁注入（仅叙事镜头，信息图绝不注入）
+    if (scenePlan.characterAnchor && scenePlan.characterAnchor.trim()) {
+      const cleanAnchor = stripDescriptiveQuotes(scenePlan.characterAnchor.trim());
+      if (cleanAnchor) {
+        lines.push(sentence(`画面主角形象设定固定为：${cleanAnchor}`));
+      }
+    }
+
     if (anchorList) {
       lines.push(sentence(`画面中必须清晰可辨的关键元素是：${anchorList}`));
     }

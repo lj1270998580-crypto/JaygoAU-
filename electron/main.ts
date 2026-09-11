@@ -2651,6 +2651,8 @@ ipcMain.handle('sensenova-generate-image', async (_, args: {
   size?: string;
   style?: string;
   imageBase64?: string;
+  /** v0.7.26：生成数量（多变体） */
+  n?: number;
 }) => {
   try {
     const key = (args.apiKey || '').trim();
@@ -2660,9 +2662,6 @@ ipcMain.handle('sensenova-generate-image', async (_, args: {
     if (!prompt) throw new Error('提示词 prompt 不能为空');
 
     // 风格修饰词增强
-    // v0.7.5 修复：原映射表的键（realistic / flat_vector / 3d_render / infographic_clean /
-    // minimalist）与应用真实风格 ID 只有 2 个交集，导致 8/10 种风格的注入静默失效。
-    // 现改为与渲染层 STYLE_OPTIONS 完全一致的 10 个真实 ID 与中文描述。
     if (args.style) {
       const stylePrompts: Record<string, string> = {
         modern_business: '现代商业扁平插画风格，现代办公场景与写实商务元素，干净利落线条，高级克制莫兰迪商务配色，优雅留白，画面主体清晰生动',
@@ -2684,45 +2683,35 @@ ipcMain.handle('sensenova-generate-image', async (_, args: {
         'swiss-style': '瑞士国际主义平面设计，严格网格系统与无衬线字体，大量理性留白，克制的黑白红配色，纯净平涂',
       };
       const stylePhrase = stylePrompts[args.style];
-      // 重复注入防护：渲染层可能已把风格描述写进 prompt，避免同一段风格出现两次
       if (stylePhrase && !isStyleAlreadyPresent(prompt, args.style, stylePhrase)) {
         prompt = `${prompt}。${stylePhrase}`;
       }
     }
 
-    // v0.7.5 修复：此处不再追加任何含「水印」字样的负向词。
-    // 渲染层净化器（promptCompiler.sanitizePromptStrict）会主动剔除「无水印 / 去水印」等
-    // 中文元词，因为生图模型会把这类词直接绘制成画面上的水印状伪影与乱码字；
-    // 主进程若在净化之后再把「避免任何水印」追加回去，等于反向抵消，且几乎每张图都会中招。
+    const endpoint = 'https://token.sensenova.cn/v1/images/generations';
+    const cleanBase64 = args.imageBase64
+      ? args.imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '')
+      : undefined;
 
-    const isImg2Img = Boolean(args.imageBase64 && model === 'sensenova-u1.5-lite');
-    // TokenPlan 官方生图与图生图端点
-    const endpoint = isImg2Img
-      ? 'https://token.sensenova.cn/v1/images/edits'
-      : 'https://token.sensenova.cn/v1/images/generations';
-
-    const reqBody: any = {
+    const baseReqBody: any = {
       model,
       prompt,
       size: args.size || '2048x2048',
       n: 1,
       watermark: false,
     };
-    // v0.7.9：负向提示词改为独立参数下发。
-    // 此前「禁止出现：三维塑料感、漂浮的乱码色块…」混在正向提示词里，
-    // 这些词本身会被模型当成画面内容，反而加剧杂乱。
     const negativePrompt = (args.negativePrompt || '').trim();
     if (negativePrompt) {
-      reqBody.negative_prompt = negativePrompt;
+      baseReqBody.negative_prompt = negativePrompt;
     }
-    if (isImg2Img) {
-      reqBody.image = args.imageBase64;
+    if (cleanBase64) {
+      baseReqBody.image = cleanBase64;
     }
 
-    dbg(`[SenseNova] calling ${endpoint} model=${model} prompt="${prompt.slice(0, 60)}..."`);
+    const count = Math.min(Math.max(1, Number(args.n) || 1), 3);
 
-    const doRequest = async (body: any) =>
-      fetch(endpoint, {
+    const doSingle = async (body: any) => {
+      let res = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${key}`,
@@ -2730,57 +2719,78 @@ ipcMain.handle('sensenova-generate-image', async (_, args: {
         },
         body: JSON.stringify(body),
       });
+      let resText = await res.text();
+      if (!res.ok && res.status >= 400 && res.status < 500 && body.negative_prompt) {
+        dbg(`[SenseNova] negative_prompt 被拒（HTTP ${res.status}），去掉该参数重试`);
+        const retryBody = { ...body };
+        delete retryBody.negative_prompt;
+        res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${key}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(retryBody),
+        });
+        resText = await res.text();
+      }
+      let json: any = {};
+      try {
+        json = JSON.parse(resText);
+      } catch {
+        throw new Error(`商汤接口响应解析失败（HTTP ${res.status}）：${resText.slice(0, 300)}`);
+      }
+      if (!res.ok) {
+        const errMsg = json?.error?.message || json?.message || json?.msg || `商汤生图请求失败（HTTP ${res.status}）`;
+        throw new Error(errMsg);
+      }
+      return json;
+    };
 
-    let res = await doRequest(reqBody);
-    let resText = await res.text();
+    dbg(`[SenseNova] calling ${endpoint} model=${model} count=${count} prompt="${prompt.slice(0, 60)}..."`);
+    const results = await Promise.all(
+      Array.from({ length: count }, () => doSingle(baseReqBody))
+    );
 
-    // 兼容性兜底：若服务端不接受 negative_prompt 参数（4xx），去掉后重试一次，
-    // 保证不会因为新增参数导致生图整体失败。
-    if (!res.ok && res.status >= 400 && res.status < 500 && negativePrompt) {
-      dbg(`[SenseNova] negative_prompt 被拒（HTTP ${res.status}），去掉该参数重试`);
-      delete reqBody.negative_prompt;
-      res = await doRequest(reqBody);
-      resText = await res.text();
-    }
-
-    let json: any = {};
-    try {
-      json = JSON.parse(resText);
-    } catch {
-      throw new Error(`商汤接口响应解析失败（HTTP ${res.status}）：${resText.slice(0, 300)}`);
-    }
-
-    if (!res.ok) {
-      const errMsg = json?.error?.message || json?.message || json?.msg || `商汤生图请求失败（HTTP ${res.status}）`;
-      throw new Error(errMsg);
-    }
-
-    const imgUrl = json?.data?.[0]?.url || json?.data?.[0]?.image_url || json?.data?.url || json?.url || json?.image_url;
-    const b64 = json?.data?.[0]?.b64_json || json?.data?.b64_json || json?.b64_json;
-    if (!imgUrl && !b64) {
-      throw new Error('商汤接口未返回有效图片 URL 或 Base64 数据');
-    }
-
-    // 将图片保存到本地缓存目录
     const illDir = path.join(app.getPath('userData'), 'illustrations');
     if (!fs.existsSync(illDir)) fs.mkdirSync(illDir, { recursive: true });
-    const localFileName = `sn_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.png`;
-    const localPath = path.join(illDir, localFileName);
 
-    if (b64) {
-      fs.writeFileSync(localPath, Buffer.from(b64, 'base64'));
-    } else if (imgUrl) {
-      const imgRes = await fetch(imgUrl);
-      if (!imgRes.ok) throw new Error(`下载生成的图片失败（HTTP ${imgRes.status}）`);
-      const buf = Buffer.from(await imgRes.arrayBuffer());
-      fs.writeFileSync(localPath, buf);
+    const localPaths: string[] = [];
+    const imageUrls: string[] = [];
+
+    for (const json of results) {
+      const imgUrl = json?.data?.[0]?.url || json?.data?.[0]?.image_url || json?.data?.url || json?.url || json?.image_url;
+      const b64 = json?.data?.[0]?.b64_json || json?.data?.b64_json || json?.b64_json;
+      if (!imgUrl && !b64) continue;
+
+      const localFileName = `sn_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.png`;
+      const localPath = path.join(illDir, localFileName);
+      if (b64) {
+        fs.writeFileSync(localPath, Buffer.from(b64, 'base64'));
+      } else if (imgUrl) {
+        const imgRes = await fetch(imgUrl);
+        if (imgRes.ok) {
+          const buf = Buffer.from(await imgRes.arrayBuffer());
+          fs.writeFileSync(localPath, buf);
+        }
+      }
+      if (fs.existsSync(localPath)) {
+        localPaths.push(localPath);
+        imageUrls.push(`file:///${localPath.replace(/\\/g, '/')}`);
+      }
     }
 
-    dbg(`[SenseNova] image generated & saved to: ${localPath}`);
+    if (localPaths.length === 0) {
+      throw new Error('商汤接口未返回有效图片数据');
+    }
+
+    dbg(`[SenseNova] ${localPaths.length} image(s) generated & saved: ${localPaths[0]}`);
     return {
       ok: true,
-      localPath,
-      imageUrl: `file:///${localPath.replace(/\\/g, '/')}`,
+      localPath: localPaths[0],
+      imageUrl: imageUrls[0],
+      variants: imageUrls,
+      variantPaths: localPaths,
       model,
       prompt,
     };
@@ -2790,6 +2800,95 @@ ipcMain.handle('sensenova-generate-image', async (_, args: {
       ok: false,
       error: err?.message || '生成插图失败',
     };
+  }
+});
+
+// =========================================================================
+// 剪映草稿工程导出 (v0.7.26)
+// =========================================================================
+function getJianyingDraftRoots(): string[] {
+  const roots: string[] = [];
+  if (process.platform === 'win32') {
+    const localAppData = process.env.LOCALAPPDATA || '';
+    if (localAppData) {
+      roots.push(path.join(localAppData, 'JianyingPro', 'User Data', 'Projects', 'com.lveditor.draft'));
+      roots.push(path.join(localAppData, 'CapCut', 'User Data', 'Projects', 'com.lveditor.draft'));
+    }
+  } else if (process.platform === 'darwin') {
+    const home = process.env.HOME || '';
+    if (home) {
+      roots.push(path.join(home, 'Movies', 'JianyingPro', 'User Data', 'Projects', 'com.lveditor.draft'));
+      roots.push(path.join(home, 'Movies', 'CapCut', 'User Data', 'Projects', 'com.lveditor.draft'));
+    }
+  }
+  return roots;
+}
+
+ipcMain.handle('illustrator-detect-jianying', async () => {
+  const candidates = getJianyingDraftRoots();
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      return { installed: true, draftRootPath: p };
+    }
+  }
+  return { installed: false, draftRootPath: candidates[0] || null };
+});
+
+ipcMain.handle('illustrator-export-jianying', async (_, args: {
+  draftDirName?: string;
+  draftContent: any;
+  draftMeta: any;
+  customRootPath?: string;
+}) => {
+  try {
+    let rootPath = args.customRootPath?.trim();
+    if (!rootPath) {
+      const detected = getJianyingDraftRoots().find((p) => fs.existsSync(p));
+      rootPath = detected || getJianyingDraftRoots()[0];
+    }
+    if (!rootPath) {
+      throw new Error('未检测到剪映草稿目录，请手动指定保存路径');
+    }
+
+    if (!fs.existsSync(rootPath)) {
+      fs.mkdirSync(rootPath, { recursive: true });
+    }
+
+    const dirName = (args.draftDirName || `JaygoAI_插图草稿_${Date.now()}`)
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .trim();
+    const projectDir = path.join(rootPath, dirName);
+    if (!fs.existsSync(projectDir)) {
+      fs.mkdirSync(projectDir, { recursive: true });
+    }
+
+    const contentStr = typeof args.draftContent === 'string'
+      ? args.draftContent
+      : JSON.stringify(args.draftContent, null, 2);
+    const metaStr = typeof args.draftMeta === 'string'
+      ? args.draftMeta
+      : JSON.stringify(args.draftMeta, null, 2);
+
+    fs.writeFileSync(path.join(projectDir, 'draft_content.json'), contentStr, 'utf-8');
+    fs.writeFileSync(path.join(projectDir, 'draft_meta_info.json'), metaStr, 'utf-8');
+
+    dbg(`[JianYing] Draft exported successfully to: ${projectDir}`);
+    return { ok: true, draftPath: projectDir };
+  } catch (err: any) {
+    dbg(`[JianYing] Draft export error: ${err?.message || err}`);
+    return { ok: false, error: err?.message || '导出剪映草稿失败' };
+  }
+});
+
+ipcMain.handle('illustrator-open-folder', async (_, folderPath: string) => {
+  try {
+    if (folderPath && fs.existsSync(folderPath)) {
+      await shell.openPath(folderPath);
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
   }
 });
 
