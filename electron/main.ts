@@ -2629,6 +2629,9 @@ ipcMain.handle('sensenova-test-key', async (_, args: { apiKey: string }) => {
  * 渲染层可能已通过 STYLE_OPTIONS.stylePrompt 或 StyleBible.visualMedium 写入风格文本。
  */
 function isStyleAlreadyPresent(prompt: string, styleId: string, stylePhrase: string): boolean {
+  if (!prompt) return false;
+  // 渲染层编译器已写入完整风格定义时，不应再追加场景修饰语（避免现代办公场景等附加词与原画面冲突导致多重场景拼贴）
+  if (prompt.includes('整体视觉风格：') || prompt.includes('整体风格：')) return true;
   if (prompt.includes(styleId)) return true;
   const head = stylePhrase.slice(0, 12);
   if (head && prompt.includes(head)) return true;
