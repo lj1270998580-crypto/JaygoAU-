@@ -74,6 +74,15 @@ function joinList(items: string[], max = 6): string {
 }
 
 /**
+ * 剥离描述性文本中的单双引号，避免生图模型的 Text Encoder 把自然语言描述中的词当作需要印制的文字
+ * 官方铁律：引号仅供文字白名单（textLabels）专属使用！
+ */
+function stripDescriptiveQuotes(s?: string): string {
+  if (!s) return '';
+  return s.replace(/[“""”‘’']/g, '').trim();
+}
+
+/**
  * 判断某个实体或短语是否已经在已有文本集合中充分表达
  * 避免在提示词中多处机械重复同一名词导致生图模型生成多重分身/重复实体
  */
@@ -116,29 +125,45 @@ export function compileScenePrompt(
   const tempDesc = TEMPERATURE_DESC_MAP[styleBible.palette.temperature] || '整体中性';
   const paletteDesc = joinList(styleBible.palette.dominantTones.slice(0, 3), 3);
 
-  // 视觉锚点 —— 最高优先级的画面元素
+  // 严格剥离实体描述中的引号（商汤官方铁律：双引号仅供最终印刷文字使用，叙述中的引号会导致模型在画布多处印刷重复文字）
+  const cleanSubject = stripDescriptiveQuotes(scenePlan.scene.primarySubject);
+  const cleanAction = stripDescriptiveQuotes(scenePlan.scene.action);
+  const cleanForeground = stripDescriptiveQuotes(scenePlan.scene.foreground);
+  const cleanBackground = stripDescriptiveQuotes(scenePlan.scene.background);
+  const cleanAmbience = stripDescriptiveQuotes(scenePlan.scene.weatherOrAmbience);
+
+  // 视觉锚点 —— 最高优先级的画面元素（剥离引号）
   const rawAnchors = (scenePlan.visualAnchors || [])
     .filter((a) => a && a.concept)
     .sort((a, b) => (b.priority || 0) - (a.priority || 0))
-    .map((a) => a.concept);
+    .map((a) => stripDescriptiveQuotes(a.concept));
 
   // 智能实体去重：如果锚点词汇已在主体或动作中充分阐明，不再重复生成机械句子
-  const existingSubjectTexts = [scenePlan.scene.primarySubject, scenePlan.scene.action].filter(Boolean);
+  const existingSubjectTexts = [cleanSubject, cleanAction].filter(Boolean);
   const anchors = rawAnchors.filter((a) => !isEntityAlreadyCovered(a, existingSubjectTexts));
   const anchorList = joinList(anchors, 3);
 
-  // 智能过滤 mustInclude：凡是已被主体、动作或过滤后锚点包含的实体，不再重复罗列
+  // 智能过滤 mustInclude（剥离引号）：凡是已被主体、动作或过滤后锚点包含的实体，不再重复罗列
   const mustInclude = (scenePlan.mustInclude || [])
+    .map((item) => stripDescriptiveQuotes(item))
     .filter(Boolean)
     .filter((item) => !isEntityAlreadyCovered(item, [...existingSubjectTexts, ...anchors]));
 
-  // 商汤及主流生图模型通用的抗重复、抗分身克隆、抗拼图负向词群
+  // 商汤及主流生图模型通用的抗重复、抗分身克隆、抗拼图负向词群（针对乱码字、假字、无关字强化）
   const ANTI_DUPLICATION_CONSTRAINTS = [
+    '无关文字',
     '重复文字',
     '文字重影',
     '相同文字多处出现',
     '多余文字',
     '乱码字符',
+    '假字',
+    '伪文字',
+    '表格乱码',
+    '无意义字母',
+    '错别字',
+    '拼音',
+    '多余标签',
     '重复人物',
     '相同人物副本',
     '克隆人',
@@ -160,6 +185,8 @@ export function compileScenePrompt(
     '大量小图标平铺堆砌',
     '标准企业模板感信息图',
     '白底商务蓝的套路配色',
+    '表格乱码',
+    '假数据表格',
   ];
   const infoAvoid = isInfographic
     ? INFO_ANTI_TEMPLATE.filter((a) => !(scenePlan.mustAvoid || []).includes(a))
@@ -178,54 +205,43 @@ export function compileScenePrompt(
 
   const lines: string[] = [];
   let subjectAndAction: string;
-  let environmentAndProps: string;
-  let compositionAndCamera: string;
-  let lightingAndColor: string;
+  let environmentAndProps = '';
+  let compositionAndCamera = '';
+  let lightingAndColor = '';
 
   if (isInfographic) {
-    // ————————————— 信息图：信息结构优先的自然语言描述 —————————————
-    // v0.7.11 修复：不再把 communicationGoal 写进正向提示词。
-    // 提示词里只描述画面呈现什么；需要显示的文字统一走下面的引号标签。
-    subjectAndAction = sentence(`一张清晰的信息图。${scenePlan.scene.primarySubject}`);
-
+    // ————————————— 信息图：对齐商汤官方 sn-infographic 真实提示词规范 —————————————
+    // 官方规范：
+    // 1. 开头：一张专业信息图，采用...风格。整体布局为...结构。
+    // 2. 彻底删除“观众视线不被打断”、“核心结论最醒目，模块标题次之”等设计元指令（避免被生图模型画成表格表头与单元格乱码字）！
+    // 3. 任何禁止项均下发给 negativePrompt，正向提示词绝不包含“严禁分屏拼贴”等排斥语句。
+    subjectAndAction = sentence(`一张专业信息图，采用${styleBible.visualMedium}风格`);
     lines.push(subjectAndAction);
 
-    // v0.7.19：注入信息版式（对齐官方 sn-infographic 的 layout 轴）。
     const layoutText = layoutPromptText(scenePlan.layout, scenePlan.visualType);
     if (layoutText) {
       lines.push(sentence(layoutText));
     }
 
-    if (scenePlan.scene.action) {
-      lines.push(sentence(scenePlan.scene.action));
+    if (cleanSubject) {
+      lines.push(sentence(`画面核心呈现${cleanSubject}`));
+    }
+    if (cleanAction) {
+      lines.push(sentence(cleanAction));
     }
 
     if (anchorList) {
-      lines.push(sentence(`视觉上必须一眼可辨的核心元素是：${anchorList}`));
+      lines.push(sentence(`视觉核心元素是${anchorList}`));
     }
     if (mustInclude.length > 0) {
-      lines.push(sentence(`需要清晰呈现的信息模块包括：${joinList(mustInclude, 5)}`));
+      lines.push(sentence(`包含的关键视觉模块为：${joinList(mustInclude, 4)}`));
     }
-
-    // 单幅完整性与抗拼图指令（对齐官方 sn-infographic 规范）
-    lines.push(
-      sentence('单幅完整信息图，各模块信息严格唯一，严禁分屏拼贴与重复图标，画面留出充足呼吸空间，元素不拥挤、不贴边')
-    );
-
-    environmentAndProps = sentence(
-      '信息按从左到右或从上到下的顺序自然推进，观众视线不被打断'
-    );
-    lines.push(environmentAndProps);
-    lines.push(sentence('核心结论最醒目，模块标题次之，说明文字最小且简短'));
-    lines.push(sentence('模块之间用真实的连线、箭头或流程关系连接，整体结构一目了然'));
 
     compositionAndCamera = sentence(`采用${shotDesc}，${angleDesc}`);
     lines.push(compositionAndCamera);
 
     lightingAndColor = sentence(
-      `${styleBible.lighting.type}，${styleBible.lighting.direction}${
-        styleBible.lighting.shadow ? `，${styleBible.lighting.shadow}` : ''
-      }，配色${tempDesc}，主色调为${paletteDesc}，${styleBible.texture}`
+      `画面干净整洁，背景留白充裕，${styleBible.texture}，配色${tempDesc}，主色调为${paletteDesc}`
     );
     lines.push(lightingAndColor);
   } else {
@@ -235,12 +251,12 @@ export function compileScenePrompt(
         ? `${scenePlan.scene.period}。`
         : '';
 
-    subjectAndAction = sentence(`${periodPart}${scenePlan.scene.primarySubject}，${scenePlan.scene.action}`);
+    subjectAndAction = sentence(`${periodPart}${cleanSubject}，${cleanAction}`);
     lines.push(subjectAndAction);
 
-    // 单镜头单一主体与防分身克隆指令（对齐商汤官方视觉规范）
+    // 单镜头单一主体正面引导（不带易被模型反向误画的排斥词）
     lines.push(
-      sentence('单镜头完整构图，单一场景，画面严禁分割拼贴。主体人物全画面仅出现一位，严禁出现相同人物的分身、克隆人、并列多重副本或幽灵重影')
+      sentence('单镜头完整画面，单一物理场景，主体人物全画面仅出现一位')
     );
 
     if (anchorList) {
@@ -251,9 +267,9 @@ export function compileScenePrompt(
     }
 
     const envBits: string[] = [];
-    if (scenePlan.scene.foreground) envBits.push(`前景是${scenePlan.scene.foreground}`);
-    if (scenePlan.scene.background) envBits.push(`背景是${scenePlan.scene.background}`);
-    if (scenePlan.scene.weatherOrAmbience) envBits.push(`整体氛围${scenePlan.scene.weatherOrAmbience}`);
+    if (cleanForeground) envBits.push(`前景是${cleanForeground}`);
+    if (cleanBackground) envBits.push(`背景是${cleanBackground}`);
+    if (cleanAmbience) envBits.push(`整体氛围${cleanAmbience}`);
     environmentAndProps = sentence(envBits.join('，'));
     if (environmentAndProps) lines.push(environmentAndProps);
 
@@ -277,35 +293,44 @@ export function compileScenePrompt(
       }，配色${tempDesc}，主色调为${paletteDesc}，${styleBible.texture}`
     );
     lines.push(lightingAndColor);
+
+    lines.push(sentence(`整体视觉风格：${styleBible.visualMedium}`));
   }
 
   // ————————————— 画面内文字与元素（对齐商汤官方生图协议与去重防重影铁律）—————————————
   // 商汤官方铁律：
-  // 1. 凡是希望出现在画面上的文字，必须逐字放入引号白名单中，文字全画面严格唯一呈现；
-  // 2. 严禁在 visualElements 中二次使用引号注入相同文字，避免扩散模型多处印制重影。
+  // 1. 只有最终需要印刷在画面上的文字才允许使用双引号“...”！
+  // 2. 文字必须简短，字数过多生图模型必定乱码重影；限制每条最多 10 个字，最多 3 条；
+  // 3. 避免长串负向说教（反向引导模型关注），改用客观肯定句引导，负向词下发到 negativePrompt；
   const rawLabels = (scenePlan.textLabels || [])
-    .map((t) => (t || '').trim())
-    .filter(Boolean);
-  const textLabels = Array.from(new Set(rawLabels)).slice(0, 8);
-  const visualElements = (scenePlan.visualElements || []).filter((e) => e && e.desc).slice(0, 6);
+    .map((t) => stripDescriptiveQuotes(t).trim())
+    .filter((t) => t.length > 0 && t.length <= 12);
+  const textLabels = Array.from(new Set(rawLabels)).slice(0, 3);
+  const visualElements = (scenePlan.visualElements || [])
+    .filter((e) => e && e.desc)
+    .slice(0, 4);
 
   if (textLabels.length > 0) {
     const quoted = textLabels.map((t) => `“${t}”`).join('、');
-    lines.push(sentence(`画面中需要出现的文字仅限以下内容，且必须逐字准确：${quoted}`));
-    // 封闭文字白名单 + 防重复印制 + 严禁文字重影
+    if (textLabels.length === 1) {
+      lines.push(sentence(`画面对应位置标明核心文字：“${textLabels[0]}”`));
+    } else {
+      lines.push(sentence(`画面各对应位置分别精确标明文字：${quoted}`));
+    }
+    // 官方标准封闭文字约束
     lines.push(
       sentence(
-        '上述文字全画面严格唯一呈现，严禁在不同位置重复印制相同文字，严禁文字重影；除上述引号内的文字外，画面中不得出现任何其他文字、数字、标题或无意义英文字符'
+        '除上述引号内的指定文字外，画面其他任何区域保持纯净，不出现多余文字、数字、标签或乱码字符'
       )
     );
   } else {
-    lines.push(sentence('画面中全图严禁出现任何文字、数字、英文字母、标题或标签，严禁生成任何无法辨认的乱码字符'));
+    lines.push(sentence('画面全图纯图形视觉呈现，不出现任何文字、数字、字母、标题或标签，画面无乱码字符'));
   }
 
   if (visualElements.length > 0) {
-    // 纯化图形元素描述：移除「（对应文字“...”）」，杜绝二次引号诱导模型重复印字
+    // 纯化图形元素描述：绝不包含引号或文字后缀
     const desc = visualElements
-      .map((e) => e.desc?.trim())
+      .map((e) => stripDescriptiveQuotes(e.desc || ''))
       .filter(Boolean)
       .join('；');
     if (desc) {
@@ -313,15 +338,12 @@ export function compileScenePrompt(
     }
   }
 
-  // 风格基调（放在描述之后，避免喧宾夺主）
-  lines.push(sentence(`整体视觉风格：${styleBible.visualMedium}`));
-
   const rawCompiled = lines.filter(Boolean).join('');
   const compiledPrompt = sanitizePromptStrict(rawCompiled);
 
-  // 负向约束作为独立参数下发（扩大容量至 20 项，确保抗重复、抗分身克隆词群完整生效）
+  // 负向约束作为独立参数下发（扩大容量至 24 项，确保抗重复、抗分身克隆词群完整生效）
   const negativePrompt = Array.from(new Set(allAvoid.filter(Boolean)))
-    .slice(0, 20)
+    .slice(0, 24)
     .join('，');
 
   // 视觉锚点覆盖检查（中文：整体包含 + 2 字滑窗命中率）
@@ -330,28 +352,28 @@ export function compileScenePrompt(
   const anchorsMissing: string[] = [];
   for (const anchor of scenePlan.visualAnchors || []) {
     if (!anchor || !anchor.concept) continue;
-    if (isAnchorCovered(anchor.concept, promptLower)) anchorsCovered.push(anchor.concept);
-    else anchorsMissing.push(anchor.concept);
+    const cleanConcept = stripDescriptiveQuotes(anchor.concept);
+    if (isAnchorCovered(cleanConcept, promptLower)) anchorsCovered.push(cleanConcept);
+    else anchorsMissing.push(cleanConcept);
   }
 
   // 高优先级锚点若仍未覆盖，直接补一句（正常情况下上一段已覆盖）
   let finalPrompt = compiledPrompt;
   const highPriorityMissing = (scenePlan.visualAnchors || []).filter(
-    (a) => a?.concept && (a.priority || 0) >= 0.8 && anchorsMissing.includes(a.concept)
+    (a) => a?.concept && (a.priority || 0) >= 0.8 && anchorsMissing.includes(stripDescriptiveQuotes(a.concept))
   );
   if (highPriorityMissing.length > 0) {
-    // 过滤掉那些在 finalPrompt 中实质已包含的 concept，避免强行追加产生重复短语
-    const trulyMissing = highPriorityMissing.filter(
-      (a) => !isEntityAlreadyCovered(a.concept, [finalPrompt])
-    );
+    const trulyMissing = highPriorityMissing
+      .map((a) => stripDescriptiveQuotes(a.concept))
+      .filter((concept) => !isEntityAlreadyCovered(concept, [finalPrompt]));
     if (trulyMissing.length > 0) {
-      const patchStr = trulyMissing.map((a) => a.concept).join('、');
-      finalPrompt = sanitizePromptStrict(`${compiledPrompt}画面中必须明确出现${patchStr}。`);
+      const patchStr = trulyMissing.join('、');
+      finalPrompt = sanitizePromptStrict(`${compiledPrompt}画面中包含${patchStr}。`);
       for (const anchor of trulyMissing) {
-        const idx = anchorsMissing.indexOf(anchor.concept);
+        const idx = anchorsMissing.indexOf(anchor);
         if (idx !== -1) {
           anchorsMissing.splice(idx, 1);
-          anchorsCovered.push(anchor.concept);
+          anchorsCovered.push(anchor);
         }
       }
     }
@@ -421,6 +443,8 @@ export function sanitizePromptStrict(p: string): string {
     .replace(/(排版整洁有序|排版整洁|排版整齐|整洁有序|排版规范|精致排版|版面整齐)/g, '')
     .replace(/(精致几何矢量构图|几何矢量构图|几何色块|几何拼接|七巧板式构图|七巧板|色块拼接)/g, '')
     .replace(/(指标卡片与数值对比|指标卡片|数值对比|指标卡|卡片看板)/g, '')
+    // 彻底剔除可能被生图模型绘制成大标题的“信息版式采用【...】：”或“信息版式用”残余
+    .replace(/信息版式[采使]?用[【\[]?[^】\]：:]*[】\]]?[：:]?/g, '')
     .replace(/统一背景底色基调[：:]?/g, '')
     .replace(/统一核心主色调[：:]?/g, '')
     .replace(/统一辅助高亮\/警示色[：:]?/g, '')

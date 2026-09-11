@@ -556,9 +556,10 @@ export function fallbackLayoutFor(visualType: VisualType): string {
   return candidates[0] || 'single-focal-point';
 }
 
-/** 取版式描述文本，供提示词使用 */
+/** 取版式描述文本，供提示词使用（采用官方自然语言空间描述，杜绝【】等程序元标签） */
 export function layoutPromptText(id?: string, visualType?: VisualType): string {
   const key = id && LAYOUTS[id] ? id : visualType ? fallbackLayoutFor(visualType) : '';
   const spec = LAYOUTS[key];
-  return spec ? `信息版式采用【${spec.label}】：${spec.prompt}` : '';
+  // 杜绝“信息版式采用【】”等程序性元指令（避免生图模型把“信息版式用”直接画成海报大标题）
+  return spec ? `整体布局为${spec.label}结构，${spec.prompt}` : '';
 }
