@@ -25,7 +25,15 @@ export interface PipelineOptions {
   scriptText: string;
   videoDuration: number;
   density: IllustrationDensity;
+  /** 叙事/场景类画面的画风 */
   styleId: string;
+  /**
+   * v0.7.20：信息图（数据/对比/流程）专用画风。
+   * 叙事图要插画质感、信息图要清晰的数据可视化，两者需求不同，
+   * 用同一套画风是矛盾的（选水墨则信息图也变得不适合读数）。
+   * 不传时回落到 styleId，保持向后兼容。
+   */
+  infographicStyleId?: string;
   ratio: string;
   routingMode: 'smart' | 'infographic' | 'standard';
   asrUtterances?: RawAsrUtterance[];
@@ -77,6 +85,7 @@ export async function runIllustrationPipeline(
     videoDuration,
     density,
     styleId,
+    infographicStyleId,
     ratio,
     routingMode,
     asrUtterances,
@@ -141,6 +150,7 @@ export async function runIllustrationPipeline(
     modelHubSettings,
     // v0.7.18：把画风传进规划阶段 —— 否则「选水墨风却画出水墨质感的现代白板」
     styleId,
+    infographicStyleId,
     onBatch: batchReporter('directing', 2, 'AI 分镜规划', 30, 55),
   });
 
@@ -163,7 +173,9 @@ export async function runIllustrationPipeline(
     percent: 92,
   });
 
-  const styleBible: StyleBible = getStyleBible(styleId);
+  // v0.7.20：叙事画风与信息图画风分开取用
+  const narrativeBible: StyleBible = getStyleBible(styleId);
+  const infoBible: StyleBible = getStyleBible(infographicStyleId || styleId);
 
   // 整合并装配输出结果
   const results: PlannedIllustrationResult[] = plannedItems.map((item) => {
@@ -185,7 +197,8 @@ export async function runIllustrationPipeline(
     const type: 'infographic' | 'standard' = isInfo ? 'infographic' : 'standard';
 
     // 关键修复：把图种传入编译器，信息图使用独立的图表化编译分支
-    const promptBlocks = compileScenePrompt(plan, styleBible, { type });
+    // v0.7.20：按分支选用对应画风 —— 信息图用信息图画风，叙事图用叙事画风
+    const promptBlocks = compileScenePrompt(plan, isInfo ? infoBible : narrativeBible, { type });
 
     // 映射 category：直接沿用真实 visualType，不再把
     // historical_recreation / product_showcase 静默塌缩成 scene_narrative
@@ -206,7 +219,10 @@ export async function runIllustrationPipeline(
       type,
       model,
       category: cat,
-      styleId,
+      // v0.7.20：每个镜头带上**它自己该用的**画风。
+      // 此前一律回传 styleId（叙事画风），导致信息图也被按叙事画风出图，
+      // 用户选的「信息图画风」在生成阶段被完全忽略。
+      styleId: isInfo ? infoBible.styleId : narrativeBible.styleId,
       ratio,
       prompt: promptBlocks.compiledPrompt,
       negativePrompt: promptBlocks.negativePrompt,

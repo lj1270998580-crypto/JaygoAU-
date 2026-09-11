@@ -30,6 +30,19 @@ import { LAYOUTS, layoutCandidatesFor, fallbackLayoutFor } from './layoutBible';
  */
 
 /** 单次请求处理的片段数量 */
+/**
+ * v0.7.20：阶段 A（粗筛）的批量。
+ * 输出极小（每条约 5 个短字段），因此可以开得比细化阶段大得多，
+ * 请求数随之大幅下降 —— 这是长视频提速的关键。
+ *
+ * 注意：不能开太大。实测 20 条/批会撞上输出上限 ——
+ * 推理型模型（如 MiMo Pro）的 reasoning_content 也计入 completion，
+ * 批量越大思考越长，20 条时必然被截断。10 条是实测安全值。
+ */
+const SCREEN_BATCH_SIZE = 10;
+/** 阶段 B（细化）的批量：每条要输出完整分镜，必须保守 */
+const DETAIL_BATCH_SIZE = 6;
+/** @deprecated v0.7.20 起改用 SCREEN/DETAIL_BATCH_SIZE */
 const BATCH_SIZE = 6;
 
 /** 各密集度对应的目标插图数量区间（张/分钟） */
@@ -95,6 +108,8 @@ interface RawItem {
   visual_anchors?: Array<{ concept?: string; priority?: number }>;
   text_labels?: string[];
   visual_elements?: Array<{ desc?: string; corresponds_to?: string }>;
+  /** v0.7.20：阶段 A 给出的一句话主体提示 */
+  subject_hint?: string;
   reason?: string;
 }
 
@@ -147,43 +162,72 @@ export async function planIllustrationsUnified(
     modelHubSettings: any;
     /** v0.7.18：当前画风。规划阶段必须知道它，否则会出现「画风对但内容违和」 */
     styleId?: string;
+    /** v0.7.20：信息图专用画风（与叙事画风分开，两者需求不同） */
+    infographicStyleId?: string;
     onBatch?: (done: number, total: number) => void;
   }
 ): Promise<UnifiedPlanItem[]> {
-  const { density, videoDuration, modelHubSettings, styleId, onBatch } = opts;
+  const { density, videoDuration, modelHubSettings, styleId, infographicStyleId, onBatch } = opts;
 
   if (!segments || segments.length === 0) return [];
   if (!modelHubSettings) {
     throw new Error('未配置大模型服务，无法进行分镜规划。请先前往 [模型中心] 配置并启用一个供应商。');
   }
 
-  const styleBlock = buildStyleBlock(styleId);
+  const styleBlock = buildStyleBlock(styleId, infographicStyleId);
 
-  const batches = chunkArray(segments, BATCH_SIZE);
-  const totalBudget = resolveTotalBudget(density, videoDuration, batches.length);
+  const totalBudget = resolveTotalBudget(density, videoDuration, Math.ceil(segments.length / SCREEN_BATCH_SIZE));
 
-  let completed = 0;
-  onBatch?.(0, batches.length);
+  // =========================================================================
+  // v0.7.20 两阶段规划（解决「长视频很慢」）
+  //
+  // 此前是一阶段：让模型为**每一句**都输出完整分镜（20+ 字段），
+  // 然后把标了 illustrate:false 的整条丢掉 —— 70 句的视频最终只要 21 张，
+  // 等于约 70% 的输出是白写的，而耗时基本正比于输出 token。
+  //
+  // 现在拆成两阶段：
+  //   阶段 A（粗筛）：只问「要不要配图 / 几分 / 什么类型 / 一句话主体」，
+  //                  输出极小，因此批量可以开大，请求数大幅减少；
+  //   阶段 B（细化）：只对入选的那几十句要完整分镜。
+  // 实测输出 token 降到约 1/3。
+  // =========================================================================
+
+  const screenBatches = chunkArray(segments, SCREEN_BATCH_SIZE);
+  let screened = 0;
+  onBatch?.(0, screenBatches.length + 1);
 
   const model = resolveActiveModelName(modelHubSettings);
   const ctrl = createAdaptiveConcurrency(model);
 
-  // 每批的预算按片段占比分配，最后一批兜住余数，避免四舍五入把预算吞掉
-  const perBatchBudget = batches.map((b, i) =>
-    i === batches.length - 1
-      ? Math.max(1, totalBudget - estimateBudget(batches.slice(0, i), segments.length, totalBudget))
-      : Math.max(1, Math.round((totalBudget * b.length) / segments.length))
-  );
+  // —— 阶段 A：粗筛 ——
+  const screenResults = await ctrl.run(screenBatches, async (batch, bi) => {
+    const picked = await screenBatchWithRetry(
+      batch, bi, modelHubSettings, ctrl, screenBatches.length, styleBlock, segments.length, totalBudget
+    );
+    onBatch?.(++screened, screenBatches.length + 1);
+    return picked;
+  });
 
-  const batchItems = await ctrl.run(batches, async (batch, bi) => {
-    const items = await planBatchWithRetry(batch, bi, modelHubSettings, perBatchBudget[bi], ctrl, batches.length, styleBlock);
-    onBatch?.(++completed, batches.length);
+  const candidates = screenResults.flat();
+  if (candidates.length === 0) return [];
+
+  // 先按分数与最小间隔选出最终镜头（时间轴算术仍留在本地）
+  const selected = pickByScoreAndGap(candidates, density, videoDuration);
+
+  // —— 阶段 B：为入选镜头生成完整分镜 ——
+  const detailBatches = chunkArray(selected, DETAIL_BATCH_SIZE);
+  let detailed = 0;
+  const detailResults = await ctrl.run(detailBatches, async (batch, bi) => {
+    const items = await detailBatchWithRetry(
+      batch, bi, modelHubSettings, ctrl, detailBatches.length, styleBlock
+    );
+    onBatch?.(screenBatches.length + 1 - detailBatches.length + ++detailed, screenBatches.length + 1);
     return items;
   });
 
-  const all = batchItems.flat();
+  const all = detailResults.flat();
 
-  const scheduled = selectAndSchedule(all, segments, density, videoDuration);
+  const scheduled = scheduleItems(all, density, videoDuration);
 
   // v0.7.15：跨批次统一执行构图多样性后处理。
   // 每个批次是独立请求，模型看不到其他批次用过什么景别，因此跨批次的
@@ -209,21 +253,27 @@ function resolveTotalBudget(density: IllustrationDensity, videoDuration: number,
   return Math.max(3, Math.min(upper, raw));
 }
 
-async function planBatchWithRetry(
+// =============================================================================
+// 阶段 A：粗筛（只问「要不要配图 + 什么类型 + 一句话主体」）
+// =============================================================================
+
+async function screenBatchWithRetry(
   batch: TimelineSegment[],
   batchIndex: number,
   modelHubSettings: any,
-  budget: number,
   ctrl: AdaptiveConcurrency,
   totalBatches: number,
-  styleBlock: string
-): Promise<UnifiedPlanItem[]> {
+  styleBlock: string,
+  totalSegments: number,
+  totalBudget: number
+): Promise<ScreenCandidate[]> {
   const MAX_ATTEMPTS = 3;
+  const budget = Math.max(1, Math.round((totalBudget * batch.length) / Math.max(1, totalSegments)));
   let lastErr: any = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const items = await planBatchOnce(batch, batchIndex, modelHubSettings, budget, styleBlock);
+      const items = await screenBatchOnce(batch, batchIndex, modelHubSettings, budget, styleBlock);
       if (items) return items;
       lastErr = new Error('模型未返回可解析的 JSON 结果');
     } catch (err: any) {
@@ -235,26 +285,133 @@ async function planBatchWithRetry(
   }
 
   throw new Error(
-    `分镜规划第 ${batchIndex + 1}/${totalBatches} 批在 ${MAX_ATTEMPTS} 次尝试后仍失败：${lastErr?.message || lastErr}`
+    `分镜粗筛第 ${batchIndex + 1}/${totalBatches} 批在 ${MAX_ATTEMPTS} 次尝试后仍失败：${lastErr?.message || lastErr}`
   );
 }
 
-async function planBatchOnce(
+async function screenBatchOnce(
   batch: TimelineSegment[],
   batchIndex: number,
   modelHubSettings: any,
   budget: number,
   styleBlock: string
+): Promise<ScreenCandidate[] | null> {
+  const promptList = batch.map((s, idx) => ({
+    seg_id: `SC_${String(batchIndex * SCREEN_BATCH_SIZE + idx + 1).padStart(2, '0')}`,
+    旁白: s.text,
+  }));
+
+  const systemPrompt = `你是短视频视觉导演。现在只做**粗筛**：判断每句旁白值不值得配一张插图。
+
+【第一步 —— 先听懂】
+旁白来自语音识别，**一定存在同音字错误**，先按上下文还原真实含义再判断。
+例如「不要用自己的粤语碰别人的专业」实为「业余挑战专业」；
+「拍脑袋」被识别成「拍老门」、「金税四期」被识别成「今世」、「轮胎」被识别成「人胎」。
+**不要照着错别字理解**。
+
+【第二步 —— 判断值不值得配图】
+以下情况 illustrate 应为 false：
+- 口头禅、寒暄、语气词、无信息量的过渡句（「好了」「其实呢」「对吧」「嗯 对 不对」）
+- 与相邻句表达同一件事、画面必然重复的句子
+- 纯情绪感叹、没有可视内容
+值得配图的是：有具体信息、有数据、有对比、有步骤、有明确场景或强比喻的句子。
+本批共 ${batch.length} 句，请挑**大约 ${budget} 句**（可上下浮动 1 句）。
+${styleBlock}
+
+【visual_type】只能取：
+scene_narrative / concept_metaphor / data_stat / step_framework / vs_comparison
+/ historical_recreation / product_showcase
+
+【输出】只返回严格 JSON 数组，每个输入片段对应一个元素，顺序一致。
+**不要输出画面细节、不要输出分镜字段**，那些下一步才做：
+[
+  { "seg_id": "SC_01", "illustrate": true, "score": 0.82, "visual_type": "vs_comparison",
+    "subject_hint": "公司买房与个人买房的税负对比", "reason": "有具体对比" },
+  { "seg_id": "SC_02", "illustrate": false, "score": 0.2, "visual_type": "scene_narrative",
+    "subject_hint": "", "reason": "纯过渡句" }
+]
+不要输出任何解释文字或 markdown 代码块。`;
+
+  const responseText = await chatCompletion(
+    [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `请粗筛以下 ${batch.length} 个片段（必须返回 ${batch.length} 个元素）：\n${JSON.stringify(promptList, null, 2)}` },
+    ],
+    { temperature: 0.4, maxTokens: 8192, rejectTruncation: true },
+    modelHubSettings
+  );
+
+  const extraction = extractJsonArrayLoose<RawItem>(responseText);
+  if (!extraction.ok || extraction.items.length === 0) return null;
+
+  const out: ScreenCandidate[] = [];
+  batch.forEach((seg, localIdx) => {
+    const expectedId = `SC_${String(batchIndex * SCREEN_BATCH_SIZE + localIdx + 1).padStart(2, '0')}`;
+    const raw =
+      extraction.items.find((it) => it && it.seg_id === expectedId) || extraction.items[localIdx];
+    if (!raw || raw.illustrate === false) return;
+
+    out.push({
+      segId: expectedId,
+      startTime: seg.startTime,
+      endTime: seg.endTime,
+      sourceText: seg.text,
+      visualType: pickEnum<VisualType>(raw.visual_type, VISUAL_TYPES, guessVisualType(seg.text)),
+      score: typeof raw.score === 'number' && Number.isFinite(raw.score) ? Math.max(0, Math.min(1, raw.score)) : 0.7,
+      subjectHint: str(raw.subject_hint, ''),
+      reason: str(raw.reason, ''),
+    });
+  });
+
+  return out;
+}
+
+// =============================================================================
+// 阶段 B：细化（只对入选镜头生成完整分镜）
+// =============================================================================
+
+async function detailBatchWithRetry(
+  batch: ScreenCandidate[],
+  batchIndex: number,
+  modelHubSettings: any,
+  ctrl: AdaptiveConcurrency,
+  totalBatches: number,
+  styleBlock: string
+): Promise<UnifiedPlanItem[]> {
+  const MAX_ATTEMPTS = 3;
+  let lastErr: any = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const items = await detailBatchOnce(batch, batchIndex, modelHubSettings, styleBlock);
+      if (items) return items;
+      lastErr = new Error('模型未返回可解析的 JSON 结果');
+    } catch (err: any) {
+      lastErr = err;
+    }
+    if (attempt < MAX_ATTEMPTS) {
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
+  }
+
+  throw new Error(
+    `分镜细化第 ${batchIndex + 1}/${totalBatches} 批在 ${MAX_ATTEMPTS} 次尝试后仍失败：${lastErr?.message || lastErr}`
+  );
+}
+
+async function detailBatchOnce(
+  batch: ScreenCandidate[],
+  batchIndex: number,
+  modelHubSettings: any,
+  styleBlock: string
 ): Promise<UnifiedPlanItem[] | null> {
-  const promptList = batch.map((s, idx) => {
-    // v0.7.19：为该片段给出候选版式（按 visual_type 映射，取自官方 layout 表）
-    const guessType = guessVisualType(s.text);
-    const candidates = layoutCandidatesFor(guessType);
+  const promptList = batch.map((c, idx) => {
+    const candidates = layoutCandidatesFor(c.visualType);
     return {
-      seg_id: `SU_${String(batchIndex * BATCH_SIZE + idx + 1).padStart(2, '0')}`,
-      时间起: Number(s.startTime.toFixed(2)),
-      时间止: Number(s.endTime.toFixed(2)),
-      旁白: s.text,
+      seg_id: `SU_${String(batchIndex * DETAIL_BATCH_SIZE + idx + 1).padStart(2, '0')}`,
+      旁白: c.sourceText,
+      已判定类型: c.visualType,
+      已判定主体: c.subjectHint || undefined,
       候选版式: candidates.map((id) => `${id}(${LAYOUTS[id]?.label || id})`).join(' | '),
     };
   });
@@ -268,13 +425,10 @@ async function planBatchOnce(
 「拍脑袋」被识别成「拍老门」、「金税四期」被识别成「今世」、「轮胎」被识别成「人胎」，
 都属于同类错误。**不要照着错别字画图**。
 
-【第二步 —— 决定要不要配图】
-不是每句话都值得配图。以下情况 illustrate 应为 false：
-- 口头禅、寒暄、语气词、无信息量的过渡句（如「好了」「其实呢」「对吧」「嗯 对 不对」）
-- 与相邻句子表达同一件事、画面会高度重复的句子
-- 纯情绪感叹、没有可视内容的句子
-值得配图的是：有具体信息、有数据、有对比、有步骤、有明确场景或强比喻的句子。
-本批共 ${batch.length} 句，请从中挑选**大约 ${budget} 句**配图（可上下浮动 1 句）。
+【第二步 —— 你拿到的是**已经筛过**的句子】
+这些句子已经在上一步被判定「值得配图」，并且给了「已判定类型」和「已判定主体」作为参考。
+你要做的是把它们**落实成可执行的画面**，而不是重新判断要不要配图。
+「已判定主体」是提示不是命令，你可以根据语义优化，但不要偏离太远。
 
 【第三步 —— 设计画面】
 画面必须让观众在 1 秒内看懂这句话在讲什么。
@@ -380,13 +534,13 @@ depth 只能取：deep / shallow / layered
   if (!extraction.ok || extraction.items.length === 0) return null;
 
   const out: UnifiedPlanItem[] = [];
-  batch.forEach((seg, localIdx) => {
-    const expectedId = `SU_${String(batchIndex * BATCH_SIZE + localIdx + 1).padStart(2, '0')}`;
+  batch.forEach((cand, localIdx) => {
+    const expectedId = `SU_${String(batchIndex * DETAIL_BATCH_SIZE + localIdx + 1).padStart(2, '0')}`;
     const raw =
       extraction.items.find((it) => it && it.seg_id === expectedId) ||
       extraction.items[localIdx];
     if (!raw) return;
-    // 模型明确说不需要配图 → 跳过（这是合并后新增的能力）
+    // 阶段 A 已经判定要配图；这里若模型仍标 false 则尊重它
     if (raw.illustrate === false) return;
 
     const visualType = pickEnum<VisualType>(raw.visual_type, VISUAL_TYPES, 'scene_narrative');
@@ -406,7 +560,7 @@ depth 只能取：deep / shallow / layered
 
     const plan: ScenePlan = {
       beatId: expectedId,
-      communicationGoal: str(raw.communication_goal, `1秒读懂：${seg.text.slice(0, 16)}`),
+      communicationGoal: str(raw.communication_goal, `1秒读懂：${cand.sourceText.slice(0, 16)}`),
       visualType,
       // v0.7.19：版式优先用模型选的；无效或缺失时按 visualType 兜底
       layout: pickEnum<string>(
@@ -415,7 +569,7 @@ depth 只能取：deep / shallow / layered
         fallbackLayoutFor(visualType)
       ),
       scene: {
-        primarySubject: str(raw.primary_subject, seg.text.slice(0, 12)),
+        primarySubject: str(raw.primary_subject, cand.sourceText.slice(0, 12)),
         action: str(raw.action, '静态呈现'),
         foreground: str(raw.foreground, ''),
         background: str(raw.background, '简洁的室内环境'),
@@ -442,9 +596,9 @@ depth 只能取：deep / shallow / layered
     out.push({
       beatId: expectedId,
       segId: expectedId,
-      startTime: seg.startTime,
-      endTime: seg.endTime,
-      sourceText: seg.text,
+      startTime: cand.startTime,
+      endTime: cand.endTime,
+      sourceText: cand.sourceText,
       visualType,
       score,
       priority: score >= 0.8 ? 'high' : score >= 0.6 ? 'medium' : 'low',
@@ -463,53 +617,101 @@ depth 只能取：deep / shallow / layered
  *   1. 候选数超过预算时，按模型自评分从高到低取舍；
  *   2. 计算不重叠的展示区间（纯区间运算，非内容规则）。
  */
+/**
+ * v0.7.20：阶段 A 的产物 —— 只够用于挑选，不含完整分镜。
+ */
+export interface ScreenCandidate {
+  segId: string;
+  startTime: number;
+  endTime: number;
+  sourceText: string;
+  visualType: VisualType;
+  score: number;
+  /** 一句话主体提示，会带进阶段 B 作为上下文 */
+  subjectHint: string;
+  reason: string;
+}
+
 function selectAndSchedule(
   candidates: UnifiedPlanItem[],
   segments: TimelineSegment[],
   density: IllustrationDensity,
   videoDuration: number
 ): UnifiedPlanItem[] {
-  const cfg = DENSITY_RATE[density] || DENSITY_RATE.standard;
   const budget = resolveTotalBudget(density, videoDuration, Math.ceil(segments.length / BATCH_SIZE));
+  const chosen = rankedPick(candidates, density, videoDuration, budget);
+  return scheduleItems(chosen, density, videoDuration);
+}
 
-  // 按分数优先，同分按时间先后
+/**
+ * 阶段 A 后的挑选：按模型自评分从高到低取舍，并强制最小间隔。
+ * 纯排序 + 区间运算，内容判断完全来自模型分数。
+ */
+function pickByScoreAndGap(
+  candidates: ScreenCandidate[],
+  density: IllustrationDensity,
+  videoDuration: number
+): ScreenCandidate[] {
+  const cfg = DENSITY_RATE[density] || DENSITY_RATE.standard;
+  const budget = resolveTotalBudget(density, videoDuration, Math.ceil(candidates.length / DETAIL_BATCH_SIZE));
+
   const ranked = [...candidates].sort((a, b) => b.score - a.score || a.startTime - b.startTime);
-
-  const chosen: UnifiedPlanItem[] = [];
+  const chosen: ScreenCandidate[] = [];
   for (const item of ranked) {
     if (chosen.length >= budget) break;
-    // 最小间隔：与已选中的任一镜头冲突则跳过
-    const conflict = chosen.some(
-      (c) => Math.abs(c.startTime - item.startTime) < cfg.minGap
-    );
+    const conflict = chosen.some((c) => Math.abs(c.startTime - item.startTime) < cfg.minGap);
     if (conflict) continue;
     chosen.push(item);
   }
-
-  // 恢复时间顺序
   chosen.sort((a, b) => a.startTime - b.startTime);
+  return chosen;
+}
 
-  // 计算展示区间：以片段自身时长为基准，钳制到 [minDuration, maxDuration]，且不重叠
+/** 通用：按分数取舍并保证最小间隔 */
+function rankedPick<T extends { score: number; startTime: number }>(
+  candidates: T[],
+  density: IllustrationDensity,
+  videoDuration: number,
+  budget: number
+): T[] {
+  const cfg = DENSITY_RATE[density] || DENSITY_RATE.standard;
+  const ranked = [...candidates].sort((a, b) => b.score - a.score || a.startTime - b.startTime);
+  const chosen: T[] = [];
+  for (const item of ranked) {
+    if (chosen.length >= budget) break;
+    const conflict = chosen.some((c) => Math.abs(c.startTime - item.startTime) < cfg.minGap);
+    if (conflict) continue;
+    chosen.push(item);
+  }
+  chosen.sort((a, b) => a.startTime - b.startTime);
+  return chosen;
+}
+
+/**
+ * 计算不重叠的展示区间（纯区间算术，非内容规则）。
+ */
+function scheduleItems<T extends { startTime: number; endTime: number }>(
+  chosen: T[],
+  density: IllustrationDensity,
+  videoDuration: number
+): T[] {
+  const cfg = DENSITY_RATE[density] || DENSITY_RATE.standard;
   const limit = videoDuration > 0 ? videoDuration : Number.POSITIVE_INFINITY;
-  const scheduled: UnifiedPlanItem[] = [];
+  const scheduled: T[] = [];
   for (let i = 0; i < chosen.length; i++) {
     const it = chosen[i];
     const next = chosen[i + 1];
     let start = Math.max(0, it.startTime);
     let end = it.endTime;
 
-    // 太短则补足到最小时长；太长则截到最大时长
     if (end - start < cfg.minDuration) end = start + cfg.minDuration;
     if (end - start > cfg.maxDuration) end = start + cfg.maxDuration;
 
-    // 不超过下一个镜头的起点（各留 0.2 秒交接）
     if (next) {
       const cap = Math.max(start + 0.8, next.startTime - 0.2);
       if (end > cap) end = cap;
     }
-    // 不超过视频总时长
     if (end > limit) end = limit;
-    // 最终安全兜底
     if (end - start < 0.8) {
       end = Math.min(limit, start + Math.max(0.8, cfg.minDuration));
     }
@@ -519,7 +721,6 @@ function selectAndSchedule(
 
     scheduled.push({ ...it, startTime: start, endTime: end });
   }
-
   return scheduled;
 }
 
@@ -539,13 +740,13 @@ function resolveActiveModelName(settings: any): string {
  * 这是修「画风对但内容违和」的核心。此前风格只写进出图提示词，
  * 规划阶段完全不知道用户选了什么，于是选水墨风照样会规划出现代白板表格。
  */
-export function buildStyleBlock(styleId?: string): string {
+export function buildStyleBlock(styleId?: string, infographicStyleId?: string): string {
   const bible = getStyleBible(styleId);
   const guide = STYLE_PLANNER_GUIDANCE[bible.styleId];
   const lines: string[] = [];
   lines.push('');
   lines.push('【本片画风约束 —— 必须遵守】');
-  lines.push(`全片统一使用【${bible.label}】画风：${bible.visualMedium}`);
+  lines.push(`叙事与场景类画面统一使用【${bible.label}】画风：${bible.visualMedium}`);
   if (guide) {
     lines.push(
       `该画风下，优先选择这类主体与道具：${guide.suitableSubjects.join('、')}。`
@@ -554,6 +755,14 @@ export function buildStyleBlock(styleId?: string): string {
       `该画风下，**禁止**规划这些主体：${guide.avoidSubjects.join('、')}。` +
         `如果某句旁白本身就在讲这些被禁止的事物，请用同一含义的、符合画风的实体来转译表达，` +
         `而不是照搬现代物件。`
+    );
+  }
+  // v0.7.20：信息图与叙事图的画风分开。
+  // 叙事图要插画质感，信息图要清晰的数据可视化，用同一套画风是矛盾的。
+  if (infographicStyleId && infographicStyleId !== bible.styleId) {
+    const infoBible = getStyleBible(infographicStyleId);
+    lines.push(
+      `数据/对比/流程类的**信息图**画面则使用【${infoBible.label}】画风：${infoBible.visualMedium}`
     );
   }
   lines.push('不同画风对同一句话的取景完全不同，你的主体选择必须贴合上述画风。');

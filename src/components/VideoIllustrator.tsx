@@ -393,6 +393,10 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   // 规划与生成配置
   const [routingMode, setRoutingMode] = useState<'smart' | 'infographic' | 'standard'>('smart');
   const [defaultStyle, setDefaultStyle] = useState<string>('modern_business');
+  // v0.7.20：信息图（数据/对比/流程）单独一套画风。
+  // 叙事图要插画质感、信息图要清晰可读的数据可视化，用同一套是矛盾的
+  //（选水墨则信息图也变得不适合读数；选信息图表则叙事图没有人物场景）。
+  const [infographicStyle, setInfographicStyle] = useState<string>('infographic_clean');
   const [defaultRatio, setDefaultRatio] = useState<string>('16:9');
   const [density, setDensity] = useState<IllustrationDensity>('standard');
   const [scriptText, setScriptText] = useState<string>('');
@@ -984,6 +988,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         videoDuration: dur,
         density,
         styleId: defaultStyle,
+        infographicStyleId: infographicStyle,
         ratio: defaultRatio || '16:9',
         routingMode,
         asrUtterances: asrUtterances.length > 0 ? asrUtterances : undefined,
@@ -1901,6 +1906,29 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                 />
                 <span>锁定画风（保持账号调性统一）</span>
               </label>
+            </div>
+
+            {/* v0.7.20：信息图画风 —— 与叙事画风分开 */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
+                  <LayoutGrid className="w-3 h-3 text-cyan-500" />
+                  <span>信息图</span>
+                </label>
+                <span className="text-[9px] text-zinc-400">数据 / 对比 / 流程</span>
+              </div>
+              <select
+                value={infographicStyle}
+                onChange={(e) => setInfographicStyle(e.target.value)}
+                className="w-full px-2 py-1 rounded-lg border border-cyan-200 dark:border-cyan-900/70 bg-cyan-50/50 dark:bg-cyan-950/20 text-[11px] text-zinc-800 dark:text-zinc-200 font-medium focus:ring-1 focus:ring-cyan-500 outline-none cursor-pointer truncate"
+                title="数据、对比、流程类画面的画风。叙事类画面用左边的「图片风格」"
+              >
+                {STYLE_OPTIONS.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.badge ? `[${s.badge}] ` : ''}{s.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>
