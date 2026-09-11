@@ -148,6 +148,39 @@ function strArray(value: unknown, limit = 6): string[] {
 }
 
 /**
+ * 健壮的 seg_id 查找器（v0.7.21）
+ * 1. 严格 ID 匹配（如 "SU_01" === "SU_01"）
+ * 2. 宽容数字序号匹配（兼容部分模型未补零输出如 "SU_1"、"1"、"SC-1" 等）
+ * 3. 实在没有才安全回落到当前物理下标
+ */
+function findItemBySegId<T extends { seg_id?: string }>(
+  items: (T | undefined | null)[] | undefined,
+  expectedId: string,
+  localIdx: number
+): T | undefined {
+  if (!items || items.length === 0) return undefined;
+
+  // 1. 严格匹配
+  const exact = items.find((it) => it && String(it.seg_id || '').trim().toLowerCase() === expectedId.toLowerCase());
+  if (exact) return exact;
+
+  // 2. 数字序号模糊匹配
+  const numMatch = expectedId.match(/\d+/);
+  if (numMatch) {
+    const targetSeq = parseInt(numMatch[0], 10);
+    const fuzzy = items.find((it) => {
+      if (!it || !it.seg_id) return false;
+      const n = String(it.seg_id).match(/\d+/);
+      return n && parseInt(n[0], 10) === targetSeq;
+    });
+    if (fuzzy) return fuzzy;
+  }
+
+  // 3. 物理下标回退
+  return items[localIdx] || undefined;
+}
+
+/**
  * 执行合并规划。
  *
  * @param segments 已时间对齐的旁白片段
@@ -164,10 +197,12 @@ export async function planIllustrationsUnified(
     styleId?: string;
     /** v0.7.20：信息图专用画风（与叙事画风分开，两者需求不同） */
     infographicStyleId?: string;
+    /** v0.7.21：信息图版式选择（空或 'auto' 表示大模型自动挑选） */
+    infographicLayout?: string;
     onBatch?: (done: number, total: number) => void;
   }
 ): Promise<UnifiedPlanItem[]> {
-  const { density, videoDuration, modelHubSettings, styleId, infographicStyleId, onBatch } = opts;
+  const { density, videoDuration, modelHubSettings, styleId, infographicStyleId, infographicLayout, onBatch } = opts;
 
   if (!segments || segments.length === 0) return [];
   if (!modelHubSettings) {
@@ -179,22 +214,16 @@ export async function planIllustrationsUnified(
   const totalBudget = resolveTotalBudget(density, videoDuration, Math.ceil(segments.length / SCREEN_BATCH_SIZE));
 
   // =========================================================================
-  // v0.7.20 两阶段规划（解决「长视频很慢」）
-  //
-  // 此前是一阶段：让模型为**每一句**都输出完整分镜（20+ 字段），
-  // 然后把标了 illustrate:false 的整条丢掉 —— 70 句的视频最终只要 21 张，
-  // 等于约 70% 的输出是白写的，而耗时基本正比于输出 token。
-  //
-  // 现在拆成两阶段：
-  //   阶段 A（粗筛）：只问「要不要配图 / 几分 / 什么类型 / 一句话主体」，
-  //                  输出极小，因此批量可以开大，请求数大幅减少；
-  //   阶段 B（细化）：只对入选的那几十句要完整分镜。
-  // 实测输出 token 降到约 1/3。
+  // v0.7.20 两阶段规划 + v0.7.21 真实全生命周期平滑递增进度
   // =========================================================================
 
   const screenBatches = chunkArray(segments, SCREEN_BATCH_SIZE);
+  // 预估细化阶段批次（约占总预算的一半除以批尺寸，至少 1 批）
+  const estimatedDetailBatches = Math.max(1, Math.ceil(totalBudget / DETAIL_BATCH_SIZE));
+  const estimatedTotalBatches = screenBatches.length + estimatedDetailBatches;
+
   let screened = 0;
-  onBatch?.(0, screenBatches.length + 1);
+  onBatch?.(0, estimatedTotalBatches);
 
   const model = resolveActiveModelName(modelHubSettings);
   const ctrl = createAdaptiveConcurrency(model);
@@ -204,11 +233,27 @@ export async function planIllustrationsUnified(
     const picked = await screenBatchWithRetry(
       batch, bi, modelHubSettings, ctrl, screenBatches.length, styleBlock, segments.length, totalBudget
     );
-    onBatch?.(++screened, screenBatches.length + 1);
+    screened++;
+    onBatch?.(screened, estimatedTotalBatches);
     return picked;
   });
 
-  const candidates = screenResults.flat();
+  let candidates = screenResults.flat();
+
+  // v0.7.21：零候选容错兜底 —— 若模型极度严苛未选出任何句子，兜底挑出最有信息量的前 2 句
+  if (candidates.length === 0 && segments.length > 0) {
+    candidates = segments.slice(0, Math.min(3, segments.length)).map((seg, idx) => ({
+      segId: `SC_${String(idx + 1).padStart(2, '0')}`,
+      startTime: seg.startTime,
+      endTime: seg.endTime,
+      sourceText: seg.text,
+      visualType: guessVisualType(seg.text),
+      score: 0.75,
+      subjectHint: seg.text.slice(0, 16),
+      reason: 'AI 自动兜底关键陈述句',
+    }));
+  }
+
   if (candidates.length === 0) return [];
 
   // 先按分数与最小间隔选出最终镜头（时间轴算术仍留在本地）
@@ -216,12 +261,15 @@ export async function planIllustrationsUnified(
 
   // —— 阶段 B：为入选镜头生成完整分镜 ——
   const detailBatches = chunkArray(selected, DETAIL_BATCH_SIZE);
+  const actualTotalBatches = screenBatches.length + detailBatches.length;
   let detailed = 0;
+
   const detailResults = await ctrl.run(detailBatches, async (batch, bi) => {
     const items = await detailBatchWithRetry(
-      batch, bi, modelHubSettings, ctrl, detailBatches.length, styleBlock
+      batch, bi, modelHubSettings, ctrl, detailBatches.length, styleBlock, infographicLayout
     );
-    onBatch?.(screenBatches.length + 1 - detailBatches.length + ++detailed, screenBatches.length + 1);
+    detailed++;
+    onBatch?.(screenBatches.length + detailed, actualTotalBatches);
     return items;
   });
 
@@ -347,8 +395,7 @@ scene_narrative / concept_metaphor / data_stat / step_framework / vs_comparison
   const out: ScreenCandidate[] = [];
   batch.forEach((seg, localIdx) => {
     const expectedId = `SC_${String(batchIndex * SCREEN_BATCH_SIZE + localIdx + 1).padStart(2, '0')}`;
-    const raw =
-      extraction.items.find((it) => it && it.seg_id === expectedId) || extraction.items[localIdx];
+    const raw = findItemBySegId(extraction.items, expectedId, localIdx);
     if (!raw || raw.illustrate === false) return;
 
     out.push({
@@ -376,14 +423,15 @@ async function detailBatchWithRetry(
   modelHubSettings: any,
   ctrl: AdaptiveConcurrency,
   totalBatches: number,
-  styleBlock: string
+  styleBlock: string,
+  infographicLayout?: string
 ): Promise<UnifiedPlanItem[]> {
   const MAX_ATTEMPTS = 3;
   let lastErr: any = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const items = await detailBatchOnce(batch, batchIndex, modelHubSettings, styleBlock);
+      const items = await detailBatchOnce(batch, batchIndex, modelHubSettings, styleBlock, infographicLayout);
       if (items) return items;
       lastErr = new Error('模型未返回可解析的 JSON 结果');
     } catch (err: any) {
@@ -403,10 +451,12 @@ async function detailBatchOnce(
   batch: ScreenCandidate[],
   batchIndex: number,
   modelHubSettings: any,
-  styleBlock: string
+  styleBlock: string,
+  infographicLayout?: string
 ): Promise<UnifiedPlanItem[] | null> {
+  const fixedLayout = infographicLayout && infographicLayout !== 'auto' && LAYOUTS[infographicLayout] ? infographicLayout : '';
   const promptList = batch.map((c, idx) => {
-    const candidates = layoutCandidatesFor(c.visualType);
+    const candidates = fixedLayout ? [fixedLayout] : layoutCandidatesFor(c.visualType);
     return {
       seg_id: `SU_${String(batchIndex * DETAIL_BATCH_SIZE + idx + 1).padStart(2, '0')}`,
       旁白: c.sourceText,
@@ -536,9 +586,7 @@ depth 只能取：deep / shallow / layered
   const out: UnifiedPlanItem[] = [];
   batch.forEach((cand, localIdx) => {
     const expectedId = `SU_${String(batchIndex * DETAIL_BATCH_SIZE + localIdx + 1).padStart(2, '0')}`;
-    const raw =
-      extraction.items.find((it) => it && it.seg_id === expectedId) ||
-      extraction.items[localIdx];
+    const raw = findItemBySegId(extraction.items, expectedId, localIdx);
     if (!raw) return;
     // 阶段 A 已经判定要配图；这里若模型仍标 false 则尊重它
     if (raw.illustrate === false) return;
@@ -558,16 +606,17 @@ depth 只能取：deep / shallow / layered
 
     const score = typeof raw.score === 'number' && Number.isFinite(raw.score) ? Math.max(0, Math.min(1, raw.score)) : 0.7;
 
+    const chosenLayout = fixedLayout || pickEnum<string>(
+      raw.layout,
+      layoutCandidatesFor(visualType),
+      fallbackLayoutFor(visualType)
+    );
+
     const plan: ScenePlan = {
       beatId: expectedId,
       communicationGoal: str(raw.communication_goal, `1秒读懂：${cand.sourceText.slice(0, 16)}`),
       visualType,
-      // v0.7.19：版式优先用模型选的；无效或缺失时按 visualType 兜底
-      layout: pickEnum<string>(
-        raw.layout,
-        layoutCandidatesFor(visualType),
-        fallbackLayoutFor(visualType)
-      ),
+      layout: chosenLayout,
       scene: {
         primarySubject: str(raw.primary_subject, cand.sourceText.slice(0, 12)),
         action: str(raw.action, '静态呈现'),

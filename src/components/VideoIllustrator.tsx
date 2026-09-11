@@ -4,7 +4,7 @@ import { api } from '../lib/ipc';
 import { chatCompletion, resolveModelInfo, subscribeModelCalls, type ModelCallEvent } from '../lib/modelHubService';
 import type { ModelHubSettings, ModelProviderType } from '../lib/modelHubTypes';
 import { PRESET_PROVIDERS } from '../lib/modelHubTypes';
-import { runIllustrationPipeline, recommendStyle, type PipelineProgress, type PipelineDiagnostics } from '../lib/illustrator';
+import { runIllustrationPipeline, type PipelineProgress, type PipelineDiagnostics } from '../lib/illustrator';
 import { useAdaptiveColumns } from '../lib/useAdaptiveColumns';
 import type { VideoIllustrationItem, IllustrationLayout, IllustrationDensity, IllustrationHistoryRecord } from '../types';
 import {
@@ -50,12 +50,19 @@ import {
   Film,
   Edit3,
   ChevronUp,
+  ChevronRight,
   GripVertical,
 } from 'lucide-react';
 
 // =========================================================================
 // 官方图片画风预设库 (风格仅约束纯画风与艺术媒介，不绑死信息图/非信息图)
 // =========================================================================
+import {
+  LAYOUTS,
+  type LayoutSpec,
+} from '../lib/illustrator/layoutBible';
+import LayoutSelectorModal from './LayoutSelectorModal';
+
 export interface StyleConfig {
   id: string;
   label: string;
@@ -65,6 +72,13 @@ export interface StyleConfig {
 }
 
 export const STYLE_OPTIONS: StyleConfig[] = [
+  {
+    id: 'auto',
+    label: '自动 (AI 语义分析匹配)',
+    badge: '智能统一',
+    desc: '大模型通读全文案调性，智能匹配最契合的全片统一画风',
+    stylePrompt: '由 AI 视觉导演根据全文文案调性自动匹配最契合的全片统一画风',
+  },
   {
     id: 'modern_business',
     label: '现代商务扁平',
@@ -392,7 +406,9 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
 
   // 规划与生成配置
   const [routingMode, setRoutingMode] = useState<'smart' | 'infographic' | 'standard'>('smart');
-  const [defaultStyle, setDefaultStyle] = useState<string>('modern_business');
+  const [defaultStyle, setDefaultStyle] = useState<string>('auto');
+  const [selectedLayoutId, setSelectedLayoutId] = useState<string>('auto');
+  const [showLayoutModal, setShowLayoutModal] = useState<boolean>(false);
   // v0.7.20：信息图（数据/对比/流程）单独一套画风。
   // 叙事图要插画质感、信息图要清晰可读的数据可视化，用同一套是矛盾的
   //（选水墨则信息图也变得不适合读数；选信息图表则叙事图没有人物场景）。
@@ -450,7 +466,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     focusBelow: 620,
   });
   const { containerRef: columnsRef, effectiveMode, leftWidth, rightWidth, squeezed } = cols;
-  const [isPackagingExpanded, setIsPackagingExpanded] = useState<boolean>(true);
+  const [isPackagingExpanded, setIsPackagingExpanded] = useState<boolean>(false);
 
   // 舞台容器高度自适应（替代写死的 66vh，避免大屏浪费 / 小窗溢出）
   // v0.7.8 修复：ref 之前挂在带 p-3 的外层容器上，而计算只减了 16px，
@@ -536,10 +552,6 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   // v0.7.16：历史作品。此前工作台是纯内存状态，点重置或关掉应用就全丢，
   // 而重新规划一次要跑好几分钟的大模型请求。
   const [historyRecords, setHistoryRecords] = useState<IllustrationHistoryRecord[]>([]);
-  // v0.7.18：AI 画风推荐 + 锁定
-  const [isRecommendingStyle, setIsRecommendingStyle] = useState<boolean>(false);
-  const [styleReason, setStyleReason] = useState<string | null>(null);
-  const [styleLocked, setStyleLocked] = useState<boolean>(false);
   // v0.7.17：历史作品改为整页切换（与「数字人」板块一致）。
   // 此前是塞在左栏里的一个 max-h-56 小面板，左栏本来就窄，一屏看不到两条，
   // 缩略信息也挤成一团，基本没法用。
@@ -965,7 +977,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     }
 
     const dur = videoDuration > 0 ? videoDuration : 60;
-    const modelHubSettings = (settings as any).modelHubSettings;
+    const modelHubSettings = modelSettings || (settings as any).modelHubSettings;
     const currentStyleObj = STYLE_OPTIONS.find((s) => s.id === defaultStyle) || STYLE_OPTIONS[0];
 
     setIsPlanning(true);
@@ -989,6 +1001,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         density,
         styleId: defaultStyle,
         infographicStyleId: infographicStyle,
+        infographicLayout: selectedLayoutId,
         ratio: defaultRatio || '16:9',
         routingMode,
         asrUtterances: asrUtterances.length > 0 ? asrUtterances : undefined,
@@ -1379,36 +1392,6 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     }
   };
 
-  // ===== v0.7.18：AI 画风推荐 =====
-
-  /**
-   * 读取全部文案推荐一个全片统一的画风。
-   * 刻意做成「推荐 + 用户确认」而不是静默自动切换：
-   * 做固定调性账号的用户需要视觉统一，锁上开关后就不再被推荐覆盖。
-   */
-  const handleRecommendStyle = async () => {
-    if (!scriptText.trim()) {
-      showToast('请先填入视频口播文案，AI 才能据此推荐画风', 'err');
-      return;
-    }
-    setIsRecommendingStyle(true);
-    try {
-      const res = await recommendStyle(
-        scriptText,
-        modelSettings,
-        STYLE_OPTIONS.map((s) => s.id)
-      );
-      setDefaultStyle(res.styleId);
-      setStyleReason(res.reason || null);
-      const label = STYLE_OPTIONS.find((s) => s.id === res.styleId)?.label || res.styleId;
-      showToast(`AI 推荐画风：${label}${res.reason ? ` —— ${res.reason}` : ''}`, 'ok');
-    } catch (e: any) {
-      showToast(`画风推荐失败：${e?.message || e}`, 'err');
-    } finally {
-      setIsRecommendingStyle(false);
-    }
-  };
-
   // ===== v0.7.16：历史作品与重置 =====
 
   /** 收集当前工作台的完整快照 */
@@ -1424,6 +1407,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
       videoDuration: videoDuration || 0,
       density,
       styleId: defaultStyle,
+      infographicStyleId: infographicStyle,
+      infographicLayout: selectedLayoutId,
       ratio: defaultRatio,
       routingMode,
       transitionEffect,
@@ -1476,6 +1461,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     setVideoDuration(rec.videoDuration || 0);
     setDensity(rec.density || 'standard');
     setDefaultStyle(rec.styleId || defaultStyle);
+    if (rec.infographicStyleId) setInfographicStyle(rec.infographicStyleId);
+    if (rec.infographicLayout) setSelectedLayoutId(rec.infographicLayout);
     setDefaultRatio(rec.ratio || '16:9');
     setRoutingMode(rec.routingMode || 'smart');
     setTransitionEffect(rec.transitionEffect || 'fade');
@@ -1622,14 +1609,11 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">智能视频配插图</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/60">
-                v0.7.6 · 三栏专业工作台
-              </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 font-semibold border border-emerald-200/60 dark:border-emerald-800/60">
-                中文母语提示词
+                v0.7.21 · 专业工作台
               </span>
             </div>
             <p className="text-[11.5px] text-zinc-400 mt-0.5">
-              三栏可调节布局 · 深度上下文物理实体规划 · 实时动态看板 · 提示词自由编辑 · 0乱码去标导出
+              AI 视觉导演 · 智能分镜规划与实体插图
             </p>
           </div>
         </div>
@@ -1856,108 +1840,95 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             </div>
           </div>
 
-          {/* 图片风格与配图密度同行并列 */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
-                  <Palette className="w-3 h-3 text-rose-500" />
-                  <span>图片风格</span>
-                </label>
-                {/* v0.7.18：AI 推荐画风。只推荐一次全局风格，绝不按句推荐 */}
-                <button
-                  type="button"
-                  onClick={handleRecommendStyle}
-                  disabled={isRecommendingStyle || !scriptText.trim()}
-                  className="text-[9.5px] px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/40 disabled:opacity-40 cursor-pointer flex items-center gap-0.5"
-                  title="读取全部文案后推荐一个全片统一的画风（需要先填入文案）"
-                >
-                  <Sparkles className={`w-2.5 h-2.5 ${isRecommendingStyle ? 'animate-spin' : ''}`} />
-                  {isRecommendingStyle ? '推荐中' : 'AI 推荐'}
-                </button>
-              </div>
-              <select
-                value={defaultStyle}
-                onChange={(e) => { setDefaultStyle(e.target.value); setStyleLocked(true); setStyleReason(null); }}
-                className="w-full px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-[11px] text-zinc-800 dark:text-zinc-200 font-medium focus:ring-1 focus:ring-indigo-500 outline-none cursor-pointer truncate"
-              >
-                {STYLE_OPTIONS.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.badge ? `[${s.badge}] ` : ''}{s.label}
-                  </option>
-                ))}
-              </select>
-              {/* 推荐理由 + 锁定开关 */}
-              {styleReason && (
-                <div className="mt-1 text-[9.5px] text-purple-600 dark:text-purple-400 leading-tight flex items-start gap-1">
-                  <Sparkles className="w-2.5 h-2.5 shrink-0 mt-0.5" />
-                  <span className="min-w-0">AI 推荐：{styleReason}</span>
-                </div>
-              )}
-              <label
-                className="mt-1 flex items-center gap-1 text-[9.5px] text-zinc-500 dark:text-zinc-400 cursor-pointer select-none"
-                title="锁定后每次规划都用当前这个画风，不再参考 AI 推荐——做固定调性的账号建议锁定"
-              >
-                <input
-                  type="checkbox"
-                  checked={styleLocked}
-                  onChange={(e) => setStyleLocked(e.target.checked)}
-                  className="w-3 h-3 accent-purple-500 cursor-pointer"
-                />
-                <span>锁定画风（保持账号调性统一）</span>
+          {/* 图片画风（默认自动 AI 语义匹配，全片统一） */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
+                <Palette className="w-3.5 h-3.5 text-rose-500" />
+                <span>图片画风</span>
               </label>
+              <span className="text-[9.5px] text-zinc-400">
+                {defaultStyle === 'auto' ? '全片风格统一' : (STYLE_OPTIONS.find((s) => s.id === defaultStyle)?.badge || '')}
+              </span>
             </div>
+            <select
+              value={defaultStyle}
+              onChange={(e) => setDefaultStyle(e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-800 dark:text-zinc-200 font-medium focus:ring-1 focus:ring-indigo-500 outline-none cursor-pointer"
+            >
+              {STYLE_OPTIONS.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.badge ? `[${s.badge}] ` : ''}{s.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-            {/* v0.7.20：信息图画风 —— 与叙事画风分开 */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
-                  <LayoutGrid className="w-3 h-3 text-cyan-500" />
-                  <span>信息图</span>
-                </label>
-                <span className="text-[9px] text-zinc-400">数据 / 对比 / 流程</span>
-              </div>
-              <select
-                value={infographicStyle}
-                onChange={(e) => setInfographicStyle(e.target.value)}
-                className="w-full px-2 py-1 rounded-lg border border-cyan-200 dark:border-cyan-900/70 bg-cyan-50/50 dark:bg-cyan-950/20 text-[11px] text-zinc-800 dark:text-zinc-200 font-medium focus:ring-1 focus:ring-cyan-500 outline-none cursor-pointer truncate"
-                title="数据、对比、流程类画面的画风。叙事类画面用左边的「图片风格」"
+          {/* 信息图版式（60+ 种官方版式可视化线框与分类选择） */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
+                <LayoutGrid className="w-3.5 h-3.5 text-cyan-500" />
+                <span>信息图版式</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowLayoutModal(true)}
+                className="text-[10.5px] text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
               >
-                {STYLE_OPTIONS.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.badge ? `[${s.badge}] ` : ''}{s.label}
-                  </option>
-                ))}
-              </select>
+                <span>60+ 版式库</span>
+                <ChevronRight className="w-3 h-3" />
+              </button>
             </div>
+            <div
+              onClick={() => setShowLayoutModal(true)}
+              className="w-full px-2.5 py-1.5 rounded-lg border border-cyan-200 dark:border-cyan-900/70 bg-cyan-50/50 dark:bg-cyan-950/20 hover:border-cyan-400 dark:hover:border-cyan-700 transition cursor-pointer flex items-center justify-between text-xs group"
+              title="点击打开 60+ 种官方信息图版式选择面板（带线框结构示意图）"
+            >
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-100 dark:bg-cyan-900/60 text-cyan-700 dark:text-cyan-300 font-semibold shrink-0">
+                  {selectedLayoutId === 'auto' ? 'AI 自适应' : (LAYOUTS[selectedLayoutId]?.category || '版式')}
+                </span>
+                <span className="font-medium text-zinc-800 dark:text-zinc-200 truncate">
+                  {selectedLayoutId === 'auto' ? '🤖 智能自适应匹配 (推荐)' : (LAYOUTS[selectedLayoutId]?.label || selectedLayoutId)}
+                </span>
+              </div>
+              <span className="text-[10.5px] text-cyan-600 dark:text-cyan-400 shrink-0 font-medium group-hover:translate-x-0.5 transition-transform">
+                选择 ›
+              </span>
+            </div>
+          </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
-                  <LayoutGrid className="w-3 h-3 text-amber-500" />
-                  <span>配图密度</span>
-                </label>
-              </div>
-              <div className="grid grid-cols-3 gap-0.5 bg-zinc-100 dark:bg-zinc-900/80 p-0.5 rounded-lg border border-zinc-200/80 dark:border-zinc-800">
-                {DENSITY_OPTIONS.map((d) => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => {
-                      setDensity(d.id);
-                      showToast(`已选择【${d.label}】配图`, 'ok');
-                    }}
-                    title={`${d.label}：${d.desc}`}
-                    className={`py-1 rounded-md text-[10.5px] font-medium transition cursor-pointer text-center ${
-                      density === d.id
-                        ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
-                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
-                    }`}
-                  >
-                    {d.label.slice(0, 2)}
-                  </button>
-                ))}
-              </div>
+          {/* 配图密度 */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
+                <Sliders className="w-3.5 h-3.5 text-amber-500" />
+                <span>配图密度</span>
+              </label>
+              <span className="text-[9.5px] text-zinc-400">
+                {DENSITY_OPTIONS.find((d) => d.id === density)?.desc.split('，')[0]}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-1 bg-zinc-100 dark:bg-zinc-900/80 p-0.5 rounded-lg border border-zinc-200/80 dark:border-zinc-800">
+              {DENSITY_OPTIONS.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => {
+                    setDensity(d.id);
+                    showToast(`已选择【${d.label}】配图`, 'ok');
+                  }}
+                  title={`${d.label}：${d.desc}`}
+                  className={`py-1 rounded-md text-[11px] font-medium transition cursor-pointer text-center ${
+                    density === d.id
+                      ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 font-bold shadow-xs'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  {d.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -2513,7 +2484,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                     </span>
                   </div>
                   <div className="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 mt-0.5 truncate">
-                    {pipelineProgress ? pipelineProgress.message : `锁定【${STYLE_OPTIONS.find((s) => s.id === defaultStyle)?.label}】画风`}
+                    {pipelineProgress ? pipelineProgress.message : `正在以【${STYLE_OPTIONS.find((s) => s.id === defaultStyle)?.label || '统一'}】推进分镜规划`}
                   </div>
                 </div>
               </div>
@@ -2819,6 +2790,15 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                         {item.shot && (
                           <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-500/10 text-purple-500 dark:text-purple-400 border border-purple-500/20 font-medium">
                             {item.shot === 'wide' ? '全景' : item.shot === 'medium' ? '中景' : item.shot === 'close' ? '特写' : item.shot === 'overhead' ? '俯瞰' : item.shot}
+                          </span>
+                        )}
+
+                        {item.scenePlan?.layout && (
+                          <span
+                            className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 font-medium"
+                            title={LAYOUTS[item.scenePlan.layout]?.desc || item.scenePlan.layout}
+                          >
+                            📐 {LAYOUTS[item.scenePlan.layout]?.label || item.scenePlan.layout}
                           </span>
                         )}
                       </div>
@@ -3358,6 +3338,18 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
           </div>
         </div>
       )}
+
+      {/* 60+ 种信息图版式可视化选择弹窗 */}
+      <LayoutSelectorModal
+        open={showLayoutModal}
+        onClose={() => setShowLayoutModal(false)}
+        selectedLayoutId={selectedLayoutId}
+        onSelect={(layoutId) => {
+          setSelectedLayoutId(layoutId);
+          const name = layoutId === 'auto' ? 'AI 智能自适应匹配' : LAYOUTS[layoutId]?.label || layoutId;
+          showToast(`已选定信息图版式：【${name}】`, 'ok');
+        }}
+      />
     </div>
   );
 };

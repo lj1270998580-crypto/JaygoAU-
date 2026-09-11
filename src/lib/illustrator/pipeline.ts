@@ -16,16 +16,16 @@ import type {
 import type { RawAsrUtterance } from './timelineAligner';
 import type { IllustrationDensity } from '../../types';
 import { alignScriptTimeline } from './timelineAligner';
-import { planIllustrationsUnified } from './unifiedPlanner';
+import { planIllustrationsUnified, recommendStyle } from './unifiedPlanner';
 import { createDirectorDiagnostics, type DirectorDiagnostics } from './visualDirector';
-import { getStyleBible } from './styleBible';
+import { getStyleBible, STYLE_BIBLES } from './styleBible';
 import { compileScenePrompt } from './promptCompiler';
 
 export interface PipelineOptions {
   scriptText: string;
   videoDuration: number;
   density: IllustrationDensity;
-  /** 叙事/场景类画面的画风 */
+  /** 叙事/场景类画面的画风（传 'auto' 时由大模型研判文案调性后自动匹配全片统一画风） */
   styleId: string;
   /**
    * v0.7.20：信息图（数据/对比/流程）专用画风。
@@ -34,6 +34,8 @@ export interface PipelineOptions {
    * 不传时回落到 styleId，保持向后兼容。
    */
   infographicStyleId?: string;
+  /** v0.7.21：信息图版式（空或 'auto' 表示大模型按每句自动挑选；指定时优先采用该版式） */
+  infographicLayout?: string;
   ratio: string;
   routingMode: 'smart' | 'infographic' | 'standard';
   asrUtterances?: RawAsrUtterance[];
@@ -86,6 +88,7 @@ export async function runIllustrationPipeline(
     density,
     styleId,
     infographicStyleId,
+    infographicLayout,
     ratio,
     routingMode,
     asrUtterances,
@@ -98,7 +101,7 @@ export async function runIllustrationPipeline(
   onProgress?.({
     stage: 'aligning',
     stepNumber: 1,
-    totalSteps: 5,
+    totalSteps: 4,
     stageName: '时间轴对齐',
     message: asrUtterances && asrUtterances.length > 0
       ? '正在基于 ASR 真实语音切片毫秒级对齐时间轴…'
@@ -111,12 +114,31 @@ export async function runIllustrationPipeline(
     throw new Error('文案内容为空或无法识别有效段落');
   }
 
-  // 2+3+4. 合并规划阶段（v0.7.15）
-  //
-  // 此前是「语义解析(LLM) → 本地打分挑选 → 分镜导演(LLM)」三段，
-  // 同一段旁白被大模型读了两遍，第二轮还只拿到第一轮压缩后的产物，
-  // 信息在传递中被削掉，耗时与 TPM 消耗也都是双份。
-  // 现在合并为**一次调用**：模型直接输出「要不要配图 + 配什么图 + 怎么构图」。
+  // v0.7.21：如果画风选了 auto，由大模型先通读全文智能匹配最契合的全片统一样式
+  let resolvedStyleId = styleId;
+  if (styleId === 'auto' || !styleId) {
+    onProgress?.({
+      stage: 'directing',
+      stepNumber: 2,
+      totalSteps: 4,
+      stageName: '智能匹配画风',
+      message: 'AI 正在深入研判文案调性，智能匹配全片最佳画风…',
+      percent: 22,
+    });
+    try {
+      const rec = await recommendStyle(
+        scriptText,
+        modelHubSettings,
+        Object.keys(STYLE_BIBLES)
+      );
+      resolvedStyleId = rec.styleId;
+    } catch (e) {
+      console.warn('[Pipeline] 自动画风推荐失败，回落为默认现代商业画风:', e);
+      resolvedStyleId = 'modern_business';
+    }
+  }
+
+  // 2+3+4. 合并规划阶段（v0.7.15 + v0.7.20 两阶段）
   onProgress?.({
     stage: 'directing',
     stepNumber: 2,
@@ -148,9 +170,10 @@ export async function runIllustrationPipeline(
     density,
     videoDuration,
     modelHubSettings,
-    // v0.7.18：把画风传进规划阶段 —— 否则「选水墨风却画出水墨质感的现代白板」
-    styleId,
+    // 采用已确定的全片统一画风
+    styleId: resolvedStyleId,
     infographicStyleId,
+    infographicLayout,
     onBatch: batchReporter('directing', 2, 'AI 分镜规划', 30, 55),
   });
 
@@ -173,9 +196,9 @@ export async function runIllustrationPipeline(
     percent: 92,
   });
 
-  // v0.7.20：叙事画风与信息图画风分开取用
-  const narrativeBible: StyleBible = getStyleBible(styleId);
-  const infoBible: StyleBible = getStyleBible(infographicStyleId || styleId);
+  // v0.7.20：叙事画风与信息图画风分开取用（使用已决议的全片统一画风）
+  const narrativeBible: StyleBible = getStyleBible(resolvedStyleId);
+  const infoBible: StyleBible = getStyleBible(infographicStyleId || resolvedStyleId);
 
   // 整合并装配输出结果
   const results: PlannedIllustrationResult[] = plannedItems.map((item) => {

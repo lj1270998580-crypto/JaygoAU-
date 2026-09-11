@@ -272,6 +272,10 @@ export interface IllustrationHistoryRecord {
   videoDuration: number;
   density: IllustrationDensity;
   styleId: string;
+  /** v0.7.20：信息图专用画风 */
+  infographicStyleId?: string;
+  /** v0.7.21：信息图版式选择（空或 'auto' 表示大模型按每句自动挑选） */
+  infographicLayout?: string;
   ratio: string;
   routingMode: 'smart' | 'infographic' | 'standard';
   transitionEffect: 'fade' | 'slide' | 'zoom' | 'none';
