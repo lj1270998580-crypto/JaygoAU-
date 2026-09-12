@@ -1,4 +1,5 @@
 import type { TimelineSegment } from './timelineAligner';
+import { enforceStrictSequentialTimeline, MAX_ILLUSTRATION_DURATION } from './timelineAligner';
 import type { ScenePlan, ShotType, VisualType } from './types';
 import type { CharacterConsistencyMode, IllustrationDensity } from '../../types';
 import { chatCompletion, resolveModelInfo } from '../modelHubService';
@@ -598,9 +599,9 @@ depth 只能取：deep / shallow / layered
   所有描述必须是纯中文叙述，例如写「代表价值的高耸柱状图」而不是「代表“价值”的柱状图」。正文中只有 text_labels 里的字才会进入印刷白名单。
 
 【text_labels —— 极其重要（商汤官方文字封闭白名单）】
-- 只写**确实需要出现在画面上的核心文字**，宁可少不可多。
-- 绝大多数分镜应该留空数组 []！不需要文字就绝对不要写。
-- 凡是写进 text_labels 的文字，只能是核心词汇或数字（最多 3 条，每条不超过 6 个汉字，例如 ["公司买房", "个人买房"] 或 ["329元"]）。
+- 【非信息图绝对无字铁律】：对于场景叙事（scene_narrative）、概念隐喻（concept_metaphor）、历史还原（historical_recreation）等所有非信息图分镜，画面必须纯靠具象场景、道具和人物神态视觉传达，text_labels 必须强制为 []！严禁出现任何印刷字！
+- 仅在信息图（数据统计、流程步骤、正反对比）且确实需要指标文字时，才允许在 text_labels 中填写核心词汇或数字（最多 3 条，每条不超过 6 个汉字，如 ["公司买房", "个人买房"]）。
+- 绝大多数分镜必须留空数组 []！不需要文字就绝对不要写。
 - 严禁把口播整句、带有标点符号的长句（如 "6小时干货+18份协议"）填入 text_labels！长句进入生图模型会导致严重的文字重影和乱码伪字。
 - 画面中的文字必须全图严格唯一，严禁在不同位置重复印制相同文字，严禁文字重影。
 
@@ -836,7 +837,7 @@ function rankedPick<T extends { score: number; startTime: number }>(
 }
 
 /**
- * 计算不重叠的展示区间（纯区间算术，非内容规则）。
+ * 计算严格不重叠、单调递增且单图不超过 6 秒的展示区间 (v0.7.32)
  */
 function scheduleItems<T extends { startTime: number; endTime: number }>(
   chosen: T[],
@@ -844,32 +845,9 @@ function scheduleItems<T extends { startTime: number; endTime: number }>(
   videoDuration: number
 ): T[] {
   const cfg = DENSITY_RATE[density] || DENSITY_RATE.standard;
-  const limit = videoDuration > 0 ? videoDuration : Number.POSITIVE_INFINITY;
-  const scheduled: T[] = [];
-  for (let i = 0; i < chosen.length; i++) {
-    const it = chosen[i];
-    const next = chosen[i + 1];
-    let start = Math.max(0, it.startTime);
-    let end = it.endTime;
-
-    if (end - start < cfg.minDuration) end = start + cfg.minDuration;
-    if (end - start > cfg.maxDuration) end = start + cfg.maxDuration;
-
-    if (next) {
-      const cap = Math.max(start + 0.8, next.startTime - 0.2);
-      if (end > cap) end = cap;
-    }
-    if (end > limit) end = limit;
-    if (end - start < 0.8) {
-      end = Math.min(limit, start + Math.max(0.8, cfg.minDuration));
-    }
-    if (end <= start) {
-      start = Math.max(0, end - Math.max(0.8, cfg.minDuration));
-    }
-
-    scheduled.push({ ...it, startTime: start, endTime: end });
-  }
-  return scheduled;
+  const maxDur = Math.min(MAX_ILLUSTRATION_DURATION, cfg.maxDuration || 4.5);
+  const minDur = Math.max(2.5, cfg.minDuration || 2.5);
+  return enforceStrictSequentialTimeline(chosen, videoDuration, maxDur, minDur, 0.1);
 }
 
 /** 安全解析当前生效的模型名，失败时返回空串（由并发控制器回落到保守值） */

@@ -203,7 +203,17 @@ export function compileScenePrompt(
     )
   );
 
-  const lines: string[] = [];
+  // 非信息图绝对无字铁律：非信息图严禁包含文字白名单
+  if (!isInfographic) {
+    allAvoid.push(
+      '文字', '汉字', '中文字', '英文字母', '数字', '文本', '标题',
+      '标签', '标语', '水印', '乱码', '印刷字', '图例', 'text', 'watermark', 'words'
+    );
+  }
+
+  // 结构化分段排版（v0.7.32：方便用户一眼定位与快速修改）
+  const sections: Array<{ title: string; content: string }> = [];
+
   let subjectAndAction: string;
   let environmentAndProps = '';
   let compositionAndCamera = '';
@@ -211,81 +221,126 @@ export function compileScenePrompt(
 
   if (isInfographic) {
     // ————————————— 信息图：对齐商汤官方 sn-infographic 真实提示词规范 —————————————
-    // 官方规范：
-    // 1. 开头：一张专业信息图，采用...风格。整体布局为...结构。
-    // 2. 彻底删除“观众视线不被打断”、“核心结论最醒目，模块标题次之”等设计元指令（避免被生图模型画成表格表头与单元格乱码字）！
-    // 3. 任何禁止项均下发给 negativePrompt，正向提示词绝不包含“严禁分屏拼贴”等排斥语句。
     subjectAndAction = sentence(`一张专业信息图，采用${styleBible.visualMedium}风格`);
-    lines.push(subjectAndAction);
-
     const layoutText = layoutPromptText(scenePlan.layout, scenePlan.visualType);
-    if (layoutText) {
-      lines.push(sentence(layoutText));
-    }
+    
+    sections.push({
+      title: '【信息图结构】',
+      content: [subjectAndAction, layoutText ? sentence(layoutText) : ''].filter(Boolean).join(' '),
+    });
 
-    if (cleanSubject) {
-      lines.push(sentence(`画面核心呈现${cleanSubject}`));
-    }
-    if (cleanAction) {
-      lines.push(sentence(cleanAction));
-    }
-
-    if (anchorList) {
-      lines.push(sentence(`视觉核心元素是${anchorList}`));
-    }
-    if (mustInclude.length > 0) {
-      lines.push(sentence(`包含的关键视觉模块为：${joinList(mustInclude, 4)}`));
+    const infoCore: string[] = [];
+    if (cleanSubject) infoCore.push(sentence(`画面核心呈现${cleanSubject}`));
+    if (cleanAction) infoCore.push(sentence(cleanAction));
+    if (anchorList) infoCore.push(sentence(`视觉核心元素是${anchorList}`));
+    if (mustInclude.length > 0) infoCore.push(sentence(`包含的关键视觉模块为：${joinList(mustInclude, 4)}`));
+    
+    if (infoCore.length > 0) {
+      sections.push({
+        title: '【核心要点与数据】',
+        content: infoCore.join(' '),
+      });
     }
 
     compositionAndCamera = sentence(`采用${shotDesc}，${angleDesc}`);
-    lines.push(compositionAndCamera);
+    sections.push({
+      title: '【构图与镜头】',
+      content: compositionAndCamera,
+    });
 
     lightingAndColor = sentence(
       `画面干净整洁，背景留白充裕，${styleBible.texture}，配色${tempDesc}，主色调为${paletteDesc}`
     );
-    lines.push(lightingAndColor);
+    sections.push({
+      title: '【色彩与基调】',
+      content: lightingAndColor,
+    });
+
+    // 文字白名单与标注（仅信息图允许）
+    const rawLabels = (scenePlan.textLabels || [])
+      .map((t) => stripDescriptiveQuotes(t).trim())
+      .filter((t) => t.length > 0 && t.length <= 12);
+    const textLabels = Array.from(new Set(rawLabels)).slice(0, 3);
+
+    if (textLabels.length > 0) {
+      const quoted = textLabels.map((t) => `“${t}”`).join('、');
+      const labelDesc = textLabels.length === 1
+        ? `画面对应位置标明核心文字：“${textLabels[0]}”`
+        : `画面各对应位置分别精确标明文字：${quoted}`;
+      sections.push({
+        title: '【文字与标注】',
+        content: sentence(`${labelDesc}。除上述引号内的指定文字外，画面其他任何区域保持纯净，不出现多余文字、数字、标签或乱码字符`),
+      });
+    } else {
+      sections.push({
+        title: '【文字与标注】',
+        content: sentence('画面全图纯图形视觉呈现，不出现任何文字、数字、字母、标题或标签，画面无乱码字符'),
+      });
+    }
+
+    const visualElements = (scenePlan.visualElements || []).filter((e) => e && e.desc).slice(0, 4);
+    if (visualElements.length > 0) {
+      const desc = visualElements.map((e) => stripDescriptiveQuotes(e.desc || '')).filter(Boolean).join('；');
+      if (desc) {
+        sections.push({
+          title: '【图表元素】',
+          content: sentence(`画面中需要具体绘制的图形元素：${desc}`),
+        });
+      }
+    }
   } else {
-    // ————————————— 叙事插画：画面描述优先的自然语言 —————————————
+    // ————————————— 叙事插画：结构化自然语言导演提示词 —————————————
     const periodPart =
       scenePlan.scene.period && scenePlan.scene.period !== '当代现代' && scenePlan.scene.period !== '当代'
         ? `${scenePlan.scene.period}。`
         : '';
 
-    subjectAndAction = sentence(`${periodPart}${cleanSubject}，${cleanAction}`);
-    lines.push(subjectAndAction);
+    subjectAndAction = sentence(`${periodPart}${cleanSubject}，${cleanAction}。单镜头完整画面，单一物理场景，主体人物全画面仅出现一位`);
+    sections.push({
+      title: '【核心画面】',
+      content: subjectAndAction,
+    });
 
-    // 单镜头单一主体正面引导（不带易被模型反向误画的排斥词）
-    lines.push(
-      sentence('单镜头完整画面，单一物理场景，主体人物全画面仅出现一位')
-    );
-
-    // v0.7.26：故事弧线角色一致性主角锁注入（仅叙事镜头，信息图绝不注入）
+    // 角色设定
     if (scenePlan.characterAnchor && scenePlan.characterAnchor.trim()) {
       const cleanAnchor = stripDescriptiveQuotes(scenePlan.characterAnchor.trim());
       if (cleanAnchor) {
-        lines.push(sentence(`画面主角形象设定固定为：${cleanAnchor}`));
+        sections.push({
+          title: '【角色设定】',
+          content: sentence(`画面主角形象设定固定为：${cleanAnchor}`),
+        });
       }
     }
 
-    if (anchorList) {
-      lines.push(sentence(`画面中必须清晰可辨的关键元素是：${anchorList}`));
-    }
-    if (mustInclude.length > 0) {
-      lines.push(sentence(`画面中需要呈现的关键物件包括：${joinList(mustInclude, 4)}`));
-    }
-
+    // 场景与细节
     const envBits: string[] = [];
     if (cleanForeground) envBits.push(`前景是${cleanForeground}`);
     if (cleanBackground) envBits.push(`背景是${cleanBackground}`);
     if (cleanAmbience) envBits.push(`整体氛围${cleanAmbience}`);
     environmentAndProps = sentence(envBits.join('，'));
-    if (environmentAndProps) lines.push(environmentAndProps);
 
+    const sceneDetails: string[] = [];
+    if (anchorList) sceneDetails.push(`画面关键视觉元素：${anchorList}`);
+    if (mustInclude.length > 0) sceneDetails.push(`关键物件：${joinList(mustInclude, 4)}`);
+    if (environmentAndProps) sceneDetails.push(environmentAndProps);
+
+    const visualElements = (scenePlan.visualElements || []).filter((e) => e && e.desc).slice(0, 4);
+    if (visualElements.length > 0) {
+      const desc = visualElements.map((e) => stripDescriptiveQuotes(e.desc || '')).filter(Boolean).join('；');
+      if (desc) sceneDetails.push(`具体绘制元素：${desc}`);
+    }
+
+    if (sceneDetails.length > 0) {
+      sections.push({
+        title: '【场景与环境】',
+        content: sceneDetails.map(sentence).join(' '),
+      });
+    }
+
+    // 构图与镜头
     compositionAndCamera = sentence(
       [`采用${shotDesc}`, angleDesc, scaleDesc, depthDesc].filter(Boolean).join('，')
     );
-    lines.push(compositionAndCamera);
-
     const lensPart = styleBible.cameraLanguage?.recommendedLens
       ? `镜头质感${styleBible.cameraLanguage.recommendedLens}`
       : '';
@@ -293,60 +348,42 @@ export function compileScenePrompt(
       ? `构图遵循${styleBible.cameraLanguage.compositionRule}`
       : '';
     const camLine = sentence([lensPart, rulePart].filter(Boolean).join('，'));
-    if (camLine) lines.push(camLine);
 
+    sections.push({
+      title: '【构图与镜头】',
+      content: [compositionAndCamera, camLine].filter(Boolean).join(' '),
+    });
+
+    // 光影与色调
     lightingAndColor = sentence(
       `${styleBible.lighting.type}，${styleBible.lighting.direction}${
         styleBible.lighting.shadow ? `，${styleBible.lighting.shadow}` : ''
       }，配色${tempDesc}，主色调为${paletteDesc}，${styleBible.texture}`
     );
-    lines.push(lightingAndColor);
+    sections.push({
+      title: '【光影与色调】',
+      content: lightingAndColor,
+    });
 
-    lines.push(sentence(`整体视觉风格：${styleBible.visualMedium}`));
+    // 艺术风格
+    sections.push({
+      title: '【艺术风格】',
+      content: sentence(`整体视觉风格：${styleBible.visualMedium}`),
+    });
+
+    // 画面纯净要求（非信息图绝对无字）
+    sections.push({
+      title: '【画面要求】',
+      content: sentence('画面全图纯图形视觉呈现，绝不出现任何文字、数字、字母、汉字标题或标签，纯靠场景与画面意象传达内涵'),
+    });
   }
 
-  // ————————————— 画面内文字与元素（对齐商汤官方生图协议与去重防重影铁律）—————————————
-  // 商汤官方铁律：
-  // 1. 只有最终需要印刷在画面上的文字才允许使用双引号“...”！
-  // 2. 文字必须简短，字数过多生图模型必定乱码重影；限制每条最多 10 个字，最多 3 条；
-  // 3. 避免长串负向说教（反向引导模型关注），改用客观肯定句引导，负向词下发到 negativePrompt；
-  const rawLabels = (scenePlan.textLabels || [])
-    .map((t) => stripDescriptiveQuotes(t).trim())
-    .filter((t) => t.length > 0 && t.length <= 12);
-  const textLabels = Array.from(new Set(rawLabels)).slice(0, 3);
-  const visualElements = (scenePlan.visualElements || [])
-    .filter((e) => e && e.desc)
-    .slice(0, 4);
+  // 拼接成带分段标题排版的结构化提示词
+  const rawCompiled = sections
+    .filter((s) => s.content && s.content.trim().length > 0)
+    .map((s) => `${s.title}\n${s.content.trim()}`)
+    .join('\n\n');
 
-  if (textLabels.length > 0) {
-    const quoted = textLabels.map((t) => `“${t}”`).join('、');
-    if (textLabels.length === 1) {
-      lines.push(sentence(`画面对应位置标明核心文字：“${textLabels[0]}”`));
-    } else {
-      lines.push(sentence(`画面各对应位置分别精确标明文字：${quoted}`));
-    }
-    // 官方标准封闭文字约束
-    lines.push(
-      sentence(
-        '除上述引号内的指定文字外，画面其他任何区域保持纯净，不出现多余文字、数字、标签或乱码字符'
-      )
-    );
-  } else {
-    lines.push(sentence('画面全图纯图形视觉呈现，不出现任何文字、数字、字母、标题或标签，画面无乱码字符'));
-  }
-
-  if (visualElements.length > 0) {
-    // 纯化图形元素描述：绝不包含引号或文字后缀
-    const desc = visualElements
-      .map((e) => stripDescriptiveQuotes(e.desc || ''))
-      .filter(Boolean)
-      .join('；');
-    if (desc) {
-      lines.push(sentence(`画面中需要具体绘制的图形元素：${desc}`));
-    }
-  }
-
-  const rawCompiled = lines.filter(Boolean).join('');
   const compiledPrompt = sanitizePromptStrict(rawCompiled);
 
   // 负向约束作为独立参数下发（扩大容量至 24 项，确保抗重复、抗分身克隆词群完整生效）
@@ -462,6 +499,8 @@ export function sanitizePromptStrict(p: string): string {
     .replace(/[，,；;、]\s*[。！!]/g, '。')
     .replace(/^[，,；;、\s]+/, '')
     .replace(/[，,；;、\s]+$/, '')
-    .replace(/\s{2,}/g, ' ')
+    // 保留段落换行，规避行内连续空格，并将过多空行收缩为双换行
+    .replace(/[^\S\r\n]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }

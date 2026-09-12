@@ -5,6 +5,7 @@ import { chatCompletion, resolveModelInfo, subscribeModelCalls, type ModelCallEv
 import type { ModelHubSettings, ModelProviderType } from '../lib/modelHubTypes';
 import { PRESET_PROVIDERS } from '../lib/modelHubTypes';
 import { runIllustrationPipeline, type PipelineProgress, type PipelineDiagnostics } from '../lib/illustrator';
+import { enforceStrictSequentialTimeline, MAX_ILLUSTRATION_DURATION, MIN_ILLUSTRATION_DURATION } from '../lib/illustrator/timelineAligner';
 import { useAdaptiveColumns } from '../lib/useAdaptiveColumns';
 import type { VideoIllustrationItem, IllustrationLayout, IllustrationDensity, IllustrationHistoryRecord, CharacterConsistencyMode } from '../types';
 import { AdvancedTimelineModal } from './AdvancedTimelineModal';
@@ -219,7 +220,9 @@ export function sanitizePromptForImageGen(p: string): string {
     .replace(/[，,；;、]\s*[。！!]/g, '。')
     .replace(/^[，,；;、\s]+/, '')
     .replace(/[，,；;、\s]+$/, '')
-    .replace(/\s{2,}/g, ' ')
+    // 保留段落换行，规避行内连续空格，并将过多空行收缩为双换行
+    .replace(/[^\S\r\n]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
@@ -480,18 +483,17 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   const [borderStyle, setBorderStyle] = useState<'none' | 'clean_white' | 'rounded_card' | 'star_badge' | 'cyber_glow'>('none');
   const [isEditingOverlay, setIsEditingOverlay] = useState<boolean>(false);
 
-  // 三栏工作台：自适应栏宽 + 布局模式（v0.7.6）
-  // 修复此前「内联固定 px + shrink-0 + 父容器 overflow-hidden」导致中窗口被裁切的问题
+  // 三栏工作台：自适应栏宽 + 布局模式（v0.7.32：扩容右栏默认宽度至 400px，彻底消灭界面挤压）
   const cols = useAdaptiveColumns({
-    storageKey: 'jaygo_illustrator_studio',
+    storageKey: 'jaygo_illustrator_studio_v2',
     defaultLeft: 310,
-    defaultRight: 340,
-    minLeft: 240,
-    maxLeft: 460,
-    minRight: 270,
-    maxRight: 560,
-    minCenter: 280,
-    dividerTotal: 12,
+    defaultRight: 400,
+    minLeft: 250,
+    maxLeft: 480,
+    minRight: 320,
+    maxRight: 640,
+    minCenter: 320,
+    dividerTotal: 14,
     twoColumnBelow: 860,
     focusBelow: 580,
   });
@@ -768,9 +770,18 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
       }
 
       if (bestMatch) {
-        const itemDur = Math.max(3.0, item.endTime - item.startTime || 4.0);
+        // 单图时长严格限制在 [2.5s, 6.0s] 黄金区间，绝不超过 6 秒 (v0.7.32 修复长句膨胀问题)
+        let targetDur = item.endTime - item.startTime;
+        if (!targetDur || targetDur > MAX_ILLUSTRATION_DURATION || targetDur < MIN_ILLUSTRATION_DURATION) {
+          targetDur = 3.8;
+        }
+        const asrDuration = Math.min(
+          MAX_ILLUSTRATION_DURATION,
+          Math.max(MIN_ILLUSTRATION_DURATION, bestMatch.endTime - bestMatch.startTime)
+        );
+        const finalDuration = Math.min(MAX_ILLUSTRATION_DURATION, Math.max(targetDur, asrDuration));
         const newStart = Math.max(0, bestMatch.startTime);
-        const newEnd = Math.min(dur, Math.max(newStart + itemDur, bestMatch.endTime + 0.8));
+        const newEnd = Math.min(dur, newStart + finalDuration);
         return {
           ...item,
           startTime: Math.round(newStart * 10) / 10,
@@ -780,7 +791,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
       return item;
     });
 
-    return updated;
+    // 运行严格单调防重叠时序算法，彻底根除出入点冲突重叠
+    return enforceStrictSequentialTimeline(updated, dur, MAX_ILLUSTRATION_DURATION, MIN_ILLUSTRATION_DURATION, 0.1);
   };
 
   // 提取视频音频并执行 ASR 毫秒级对齐
@@ -1084,23 +1096,15 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         formatted = applyAsrAlignmentToIllustrations(formatted, asrUtterances);
       }
 
-      // v0.7.11 最终防御：保证 end 严格大于 start；已知视频时长时一并钳制到 [0, 时长]。
-      // 任何 start >= end 的分镜在预览（currentTime 区间判断）与导出
-      // （ffmpeg enable='between(t,start,end)'）中都不会出现，属于静默丢图。
+      // v0.7.32：全局单调递增防碰撞与时长硬限（单图 ≤6 秒，相邻保留 100ms 间隙，彻底杜绝重叠与出入点错乱）
       const knownDur = videoDuration > 0 ? videoDuration : 0;
-      formatted = formatted.map((it) => {
-        let s = Math.max(0, it.startTime);
-        let e = Math.max(s + 0.3, it.endTime);
-        if (knownDur > 0) {
-          s = Math.min(s, Math.max(0, knownDur - 0.3));
-          e = Math.min(Math.max(e, s + 0.3), knownDur);
-        }
-        return {
-          ...it,
-          startTime: Math.round(s * 10) / 10,
-          endTime: Math.round(e * 10) / 10,
-        };
-      });
+      formatted = enforceStrictSequentialTimeline(
+        formatted,
+        knownDur,
+        MAX_ILLUSTRATION_DURATION,
+        MIN_ILLUSTRATION_DURATION,
+        0.1
+      );
 
       setIllustrations(formatted);
       if (formatted.length > 0) {
@@ -2534,10 +2538,10 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         {effectiveMode !== 'focus' && !isSidebarCollapsed && (
         <div
           onMouseDown={(e) => cols.startResize('left', e)}
-          title="按住左右拖拽调节左栏宽度"
-          className="w-1.5 hover:w-2 bg-zinc-200/80 dark:bg-zinc-800/80 hover:bg-indigo-500 active:bg-indigo-600 cursor-col-resize transition-all shrink-0 flex items-center justify-center group relative z-10 select-none"
+          title="按住左右拖拽调节左侧设置栏宽度"
+          className="w-2 hover:w-2.5 bg-zinc-200/80 dark:bg-zinc-800/80 hover:bg-indigo-500 active:bg-indigo-600 cursor-col-resize transition-all shrink-0 flex items-center justify-center group relative z-20 select-none shadow-sm"
         >
-          <div className="w-0.5 h-6 rounded-full bg-zinc-400 dark:bg-zinc-600 group-hover:bg-white transition-colors" />
+          <div className="w-1 h-8 rounded-full bg-zinc-400 dark:bg-zinc-600 group-hover:bg-white transition-colors shadow" />
         </div>
         )}
 
@@ -2778,10 +2782,10 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         {effectiveMode === 'three' && (
         <div
           onMouseDown={(e) => cols.startResize('right', e)}
-          title="按住左右拖拽调节右栏宽度"
-          className="w-1.5 hover:w-2 bg-zinc-200/80 dark:bg-zinc-800/80 hover:bg-indigo-500 active:bg-indigo-600 cursor-col-resize transition-all shrink-0 flex items-center justify-center group relative z-10 select-none"
+          title="按住左右拖拽调节右侧分镜栏宽度"
+          className="w-2 hover:w-2.5 bg-zinc-200/80 dark:bg-zinc-800/80 hover:bg-indigo-500 active:bg-indigo-600 cursor-col-resize transition-all shrink-0 flex items-center justify-center group relative z-20 select-none shadow-sm"
         >
-          <div className="w-0.5 h-6 rounded-full bg-zinc-400 dark:bg-zinc-600 group-hover:bg-white transition-colors" />
+          <div className="w-1 h-8 rounded-full bg-zinc-400 dark:bg-zinc-600 group-hover:bg-white transition-colors shadow" />
         </div>
         )}
 
@@ -3371,16 +3375,16 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                       </div>
                     )}
 
-                    {/* 可编辑的提示词多行文本框 */}
+                    {/* 可编辑的提示词结构化多行文本框 (v0.7.32：排版清晰，方便一眼定位修改) */}
                     <div className="mt-2 pt-1.5 border-t border-zinc-100 dark:border-zinc-800/60">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-[10px] text-zinc-400 flex items-center gap-0.5">
-                          <Edit3 className="w-2.5 h-2.5 text-indigo-400" />
-                          <span>提示词 (可直接修改)</span>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10.5px] font-semibold text-zinc-500 dark:text-zinc-400 flex items-center gap-1">
+                          <Edit3 className="w-3 h-3 text-indigo-400" />
+                          <span>结构化分段提示词 (可直接定位修改)</span>
                         </span>
                       </div>
                       <textarea
-                        rows={isSidebarCollapsed ? Math.max(4, Math.min(15, Math.ceil((item.prompt || '').length / 32) + 1)) : Math.max(3, Math.min(10, Math.ceil((item.prompt || '').length / 26) + 1))}
+                        rows={Math.max(6, Math.min(18, (item.prompt || '').split('\n').length + 2))}
                         value={item.prompt}
                         onChange={(e) => {
                           const val = e.target.value;
@@ -3390,9 +3394,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                         }}
                         onClick={(e) => e.stopPropagation()}
                         placeholder="输入或微调提示词…"
-                        className={`w-full px-2.5 py-1.5 text-[11px] leading-relaxed rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 text-zinc-800 dark:text-zinc-200 focus:ring-1 focus:ring-indigo-500 focus:bg-white dark:focus:bg-zinc-900 outline-none resize-y transition ${
-                          isSidebarCollapsed ? 'min-h-[88px]' : 'min-h-[64px]'
-                        }`}
+                        className="w-full px-2.5 py-2 text-[11px] leading-relaxed font-sans rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/90 dark:bg-[#15161e] text-zinc-800 dark:text-zinc-200 focus:ring-1.5 focus:ring-indigo-500 focus:bg-white dark:focus:bg-zinc-900 outline-none resize-y transition min-h-[92px] whitespace-pre-wrap selection:bg-indigo-500/30"
                       />
                     </div>
                   </div>
@@ -3475,39 +3477,40 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
               </div>
             )}
 
-            {/* 导出画质档位与智能去水印控制 */}
-            <div className="p-2 rounded-xl bg-zinc-100/80 dark:bg-zinc-800/50 border border-zinc-200/60 dark:border-zinc-800 space-y-1.5">
-              <div className="flex items-center justify-between text-[11px]">
-                <div className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-300 font-medium">
-                  <span>导出画质:</span>
-                  <select
-                    value={exportQuality}
-                    onChange={(e) => setExportQuality(e.target.value as any)}
-                    className="px-2 py-0.5 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-100 text-[11px] font-semibold outline-none cursor-pointer"
-                  >
-                    <option value="master">👑 超清原画 (CRF 14 大师无损)</option>
-                    <option value="high">💎 高清品质 (CRF 17 推荐)</option>
-                    <option value="fast">⚡ 极速导出 (CRF 22)</option>
-                  </select>
-                </div>
+            {/* 导出画质档位与智能去水印控制 (v0.7.32：防挤压专业排版) */}
+            <div className="p-2.5 rounded-xl bg-zinc-100/90 dark:bg-[#181922] border border-zinc-200/80 dark:border-zinc-800/80 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300 shrink-0">
+                  导出画质:
+                </span>
+                <select
+                  value={exportQuality}
+                  onChange={(e) => setExportQuality(e.target.value as any)}
+                  className="flex-1 px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-100 text-[11px] font-semibold outline-none cursor-pointer shadow-sm hover:border-indigo-400 dark:hover:border-indigo-500 transition"
+                >
+                  <option value="master">👑 超清原画 (CRF 14 大师母带)</option>
+                  <option value="high">💎 高清品质 (CRF 17 推荐)</option>
+                  <option value="fast">⚡ 极速导出 (CRF 22)</option>
+                </select>
+              </div>
 
+              <div className="flex items-center justify-between pt-1 border-t border-zinc-200/50 dark:border-zinc-800/50 text-[11px]">
                 <label
-                  className="flex items-center gap-1 cursor-pointer select-none text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition"
-                  title="仅在原视频左上角包含明显平台水印时勾选；若原片无水印，请勿勾选以避免左上角被模糊处理"
+                  className="flex items-center gap-1.5 cursor-pointer select-none text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition"
+                  title="仅在原视频左上角包含平台台标水印时勾选；若原片无水印，请保持关闭以避免左上角被局部模糊"
                 >
                   <input
                     type="checkbox"
                     checked={removeOriginalWatermark}
                     onChange={(e) => setRemoveOriginalWatermark(e.target.checked)}
-                    className="rounded border-zinc-300 dark:border-zinc-700 text-emerald-600 focus:ring-emerald-500"
+                    className="w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-700 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                   />
-                  <span>消除左上角水印</span>
+                  <span className="font-medium">消除原片左上角水印</span>
                 </label>
-              </div>
 
-              <div className="text-[10px] text-zinc-400 dark:text-zinc-500 flex items-center justify-between">
-                <span>{exportQuality === 'master' ? 'CRF 14 原画级压制 · BT.709 色彩还原' : exportQuality === 'high' ? 'CRF 17 均衡压缩 · 兼顾速度' : 'CRF 22 快速渲染'}</span>
-                <span>音频：原片无损直出</span>
+                <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">
+                  {exportQuality === 'master' ? 'CRF 14 · BT.709' : exportQuality === 'high' ? 'CRF 17 均衡' : 'CRF 22 极速'}
+                </span>
               </div>
             </div>
 

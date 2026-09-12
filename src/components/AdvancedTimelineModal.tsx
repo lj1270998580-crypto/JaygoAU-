@@ -15,6 +15,8 @@ import {
   SkipForward,
   Video as VideoIcon,
   Check,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import type { VideoIllustrationItem } from '../types';
 
@@ -63,10 +65,27 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
   const [internalSelectedId, setInternalSelectedId] = useState<string | null>(selectedId || null);
   const [loadedDim, setLoadedDim] = useState<{ width: number; height: number } | null>(null);
   const [viewportWidth, setViewportWidth] = useState<number>(1000);
+  const [scrollLeft, setScrollLeft] = useState<number>(0);
+
+  // 监视器区域高度：支持自由拖拽 160px ~ 520px，本地持久化，默认 280px 黄金均衡比例
+  const [monitorHeight, setMonitorHeight] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('jaygo_adv_timeline_monitor_h');
+      if (saved) {
+        const val = parseInt(saved, 10);
+        if (!isNaN(val) && val >= 160 && val <= 520) return val;
+      }
+    } catch (_) {}
+    return 280;
+  });
+  const [isResizingHeight, setIsResizingHeight] = useState<boolean>(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
+  const illustrationsRef = useRef(illustrations);
+  illustrationsRef.current = illustrations;
+
   const draggingRef = useRef<{
     type: 'move' | 'resize-left' | 'resize-right' | 'scrub';
     itemId?: string;
@@ -254,7 +273,140 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
     };
   };
 
+  // 处理垂直高度分割线拖拽
+  const handleSplitterMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizingHeight(true);
+    const startY = e.clientY;
+    const initialH = monitorHeight;
+
+    const onMouseMove = (moveEv: MouseEvent) => {
+      const deltaY = moveEv.clientY - startY;
+      const newH = Math.max(160, Math.min(520, Math.round(initialH + deltaY)));
+      setMonitorHeight(newH);
+      try {
+        localStorage.setItem('jaygo_adv_timeline_monitor_h', String(newH));
+      } catch (_) {}
+    };
+
+    const onMouseUp = () => {
+      setIsResizingHeight(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  // 监听时间轴容器的横向滚动位置
+  const handleTimelineScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    setScrollLeft(e.currentTarget.scrollLeft);
+  };
+
+  // 滚轮交互：Ctrl/Alt 缩放，Shift 或普通滚轮在放大状态下平移
+  const handleTimelineWheel = useCallback((e: React.WheelEvent) => {
+    if (e.ctrlKey || e.altKey) {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.3 : -0.3;
+      setZoomLevel((z) => Math.min(15, Math.max(1, Math.round((z + delta) * 10) / 10)));
+    } else {
+      const el = scrollContainerRef.current;
+      if (!el) return;
+      if (e.shiftKey) {
+        el.scrollLeft += e.deltaY;
+      } else if (Math.abs(e.deltaX) > 0) {
+        el.scrollLeft += e.deltaX;
+      } else if (zoomLevel > 1) {
+        // 当放大倍数 > 1 时，滚轮直接转化为横向平移，极大降低操作负担
+        el.scrollLeft += e.deltaY;
+      }
+    }
+  }, [zoomLevel]);
+
+  // 处理全景视窗导航条 (Mini Navigator) 点击与拖动
+  const handleNavigatorClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickRatio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const targetSec = clickRatio * dur;
+    if (scrollContainerRef.current) {
+      const targetPx = targetSec * pxPerSec;
+      scrollContainerRef.current.scrollLeft = Math.max(0, targetPx - viewportWidth / 2);
+    }
+  };
+
+  const handleNavigatorWindowMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const startX = e.clientX;
+    const initialScroll = scrollContainerRef.current?.scrollLeft || 0;
+
+    const onMove = (me: MouseEvent) => {
+      const deltaX = me.clientX - startX;
+      const navWidth = containerRef.current?.clientWidth || viewportWidth;
+      const scale = trackWidth / Math.max(1, navWidth - 160);
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollLeft = Math.max(
+          0,
+          Math.min(trackWidth - viewportWidth, initialScroll + deltaX * scale)
+        );
+      }
+    };
+
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const handleStepTime = (deltaSec: number) => {
+    const newTime = Math.max(0, Math.min(dur, currentTime + deltaSec));
+    onSeek(newTime);
+    if (scrollContainerRef.current) {
+      const targetPx = newTime * pxPerSec;
+      if (
+        targetPx < scrollContainerRef.current.scrollLeft ||
+        targetPx > scrollContainerRef.current.scrollLeft + viewportWidth
+      ) {
+        scrollContainerRef.current.scrollLeft = Math.max(0, targetPx - viewportWidth / 2);
+      }
+    }
+  };
+
+  const handleCenterPlayhead = () => {
+    if (scrollContainerRef.current) {
+      const targetPx = currentTime * pxPerSec;
+      scrollContainerRef.current.scrollTo({
+        left: Math.max(0, targetPx - viewportWidth / 2),
+        behavior: 'smooth',
+      });
+    }
+  };
+
   const handleTrackMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    // 中键平移 (button === 1) 或按住 Alt 点击平移
+    if (e.button === 1 || (e.altKey && e.button === 0)) {
+      e.preventDefault();
+      const startX = e.clientX;
+      const initialScroll = scrollContainerRef.current?.scrollLeft || 0;
+      const onMove = (me: MouseEvent) => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollLeft = initialScroll - (me.clientX - startX);
+        }
+      };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      return;
+    }
+
+    if (e.button !== 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const targetSec = Math.max(0, Math.min(dur, clickX / pxPerSec));
@@ -286,7 +438,18 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
       }
 
       if (!itemId) return;
-      const itemDuration = initialEndTime - initialStartTime;
+      const itemDuration = Math.min(6.0, initialEndTime - initialStartTime);
+
+      // 计算前后相邻分镜的无碰撞边界，杜绝重叠冲突 (Points 4 & 5)
+      const allItems = illustrationsRef.current;
+      const sortedOtherItems = allItems
+        .filter((it) => it.id !== itemId)
+        .sort((a, b) => a.startTime - b.startTime);
+      const prevNeighbor = [...sortedOtherItems].reverse().find((it) => it.endTime <= initialStartTime + 0.4);
+      const nextNeighbor = sortedOtherItems.find((it) => it.startTime >= initialEndTime - 0.4);
+
+      const minPrevBound = prevNeighbor ? prevNeighbor.endTime + 0.1 : 0;
+      const maxNextBound = nextNeighbor ? nextNeighbor.startTime - 0.1 : dur;
 
       if (type === 'move') {
         let newStart = initialStartTime + deltaSec;
@@ -309,10 +472,20 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
           }
         }
 
-        // 限制在视频区间
+        // 防重叠约束：不与前后相邻分镜冲突
+        if (newStart < minPrevBound) {
+          newStart = minPrevBound;
+          newEnd = newStart + itemDuration;
+        }
+        if (newEnd > maxNextBound) {
+          newEnd = maxNextBound;
+          newStart = Math.max(minPrevBound, newEnd - itemDuration);
+        }
+
+        // 限制在总片长区间
         if (newStart < 0) {
           newStart = 0;
-          newEnd = itemDuration;
+          newEnd = Math.min(dur, itemDuration);
         }
         if (newEnd > dur) {
           newEnd = dur;
@@ -333,8 +506,13 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
           setActiveSnapLine(null);
         }
 
-        // 最短保持 1 秒
-        newStart = Math.max(0, Math.min(initialEndTime - 1.0, newStart));
+        // 铁律1：单图时长不超过 6.0 秒
+        newStart = Math.max(newStart, initialEndTime - 6.0);
+        // 铁律2：最少保持 1.0 秒
+        newStart = Math.min(newStart, initialEndTime - 1.0);
+        // 铁律3：出入点严禁重叠，不得早于上一镜出点+0.1s
+        newStart = Math.max(minPrevBound, newStart);
+
         onUpdateIllustration(itemId, { startTime: Math.round(newStart * 100) / 100 });
       } else if (type === 'resize-right') {
         let newEnd = initialEndTime + deltaSec;
@@ -346,8 +524,14 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
           setActiveSnapLine(null);
         }
 
-        // 最短保持 1 秒
-        newEnd = Math.max(initialStartTime + 1.0, Math.min(dur, newEnd));
+        // 铁律1：单图时长不超过 6.0 秒
+        newEnd = Math.min(newEnd, initialStartTime + 6.0);
+        // 铁律2：最少保持 1.0 秒
+        newEnd = Math.max(newEnd, initialStartTime + 1.0);
+        // 铁律3：出入点严禁重叠，不得晚于下一镜入点-0.1s
+        newEnd = Math.min(maxNextBound, newEnd);
+        newEnd = Math.min(dur, newEnd);
+
         onUpdateIllustration(itemId, { endTime: Math.round(newEnd * 100) / 100 });
       }
     };
@@ -459,6 +643,61 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
             <span>磁吸: {isSnapEnabled ? '开启' : '关闭'}</span>
           </button>
 
+          {/* 监视器与时间轴比例预设 (Point 7) */}
+          <div className="hidden sm:flex items-center gap-1 bg-zinc-800/90 rounded-lg p-1 border border-zinc-700">
+            <button
+              type="button"
+              onClick={() => {
+                setMonitorHeight(400);
+                try {
+                  localStorage.setItem('jaygo_adv_timeline_monitor_h', '400');
+                } catch (_) {}
+              }}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition cursor-pointer ${
+                monitorHeight >= 360
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50'
+              }`}
+              title="监视器大画面优先 (400px)"
+            >
+              大监视器
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMonitorHeight(280);
+                try {
+                  localStorage.setItem('jaygo_adv_timeline_monitor_h', '280');
+                } catch (_) {}
+              }}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition cursor-pointer ${
+                monitorHeight >= 230 && monitorHeight < 360
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50'
+              }`}
+              title="标准均衡视图 (280px)"
+            >
+              均衡
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMonitorHeight(180);
+                try {
+                  localStorage.setItem('jaygo_adv_timeline_monitor_h', '180');
+                } catch (_) {}
+              }}
+              className={`px-2 py-1 rounded text-[11px] font-medium transition cursor-pointer ${
+                monitorHeight < 230
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50'
+              }`}
+              title="大时间轴轨道优先 (180px)"
+            >
+              大时间轴
+            </button>
+          </div>
+
           {/* 剪辑软件级平滑缩放滑动条 */}
           <div className="flex items-center gap-1.5 bg-zinc-800/90 rounded-lg px-2 py-1 border border-zinc-700">
             <button
@@ -525,13 +764,16 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
         </div>
       </div>
 
-      {/* 上半部分：视频预览监视器 + 实时分镜画中画叠层 + 分镜属性监视 (自适应画幅) */}
-      <div className="h-[250px] md:h-[270px] lg:h-[290px] bg-[#0c0d12] border-b border-zinc-800 flex items-center justify-center p-3 gap-4 shrink-0 overflow-hidden">
+      {/* 上半部分：视频预览监视器 + 实时分镜画中画叠层 + 分镜属性监视 (支持高度自由拖拽调高调低) */}
+      <div
+        style={{ height: `${monitorHeight}px` }}
+        className="bg-[#0c0d12] border-b border-zinc-800 flex items-center justify-center p-3 gap-4 shrink-0 overflow-hidden transition-[height] duration-75"
+      >
         {/* 视频监视器播放视窗：自适应真实画幅比例，彻底杜绝竖屏大黑边与插图错位漂移 */}
         <div className="h-full flex flex-col items-center justify-center shrink-0">
           <div
             style={{ aspectRatio: monitorAspect }}
-            className="relative h-full max-h-[220px] md:max-h-[245px] bg-black rounded-xl overflow-hidden shadow-2xl border border-zinc-800 flex items-center justify-center group"
+            className="relative h-full bg-black rounded-xl overflow-hidden shadow-2xl border border-zinc-800 flex items-center justify-center group"
           >
             {videoSrc ? (
               <video
@@ -728,6 +970,17 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
         </div>
       </div>
 
+      {/* 上下高度拖拽调节分割条 (水平把手，支持 160px ~ 520px 动态拖拉，Point 7) */}
+      <div
+        onMouseDown={handleSplitterMouseDown}
+        className={`h-2 hover:h-2.5 bg-[#161722] hover:bg-indigo-600/40 border-b border-zinc-800/80 cursor-row-resize flex items-center justify-center transition-all shrink-0 z-30 group select-none ${
+          isResizingHeight ? 'bg-indigo-600/60 h-2.5' : ''
+        }`}
+        title="上下拖动调整【视频监视器】与【时间轴轨道】的高度比例"
+      >
+        <div className="w-16 h-1 rounded-full bg-zinc-600 group-hover:bg-indigo-400 group-hover:w-24 transition-all flex items-center justify-center" />
+      </div>
+
       {/* 下半部分：多轨道时间轴主画布 */}
       <div className="flex-1 flex min-h-0 overflow-hidden relative">
         {/* 左侧固定轨道标签 */}
@@ -765,10 +1018,12 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
           </div>
         </div>
 
-        {/* 右侧可滚动的多轨道画布视窗 */}
+        {/* 右侧可滚动的多轨道画布视窗 (专属 12px 高对比可拖动导轨) */}
         <div
           ref={scrollContainerRef}
-          className="flex-1 overflow-x-auto overflow-y-hidden relative bg-[#0e0f14] custom-scrollbar cursor-crosshair"
+          onScroll={handleTimelineScroll}
+          onWheel={handleTimelineWheel}
+          className="flex-1 overflow-x-auto overflow-y-hidden relative bg-[#0e0f14] timeline-scroll-viewport cursor-crosshair"
         >
           <div
             id="advanced-timeline-track"
@@ -1002,12 +1257,101 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
         </div>
       </div>
 
+      {/* 全景视窗导航条 (Mini Navigator / 缩略全览导航，Point 6: 解决放大后无法拖动全局视图) */}
+      <div className="h-9 px-3 border-t border-zinc-800/90 bg-[#111218] flex items-center justify-between gap-3 shrink-0 select-none">
+        {/* 快速步进控制与定位 */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => handleStepTime(-5)}
+            className="px-2 py-1 rounded bg-zinc-800/90 hover:bg-zinc-700 text-zinc-300 hover:text-white text-[10.5px] font-medium transition cursor-pointer flex items-center gap-1 border border-zinc-700/60"
+            title="时间轴后退 5 秒"
+          >
+            <ChevronLeft className="w-3 h-3" />
+            <span>后退5s</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleStepTime(5)}
+            className="px-2 py-1 rounded bg-zinc-800/90 hover:bg-zinc-700 text-zinc-300 hover:text-white text-[10.5px] font-medium transition cursor-pointer flex items-center gap-1 border border-zinc-700/60"
+            title="时间轴前进 5 秒"
+          >
+            <span>前进5s</span>
+            <ChevronRight className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={handleCenterPlayhead}
+            className="px-2 py-1 rounded bg-indigo-950/70 hover:bg-indigo-900 text-indigo-300 hover:text-white text-[10.5px] font-medium transition cursor-pointer border border-indigo-500/40"
+            title="将时间轴视窗快速定位到当前播放指针"
+          >
+            定位指针
+          </button>
+        </div>
+
+        {/* 全片微缩全景条 (Mini Strip: 点击任意位置跳转或按住视窗框平移) */}
+        <div
+          onClick={handleNavigatorClick}
+          className="flex-1 h-5 bg-zinc-950 rounded-md border border-zinc-800 relative cursor-pointer overflow-hidden group shadow-inner"
+          title="点击全景条任意位置快速跳转视窗，或拖拽高亮视窗平移"
+        >
+          {/* 所有分镜在全景条上的微缩色块 */}
+          {illustrations.map((it) => {
+            const leftPct = (it.startTime / dur) * 100;
+            const widthPct = Math.max(0.4, ((it.endTime - it.startTime) / dur) * 100);
+            const isCurrent = it.id === internalSelectedId;
+            return (
+              <div
+                key={it.id}
+                style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                className={`absolute inset-y-0.5 rounded-sm transition-opacity ${
+                  isCurrent
+                    ? 'bg-indigo-400 opacity-100 z-10'
+                    : 'bg-purple-600/70 group-hover:opacity-90 opacity-65'
+                }`}
+              />
+            );
+          })}
+
+          {/* 播放头在全景条上的微缩红线 */}
+          <div
+            style={{ left: `${Math.min(100, Math.max(0, (currentTime / dur) * 100))}%` }}
+            className="absolute inset-y-0 w-1 bg-rose-500 z-20 pointer-events-none transform -translate-x-1/2 shadow-sm"
+          />
+
+          {/* 当前可视窗口高亮遮罩 (Draggable Viewport Window) */}
+          {trackWidth > 0 && (
+            <div
+              onMouseDown={handleNavigatorWindowMouseDown}
+              style={{
+                left: `${Math.max(0, Math.min(100, (scrollLeft / trackWidth) * 100))}%`,
+                width: `${Math.max(3, Math.min(100, (viewportWidth / trackWidth) * 100))}%`,
+              }}
+              className="absolute inset-y-0 bg-white/15 border-2 border-indigo-400/90 rounded cursor-grab active:cursor-grabbing z-30 transition-shadow shadow-[0_0_8px_rgba(99,102,241,0.5)] hover:bg-white/20"
+              title="按住左右拖拽可视窗口"
+            />
+          )}
+        </div>
+
+        {/* 右侧视窗时间范围指示 */}
+        <div className="flex items-center gap-2 text-[10.5px] font-mono text-zinc-400 shrink-0">
+          <span className="text-zinc-500">可视视窗:</span>
+          <span className="text-zinc-200 font-bold">
+            {Math.floor(((scrollLeft / Math.max(1, trackWidth)) * dur) / 60)}:
+            {String(Math.floor(((scrollLeft / Math.max(1, trackWidth)) * dur) % 60)).padStart(2, '0')}
+            {' ~ '}
+            {Math.floor((Math.min(dur, ((scrollLeft + viewportWidth) / Math.max(1, trackWidth)) * dur)) / 60)}:
+            {String(Math.floor((Math.min(dur, ((scrollLeft + viewportWidth) / Math.max(1, trackWidth)) * dur)) % 60)).padStart(2, '0')}
+          </span>
+        </div>
+      </div>
+
       {/* 底部操作说明与微调状态 */}
       <div className="h-7 px-4 border-t border-zinc-800/80 bg-[#121319] flex items-center justify-between text-[11px] text-zinc-400 shrink-0">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <span className="flex items-center gap-1 text-zinc-300">
             <Info className="w-3.5 h-3.5 text-indigo-400" />
-            <span>拖拽卡片移动位置 · 左右把手拉伸时长 · 标尺任意位置点击跳转</span>
+            <span>拖拽卡片移动 · 左右把手拉伸时长(≤6s) · 标尺点击跳转 · Shift+滚轮/中键平移 · 拖动中间条调高</span>
           </span>
           <span>·</span>
           <span>空格键 播放/暂停 · ESC 关闭退出</span>
@@ -1015,7 +1359,7 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
 
         <div className="flex items-center gap-2">
           <span className="text-zinc-500 font-mono text-[10.5px]">
-            缩放: {zoomLevel}x · 磁吸: ±0.25s · 共 {illustrations.length} 镜
+            缩放: {zoomLevel}x · 磁吸: ±0.25s · 共 {illustrations.length} 镜 · 监视器: {monitorHeight}px
           </span>
         </div>
       </div>

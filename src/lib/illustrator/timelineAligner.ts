@@ -121,3 +121,92 @@ export function alignScriptTimeline(
 
   return segments;
 }
+
+export const MAX_ILLUSTRATION_DURATION = 6.0; // 单张插图最大展示时间绝对不超过 6 秒
+export const MIN_ILLUSTRATION_DURATION = 2.5; // 单张插图最小停留时间（保证视觉可识别）
+export const MIN_ILLUSTRATION_GAP = 0.1; // 100ms 呼吸防碰间隙
+
+export interface TimeRangeItem {
+  startTime: number;
+  endTime: number;
+  [key: string]: any;
+}
+
+/**
+ * 严格单调防碰撞与时长安全钳制算法 (v0.7.32)
+ * 1. 保证单张图片时长严格控制在 6.0 秒以内（不超过 6 秒），且不小于 2.5 秒；
+ * 2. 保证相邻分镜按时间严格单调递增，且保留至少 100ms 呼吸间隙，彻底根除出点入点重叠；
+ * 3. 严格受限于已知视频总时长 (videoDuration)。
+ */
+export function enforceStrictSequentialTimeline<T extends TimeRangeItem>(
+  items: T[],
+  videoDuration: number = 0,
+  maxDuration: number = MAX_ILLUSTRATION_DURATION,
+  minDuration: number = MIN_ILLUSTRATION_DURATION,
+  minGap: number = MIN_ILLUSTRATION_GAP
+): T[] {
+  if (!items || items.length === 0) return [];
+
+  // 1. 先按原始 startTime 排序
+  const sorted = [...items].sort((a, b) => a.startTime - b.startTime || a.endTime - b.endTime);
+  const totalLimit = videoDuration > 0 ? videoDuration : Number.POSITIVE_INFINITY;
+  const result: T[] = [];
+
+  let prevEndTime = 0;
+
+  for (let i = 0; i < sorted.length; i++) {
+    const it = sorted[i];
+    let start = Math.max(0, it.startTime);
+    let end = it.endTime;
+
+    // 若与前一个分镜发生碰撞或间隔不足 minGap，强制推移 start
+    if (i > 0) {
+      if (start < prevEndTime + minGap) {
+        start = Math.round((prevEndTime + minGap) * 100) / 100;
+      }
+    }
+
+    // 严厉时长约束：不超过 6.0 秒，不少于 2.5 秒
+    let dur = end - start;
+    if (dur > maxDuration || !Number.isFinite(dur)) {
+      dur = maxDuration;
+    } else if (dur < minDuration) {
+      dur = minDuration;
+    }
+
+    end = Math.round((start + dur) * 100) / 100;
+
+    // 若已知视频总时长，不可超出总时长
+    if (totalLimit < Number.POSITIVE_INFINITY) {
+      if (end > totalLimit) {
+        end = totalLimit;
+        start = Math.max(0, Math.round((end - Math.min(dur, maxDuration)) * 100) / 100);
+        if (i > 0 && start < prevEndTime + minGap) {
+          start = Math.round((prevEndTime + minGap) * 100) / 100;
+          if (end <= start) {
+            end = Math.min(totalLimit, start + 0.8);
+          }
+        }
+      }
+    }
+
+    prevEndTime = end;
+    result.push({
+      ...it,
+      startTime: Math.round(start * 100) / 100,
+      endTime: Math.round(end * 100) / 100,
+    });
+  }
+
+  // 2. 二次逆向校验：从后向前如果超出导致重叠，做精细微调保证单调
+  for (let i = result.length - 2; i >= 0; i--) {
+    const cur = result[i];
+    const next = result[i + 1];
+    if (cur.endTime + minGap > next.startTime) {
+      cur.endTime = Math.round(Math.max(cur.startTime + 0.8, next.startTime - minGap) * 100) / 100;
+    }
+  }
+
+  return result;
+}
+

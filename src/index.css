@@ -612,3 +612,26 @@ html.dark .ai-input-streamer-inner {
   z-index: 40;
   pointer-events: none;
 }
+
+/* 专业时间轴专属高可视度滚动条 (支持 12px 易点按高对比滑块) */
+.timeline-scroll-viewport::-webkit-scrollbar {
+  height: 12px;
+  width: 8px;
+}
+.timeline-scroll-viewport::-webkit-scrollbar-track {
+  background: #111218;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.timeline-scroll-viewport::-webkit-scrollbar-thumb {
+  background: #4f46e5;
+  border-radius: 6px;
+  border: 2px solid #111218;
+  transition: background-color 0.15s;
+}
+.timeline-scroll-viewport::-webkit-scrollbar-thumb:hover {
+  background: #6366f1;
+}
+.timeline-scroll-viewport::-webkit-scrollbar-thumb:active {
+  background: #818cf8;
+}
+
