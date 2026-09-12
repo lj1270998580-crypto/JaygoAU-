@@ -1329,6 +1329,26 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         .replace(/[\\/:*?"<>|]/g, '_')
         .trim();
 
+      let framedImagePaths: Record<string, string> | undefined = undefined;
+      if (borderStyle && borderStyle !== 'none') {
+        const borderLabel = BORDER_OPTIONS.find((b) => b.id === borderStyle)?.label || '边框';
+        showToast(`正在为剪映预合成【${borderLabel}】高保真圆角图…`, 'info');
+        const itemsToFrame = readyItems
+          .filter((it) => it.localPath || it.imageUrl)
+          .map((it) => ({
+            id: it.id,
+            imagePath: it.localPath || it.imageUrl || '',
+            boxWidth: Math.round((videoDimensions.width || 1080) * (globalLayout.widthPercent || 0.65)),
+          }));
+        const frameRes = await api.illustratorRenderFramedImages({
+          items: itemsToFrame,
+          borderStyle,
+        });
+        if (frameRes.ok && frameRes.framedPaths) {
+          framedImagePaths = frameRes.framedPaths;
+        }
+      }
+
       const exportOpts = {
         projectName: draftName,
         videoPath: targetSource,
@@ -1337,6 +1357,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         illustrations: readyItems,
         globalLayout,
         transitionEffect,
+        borderStyle,
+        framedImagePaths,
       };
 
       if (mode === 'direct') {
@@ -1846,7 +1868,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             <div className="flex items-center gap-1.5 whitespace-nowrap">
               <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">智能视频配插图</span>
               <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/60 whitespace-nowrap">
-                v0.7.28
+                v0.7.29
               </span>
             </div>
             <p className="text-[11px] text-zinc-400 hidden xl:block whitespace-nowrap">
@@ -2765,8 +2787,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         {/* ========================================================================= */}
         {effectiveMode === 'three' && (
         <div
-          style={{ width: `${rightWidth}px`, minWidth: 0 }}
-          className="flex flex-col bg-white dark:bg-[#111217] border-l border-zinc-200 dark:border-zinc-800/80 overflow-hidden shrink"
+          style={{ width: `${isSidebarCollapsed ? Math.max(rightWidth + 240, 560) : rightWidth}px`, minWidth: 0 }}
+          className="flex flex-col bg-white dark:bg-[#111217] border-l border-zinc-200 dark:border-zinc-800/80 overflow-hidden shrink transition-all duration-200"
         >
           {/* 顶栏：分镜数量与全部生成按钮 */}
           <div className="p-3 border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between shrink-0">
@@ -3355,7 +3377,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                         </span>
                       </div>
                       <textarea
-                        rows={2}
+                        rows={isSidebarCollapsed ? Math.max(4, Math.min(15, Math.ceil((item.prompt || '').length / 32) + 1)) : Math.max(3, Math.min(10, Math.ceil((item.prompt || '').length / 26) + 1))}
                         value={item.prompt}
                         onChange={(e) => {
                           const val = e.target.value;
@@ -3365,7 +3387,9 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                         }}
                         onClick={(e) => e.stopPropagation()}
                         placeholder="输入或微调提示词…"
-                        className="w-full px-2 py-1 text-[10.5px] leading-snug rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 text-zinc-800 dark:text-zinc-200 focus:ring-1 focus:ring-indigo-500 focus:bg-white dark:focus:bg-zinc-900 outline-none resize-y transition"
+                        className={`w-full px-2.5 py-1.5 text-[11px] leading-relaxed rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 text-zinc-800 dark:text-zinc-200 focus:ring-1 focus:ring-indigo-500 focus:bg-white dark:focus:bg-zinc-900 outline-none resize-y transition ${
+                          isSidebarCollapsed ? 'min-h-[88px]' : 'min-h-[64px]'
+                        }`}
                       />
                     </div>
                   </div>
@@ -3923,6 +3947,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         videoSrc={videoUrl || undefined}
         globalLayout={globalLayout}
         aspectRatio={activeRatioObj.cssRatio}
+        videoDimensions={videoDimensions}
       />
     </div>
   );

@@ -266,6 +266,11 @@ const api = {
     ipcRenderer.invoke('illustrator-export-jianying', args),
   illustratorOpenFolder: (folderPath: string): Promise<boolean> =>
     ipcRenderer.invoke('illustrator-open-folder', folderPath),
+  illustratorRenderFramedImages: (args: {
+    items: Array<{ id: string; imagePath: string; boxWidth?: number }>;
+    borderStyle: string;
+  }): Promise<{ ok: boolean; framedPaths: Record<string, string>; error?: string }> =>
+    ipcRenderer.invoke('illustrator-render-framed-images', args),
 };
 
 contextBridge.exposeInMainWorld('JaygoAPI', api);

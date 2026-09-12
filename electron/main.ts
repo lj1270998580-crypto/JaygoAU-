@@ -2892,6 +2892,36 @@ ipcMain.handle('illustrator-open-folder', async (_, folderPath: string) => {
   }
 });
 
+ipcMain.handle('illustrator-render-framed-images', async (_, args: {
+  items: Array<{ id: string; imagePath: string; boxWidth?: number }>;
+  borderStyle: string;
+}) => {
+  try {
+    if (!args.borderStyle || args.borderStyle === 'none') {
+      return { ok: true, framedPaths: {} };
+    }
+    const framedPaths: Record<string, string> = {};
+    for (const it of args.items) {
+      if (!it.imagePath || !fs.existsSync(it.imagePath)) continue;
+      const tag = `frame_${it.id}_${Date.now()}`;
+      const r = await renderOverlayFrames({
+        imagePath: it.imagePath,
+        borderStyle: args.borderStyle,
+        boxWidth: it.boxWidth || 1400,
+        scales: [1],
+        tag,
+      });
+      if (r.paths && r.paths.length > 0) {
+        framedPaths[it.id] = r.paths[0];
+      }
+    }
+    return { ok: true, framedPaths };
+  } catch (err: any) {
+    dbg(`[JianYing] Render framed images error: ${err?.message || err}`);
+    return { ok: false, error: err?.message, framedPaths: {} };
+  }
+});
+
 // 3. 使用 FFmpeg 将插图序列按时间轴合成到视频中并导出
 /**
  * 叠加层预合成（v0.7.11）

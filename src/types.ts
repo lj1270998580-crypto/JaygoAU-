@@ -222,6 +222,11 @@ export interface JaygoAPI {
   }): Promise<{ ok: boolean; draftPath?: string; error?: string }>;
   /** v0.7.26：直接打开文件夹 */
   illustratorOpenFolder(folderPath: string): Promise<boolean>;
+  /** v0.7.29：剪映草稿导出前预渲染带边框/圆角透明 PNG */
+  illustratorRenderFramedImages(args: {
+    items: Array<{ id: string; imagePath: string; boxWidth?: number }>;
+    borderStyle: string;
+  }): Promise<{ ok: boolean; framedPaths: Record<string, string>; error?: string }>;
   exportVideoWithOverlays(a: {
     videoPath: string;
     outputPath?: string;

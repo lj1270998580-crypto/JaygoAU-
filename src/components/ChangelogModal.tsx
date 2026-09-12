@@ -24,11 +24,60 @@ type FilterType = 'all' | 'features' | 'improvements' | 'fixes';
 export function ChangelogModal({ open, onClose }: Props) {
   const { appVersion, update, downloadUpdate, quitInstallUpdate, checkUpdates } = useStore();
   const [filter, setFilter] = useState<FilterType>('all');
+  const [remoteLogs, setRemoteLogs] = useState<ChangelogItem[]>([]);
+  const [isLoadingRemote, setIsLoadingRemote] = useState<boolean>(false);
 
-  if (!open) return null;
+  React.useEffect(() => {
+    if (!open) return;
+    setIsLoadingRemote(true);
+    fetch(`https://ailabing.cn/jaygo-au/updates/latest-changelog.json?t=${Date.now()}`)
+      .then((res) => {
+        if (!res.ok) throw new Error('Remote fetch failed');
+        return res.json();
+      })
+      .then((data: ChangelogItem[]) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setRemoteLogs(data);
+        }
+      })
+      .catch(() => {
+        // 静默降级，继续使用内置更新日志
+      })
+      .finally(() => {
+        setIsLoadingRemote(false);
+      });
+  }, [open]);
 
   const currentVer = appVersion || '0.6.3';
   const hasNewVer = Boolean(update.available && update.available.version !== currentVer);
+
+  // 融合云端实时更新日志与本地记录
+  const displayLogs = React.useMemo(() => {
+    const list = [...CHANGELOGS];
+    for (const rItem of remoteLogs) {
+      const existingIdx = list.findIndex((it) => it.version === rItem.version);
+      if (existingIdx >= 0) {
+        list[existingIdx] = { ...list[existingIdx], ...rItem };
+      } else {
+        list.unshift(rItem);
+      }
+    }
+    // 如果检测到了新版本且不在列表中，自动根据 releaseNotes 生成一条预览
+    if (update.available && update.available.version && !list.some((it) => it.version === update.available?.version)) {
+      const notes = update.available.releaseNotes;
+      const notesList = typeof notes === 'string'
+        ? notes.split('\n').map((s: string) => s.replace(/^[•\-\*]\s*/, '').trim()).filter(Boolean)
+        : [];
+      list.unshift({
+        version: update.available.version,
+        date: new Date().toISOString().slice(0, 10),
+        title: '云端最新发布版本 · 包含核心功能升级与体验改进',
+        isLatest: true,
+        features: notesList.length > 0 ? notesList : ['包含最新功能升级与性能加固，请点击更新按钮升级体验。'],
+      });
+    }
+    return list;
+  }, [remoteLogs, update.available]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-xs p-4 animate-in fade-in">
@@ -158,15 +207,16 @@ export function ChangelogModal({ open, onClose }: Props) {
           </div>
 
           <div className="text-[11px] text-zinc-400 font-mono">
-            共收录 {CHANGELOGS.length} 个版本节点
+            共收录 {displayLogs.length} 个版本节点{isLoadingRemote ? ' (正在同步最新日志…)' : ''}
           </div>
         </div>
 
         {/* 时间线内容滚动区域 */}
         <div className="flex-1 overflow-y-auto p-6 space-y-8 select-text">
           <div className="relative pl-6 border-l-2 border-zinc-200 dark:border-zinc-800 space-y-8 ml-2">
-            {CHANGELOGS.map((item, idx) => {
+            {displayLogs.map((item, idx) => {
               const isCurrent = item.version === currentVer;
+              const isTargetUpdate = Boolean(update.available && update.available.version === item.version && !isCurrent);
 
               // 根据筛选类型判定是否展示
               const hasF = item.features && item.features.length > 0;
@@ -184,6 +234,8 @@ export function ChangelogModal({ open, onClose }: Props) {
                     className={`absolute -left-[31px] top-1 w-3.5 h-3.5 rounded-full border-2 transition-all ${
                       isCurrent
                         ? 'bg-emerald-500 border-emerald-300 dark:border-emerald-700 ring-4 ring-emerald-500/20'
+                        : isTargetUpdate
+                        ? 'bg-blue-600 border-blue-200 ring-4 ring-blue-500/40 animate-pulse'
                         : item.isLatest
                         ? 'bg-blue-500 border-blue-300 dark:border-blue-700 ring-3 ring-blue-500/20'
                         : 'bg-zinc-300 dark:bg-zinc-700 border-white dark:border-[#121319]'
@@ -201,7 +253,12 @@ export function ChangelogModal({ open, onClose }: Props) {
                           当前版本
                         </span>
                       )}
-                      {item.isLatest && !isCurrent && (
+                      {isTargetUpdate && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xs animate-pulse">
+                          待升级新版
+                        </span>
+                      )}
+                      {item.isLatest && !isCurrent && !isTargetUpdate && (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-800">
                           最新版
                         </span>
@@ -215,7 +272,11 @@ export function ChangelogModal({ open, onClose }: Props) {
                   </div>
 
                   {/* 详细条目列表 */}
-                  <div className="rounded-xl p-4 bg-zinc-50/70 dark:bg-zinc-900/40 border border-zinc-200/70 dark:border-zinc-800/80 space-y-3.5 text-xs leading-relaxed">
+                  <div className={`rounded-xl p-4 transition-all ${
+                    isTargetUpdate
+                      ? 'bg-blue-50/40 dark:bg-blue-950/20 border-2 border-blue-500/60 shadow-md ring-1 ring-blue-500/20'
+                      : 'bg-zinc-50/70 dark:bg-zinc-900/40 border border-zinc-200/70 dark:border-zinc-800/80'
+                  } space-y-3.5 text-xs leading-relaxed`}>
                     {/* ✨ 新功能 */}
                     {(filter === 'all' || filter === 'features') && hasF && (
                       <div className="space-y-1.5">

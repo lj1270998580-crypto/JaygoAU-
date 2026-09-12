@@ -69,6 +69,7 @@ if (!SSH.password && !SSH.privateKey) {
 // [本地相对/绝对路径, 远程相对路径]
 const FILES = [
   [path.join(buildDir, 'latest.yml'), 'updates/latest.yml'],
+  [path.join(buildDir, 'latest-changelog.json'), 'updates/latest-changelog.json'],
   [path.join(buildDir, `Jaygo.AU.Setup.${ver}.exe`), `updates/Jaygo.AU.Setup.${ver}.exe`],
   [path.join(buildDir, `Jaygo.AU.Setup.${ver}.exe.blockmap`), `updates/Jaygo.AU.Setup.${ver}.exe.blockmap`],
   ['server/jaygo-au-backend.mjs', 'server/jaygo-au-backend.mjs'],

@@ -277,34 +277,55 @@ function SystemStatusCapsule() {
             </div>
 
             {hasNewVer && (
-              <div className="flex items-center justify-between pt-1 border-t border-dashed border-zinc-200 dark:border-zinc-800">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpenDetail(false);
-                    setChangelogOpen(true);
-                  }}
-                  className="text-[11px] text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
-                >
-                  查看新版更新说明 →
-                </button>
-                {update.downloaded ? (
+              <div className="pt-2 border-t border-dashed border-zinc-200 dark:border-zinc-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping" />
+                    发现新版本：v{update.available?.version}
+                  </span>
                   <button
                     type="button"
-                    onClick={quitInstallUpdate}
-                    className="px-2 py-1 rounded bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700 transition cursor-pointer"
+                    onClick={() => {
+                      setOpenDetail(false);
+                      setChangelogOpen(true);
+                    }}
+                    className="text-[11px] text-purple-600 dark:text-purple-400 hover:underline cursor-pointer font-medium"
                   >
-                    重启完成升级
+                    查看详情 →
                   </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={downloadUpdate}
-                    className="px-2 py-1 rounded bg-blue-600 text-white text-[11px] font-medium hover:bg-blue-700 transition cursor-pointer"
-                  >
-                    {update.progress > 0 ? `下载中 ${Math.round(update.progress)}%` : `下载 v${update.available?.version}`}
-                  </button>
-                )}
+                </div>
+
+                {/* 简要更新要点预览卡片 */}
+                <div className="text-[10.5px] text-zinc-600 dark:text-zinc-300 bg-blue-50/60 dark:bg-blue-950/40 p-2 rounded-lg border border-blue-100/80 dark:border-blue-900/60 leading-relaxed max-h-20 overflow-y-auto">
+                  {typeof update.available?.releaseNotes === 'string' && update.available.releaseNotes.trim() ? (
+                    <div className="whitespace-pre-line line-clamp-3">
+                      {update.available.releaseNotes.trim()}
+                    </div>
+                  ) : (
+                    <span>优化剪映草稿官方动效/圆角/防重叠、专业时间轴平滑缩放、宽屏工作台分镜自适应等。</span>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between pt-0.5">
+                  <span className="text-[10px] text-zinc-400">升级前可确认更新详情</span>
+                  {update.downloaded ? (
+                    <button
+                      type="button"
+                      onClick={quitInstallUpdate}
+                      className="px-2.5 py-1 rounded bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700 transition cursor-pointer flex items-center gap-1 shadow-xs"
+                    >
+                      重启完成升级
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={downloadUpdate}
+                      className="px-2.5 py-1 rounded bg-blue-600 text-white text-[11px] font-medium hover:bg-blue-700 transition cursor-pointer flex items-center gap-1 shadow-xs"
+                    >
+                      {update.progress > 0 ? `下载中 ${Math.round(update.progress)}%` : `立即下载 v${update.available?.version}`}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>

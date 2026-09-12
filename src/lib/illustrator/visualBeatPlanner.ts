@@ -391,6 +391,18 @@ export function planVisualBeats(
     };
   });
 
+  // v0.7.29 修复：相邻分镜时间严格防重叠 pass。
+  // 杜绝前一分镜 recommendedEnd 侵入后一分镜 recommendedStart，避免剪映拆分为多轨道并产生画面重叠
+  for (let i = 0; i < finalBeats.length - 1; i++) {
+    const cur = finalBeats[i];
+    const next = finalBeats[i + 1];
+    const maxAllowedEnd = Math.max(cur.timeline.recommendedStart + 0.8, Math.round((next.timeline.recommendedStart - 0.15) * 10) / 10);
+    if (cur.timeline.recommendedEnd > maxAllowedEnd) {
+      cur.timeline.recommendedEnd = maxAllowedEnd;
+      cur.timeline.duration = Math.round((cur.timeline.recommendedEnd - cur.timeline.recommendedStart) * 10) / 10;
+    }
+  }
+
   return finalBeats;
 }
 

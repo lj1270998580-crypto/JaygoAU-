@@ -19,7 +19,34 @@ export interface JianyingExportOptions {
   illustrations: VideoIllustrationItem[];
   transitionEffect?: 'fade' | 'slide' | 'zoom' | 'none';
   globalLayout?: IllustrationLayout;
+  borderStyle?: 'none' | 'clean_white' | 'rounded_card' | 'star_badge' | 'cyber_glow';
+  /** 可选：分镜 ID 到已预渲染带边框/圆角图片本地路径的映射表 */
+  framedImagePaths?: Record<string, string>;
 }
+
+/**
+ * 剪映专业版 (JianYing Pro Windows) 原生内置免费动效真实资源 ID
+ */
+const JIANYING_ANIMATION_PRESETS: Record<
+  'fade' | 'zoom' | 'slide',
+  {
+    in: { name: string; id: string; resource_id: string; md5: string };
+    out: { name: string; id: string; resource_id: string; md5: string };
+  }
+> = {
+  fade: {
+    in: { name: '渐显', id: '624705', resource_id: '6798320778182922760', md5: 'ee269b77e45a2466bd3e9cab0cff7137' },
+    out: { name: '渐隐', id: '624707', resource_id: '6798320902548230669', md5: '07d916d9179660641ae0f427315c5591' },
+  },
+  zoom: {
+    in: { name: '放大', id: '624751', resource_id: '6798332733694153230', md5: '028a77e121c22a4dd130a46a0ed90714' },
+    out: { name: '缩小', id: '624753', resource_id: '6798332648814023181', md5: '2ef923500a3c5501236774f26ea6855c' },
+  },
+  slide: {
+    in: { name: '向上滑动', id: '624739', resource_id: '6798333487523828238', md5: '91285fcdbc398dd776994fd67b3c93fb' },
+    out: { name: '向下滑动', id: '624733', resource_id: '6798333787986989576', md5: 'd39ba8884ffc4004118c2fa801d6ea97' },
+  },
+};
 
 function generateId(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -151,15 +178,34 @@ export function buildJianyingDraftData(opts: JianyingExportOptions) {
     (it) => it.status === 'success' && (it.localPath || it.imageUrl)
   );
 
+  // v0.7.29 修复：按入点时间严格正序排序，确保时间轴序列单调递增
+  const sortedIllustrations = [...validIllustrations].sort((a, b) => a.startTime - b.startTime);
+
   // 默认缩放与位置参数
   const scaleRatio = opts.globalLayout?.widthPercent || 0.65;
   const transX = opts.globalLayout ? (opts.globalLayout.xPercent - 0.5 + (opts.globalLayout.widthPercent / 2)) * 2 : 0;
   const transY = opts.globalLayout ? -(opts.globalLayout.yPercent - 0.5 + (opts.globalLayout.heightPercent / 2)) * 2 : 0;
 
-  for (const ill of validIllustrations) {
-    const illPath = ill.localPath || ill.imageUrl || '';
-    const illStartUs = Math.round(ill.startTime * 1000000);
-    const illDurationUs = Math.max(500000, Math.round((ill.endTime - ill.startTime) * 1000000));
+  for (let i = 0; i < sortedIllustrations.length; i++) {
+    const ill = sortedIllustrations[i];
+    // 若提供了预渲染的带边框/圆角透明 PNG，优先使用；否则使用原始图片
+    const framedPath = opts.framedImagePaths?.[ill.id];
+    const illPath = framedPath || ill.localPath || ill.imageUrl || '';
+
+    // 时间计算与严格防重叠保护
+    const startSec = Math.max(0, ill.startTime);
+    let endSec = Math.max(startSec + 0.5, ill.endTime);
+
+    // 与下一分镜防重叠保护（至少保留 50ms 缓冲间隙，防止剪映自动分裂出第二条画中画轨并重叠）
+    if (i < sortedIllustrations.length - 1) {
+      const nextStart = Math.max(0, sortedIllustrations[i + 1].startTime);
+      if (endSec > nextStart - 0.05) {
+        endSec = Math.max(startSec + 0.4, nextStart - 0.05);
+      }
+    }
+
+    const illStartUs = Math.round(startSec * 1000000);
+    const illDurationUs = Math.max(400000, Math.round((endSec - startSec) * 1000000));
 
     const matId = generateId();
     videosMaterial.push({
@@ -184,7 +230,7 @@ export function buildJianyingDraftData(opts: JianyingExportOptions) {
       local_id: '',
       local_material_id: '',
       material_id: '',
-      material_name: illPath.split(/[\\/]/).pop() || `illustration_${ill.id}.jpg`,
+      material_name: illPath.split(/[\\/]/).pop() || `illustration_${ill.id}.png`,
       material_url: '',
       matting: { flag: 0, has_handled: false, interactive: null, path: '', strokes: [] },
       media_path: illPath,
@@ -209,40 +255,50 @@ export function buildJianyingDraftData(opts: JianyingExportOptions) {
 
     const extraRefs = [speedId, canvasId];
 
-    // 淡入淡出动画绑定
-    if (opts.transitionEffect !== 'none') {
+    // v0.7.29 修复：剪映原生内置视频动效绑定（渐显/渐隐/放大/缩小/滑动）
+    const effectKey = opts.transitionEffect && opts.transitionEffect !== 'none' ? opts.transitionEffect : 'fade';
+    const animPreset = JIANYING_ANIMATION_PRESETS[effectKey as keyof typeof JIANYING_ANIMATION_PRESETS] || JIANYING_ANIMATION_PRESETS.fade;
+
+    if (opts.transitionEffect !== 'none' && animPreset) {
       const animId = generateId();
-      const animFadeDur = Math.min(350000, Math.floor(illDurationUs / 3));
+      const animFadeDur = Math.min(500000, Math.floor(illDurationUs / 3));
       animationsMaterial.push({
         animations: [
           {
+            anim_adjust_params: null,
             category_id: 'in',
             category_name: '入场',
             duration: animFadeDur,
-            id: generateId(),
+            id: animPreset.in.id,
             material_type: 'video',
-            name: '渐显',
+            name: animPreset.in.name,
+            panel: 'video',
             path: '',
+            platform: 'all',
             request_id: '',
-            resource_id: 'fade_in',
+            resource_id: animPreset.in.resource_id,
             start: 0,
             type: 'in',
           },
           {
+            anim_adjust_params: null,
             category_id: 'out',
             category_name: '出场',
             duration: animFadeDur,
-            id: generateId(),
+            id: animPreset.out.id,
             material_type: 'video',
-            name: '渐隐',
+            name: animPreset.out.name,
+            panel: 'video',
             path: '',
+            platform: 'all',
             request_id: '',
-            resource_id: 'fade_out',
+            resource_id: animPreset.out.resource_id,
             start: Math.max(0, illDurationUs - animFadeDur),
             type: 'out',
           },
         ],
         id: animId,
+        multi_language_current: 'none',
         type: 'sticker_animation',
       });
       extraRefs.push(animId);

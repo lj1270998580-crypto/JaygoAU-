@@ -34,6 +34,7 @@ export interface AdvancedTimelineModalProps {
   asrUtterances?: Array<{ text: string; startTime: number; endTime: number }>;
   globalLayout?: { xPercent: number; yPercent: number; widthPercent: number };
   aspectRatio?: string;
+  videoDimensions?: { width: number; height: number };
 }
 
 export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
@@ -52,13 +53,16 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
   asrUtterances = [],
   globalLayout = { xPercent: 0.11, yPercent: 0.26, widthPercent: 0.78 },
   aspectRatio = '16/9',
+  videoDimensions,
 }) => {
-  const [zoomLevel, setZoomLevel] = useState<number>(1); // 1x, 2x, 4x
+  const [zoomLevel, setZoomLevel] = useState<number>(1); // 支持 1.0x ~ 15.0x 连续滑动
   const [isSnapEnabled, setIsSnapEnabled] = useState<boolean>(true);
   const [waveformPeaks, setWaveformPeaks] = useState<number[]>([]);
   const [isExtractingWaveform, setIsExtractingWaveform] = useState<boolean>(false);
   const [activeSnapLine, setActiveSnapLine] = useState<number | null>(null);
   const [internalSelectedId, setInternalSelectedId] = useState<string | null>(selectedId || null);
+  const [loadedDim, setLoadedDim] = useState<{ width: number; height: number } | null>(null);
+  const [viewportWidth, setViewportWidth] = useState<number>(1000);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -71,6 +75,36 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
     initialEndTime?: number;
     trackWidth: number;
   } | null>(null);
+
+  // 动态画幅计算：优先使用外部传入分辨率，其次使用视频元数据实测，兜底 9:16 或 16:9
+  const currentDim = videoDimensions || loadedDim || { width: 1080, height: 1920 };
+  const monitorAspect = `${currentDim.width} / ${currentDim.height}`;
+
+  // 视口宽度监听 (ResizeObserver)
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const update = () => {
+      setViewportWidth(Math.max(600, el.clientWidth));
+    };
+    update();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update);
+      return () => window.removeEventListener('resize', update);
+    }
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isOpen]);
+
+  // 鼠标滚轮平滑缩放 (Ctrl/Alt + 滚轮)
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    if (e.ctrlKey || e.altKey) {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.3 : -0.3;
+      setZoomLevel((z) => Math.min(15, Math.max(1, Math.round((z + delta) * 10) / 10)));
+    }
+  }, []);
 
   // 同步外部选中的分镜
   useEffect(() => {
@@ -164,9 +198,9 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onTogglePlay, onClose]);
 
-  // 计算轨道总宽度
-  const baseWidth = containerRef.current ? containerRef.current.clientWidth - 160 : 1000;
-  const trackWidth = Math.max(baseWidth, baseWidth * zoomLevel);
+  // 计算轨道总宽度（基于实际视口测量宽度与平滑缩放倍数）
+  const baseWidth = Math.max(800, viewportWidth - 144);
+  const trackWidth = Math.max(baseWidth, Math.round(baseWidth * zoomLevel));
   const dur = videoDuration > 0 ? videoDuration : 60;
   const pxPerSec = trackWidth / dur;
 
@@ -331,14 +365,17 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
     };
   }, [pxPerSec, dur, applySnap, onSeek, onUpdateIllustration]);
 
-  // 时间刻度标尺数据
+  // 时间刻度标尺数据（基于每秒像素数动态调整步长）
   const timeRulerTicks = useMemo(() => {
-    const stepSec = zoomLevel >= 4 ? 1 : zoomLevel >= 2 ? 2 : 5;
+    const stepSec = pxPerSec >= 50 ? 0.5 : pxPerSec >= 24 ? 1 : pxPerSec >= 10 ? 2 : 5;
     const ticks: Array<{ time: number; label: string; isMajor: boolean }> = [];
     for (let t = 0; t <= dur; t += stepSec) {
       const mins = Math.floor(t / 60);
       const secs = Math.floor(t % 60);
-      const label = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      const frac = Math.floor((t % 1) * 10);
+      const label = stepSec < 1
+        ? `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${frac}`
+        : `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
       ticks.push({
         time: t,
         label,
@@ -346,7 +383,7 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
       });
     }
     return ticks;
-  }, [dur, zoomLevel]);
+  }, [dur, pxPerSec]);
 
   // 当前激活插图（在播放指针当前秒数内）
   const activeIllustration = useMemo(() => {
@@ -422,27 +459,49 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
             <span>磁吸: {isSnapEnabled ? '开启' : '关闭'}</span>
           </button>
 
-          {/* 缩放控制器 */}
-          <div className="flex items-center bg-zinc-800 rounded-lg p-0.5 border border-zinc-700">
+          {/* 剪辑软件级平滑缩放滑动条 */}
+          <div className="flex items-center gap-1.5 bg-zinc-800/90 rounded-lg px-2 py-1 border border-zinc-700">
             <button
               type="button"
-              onClick={() => setZoomLevel((z) => Math.max(1, z / 2))}
+              onClick={() => setZoomLevel((z) => Math.max(1, Math.round((z - 0.5) * 10) / 10))}
               disabled={zoomLevel <= 1}
-              className="p-1 text-zinc-400 hover:text-white disabled:opacity-30 cursor-pointer"
-              title="缩小时间轴"
+              className="p-0.5 text-zinc-400 hover:text-white disabled:opacity-30 cursor-pointer transition"
+              title="缩小时间轴 (或按住 Ctrl+滚轮向下)"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <span className="px-2 text-xs font-mono text-zinc-300">{zoomLevel}x</span>
+            <input
+              type="range"
+              min={1}
+              max={15}
+              step={0.2}
+              value={zoomLevel}
+              onChange={(e) => setZoomLevel(parseFloat(e.target.value))}
+              className="w-20 sm:w-28 md:w-36 h-1 accent-indigo-500 bg-zinc-700 rounded-lg cursor-pointer"
+              title="拖动平滑缩放时间轴宽度"
+            />
             <button
               type="button"
-              onClick={() => setZoomLevel((z) => Math.min(4, z * 2))}
-              disabled={zoomLevel >= 4}
-              className="p-1 text-zinc-400 hover:text-white disabled:opacity-30 cursor-pointer"
-              title="放大时间轴"
+              onClick={() => setZoomLevel((z) => Math.min(15, Math.round((z + 0.5) * 10) / 10))}
+              disabled={zoomLevel >= 15}
+              className="p-0.5 text-zinc-400 hover:text-white disabled:opacity-30 cursor-pointer transition"
+              title="放大时间轴 (或按住 Ctrl+滚轮向上)"
             >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
+            <span className="text-[11px] font-mono text-zinc-300 w-10 text-center font-medium select-none">
+              {zoomLevel.toFixed(1)}x
+            </span>
+            {zoomLevel > 1 && (
+              <button
+                type="button"
+                onClick={() => setZoomLevel(1)}
+                className="text-[10px] text-indigo-400 hover:text-indigo-300 ml-0.5 px-1 py-0.5 rounded bg-indigo-950/60 hover:bg-indigo-900/60 transition cursor-pointer"
+                title="重置为适应视口宽度"
+              >
+                自适应
+              </button>
+            )}
           </div>
 
           {/* 完成关闭按钮 */}
@@ -466,16 +525,25 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
         </div>
       </div>
 
-      {/* 上半部分：视频预览监视器 + 实时分镜画中画叠层 + 分镜属性监视 (Point 2) */}
+      {/* 上半部分：视频预览监视器 + 实时分镜画中画叠层 + 分镜属性监视 (自适应画幅) */}
       <div className="h-[250px] md:h-[270px] lg:h-[290px] bg-[#0c0d12] border-b border-zinc-800 flex items-center justify-center p-3 gap-4 shrink-0 overflow-hidden">
-        {/* 视频监视器播放视窗 */}
-        <div className="h-full flex flex-col items-center justify-center max-w-[65%] shrink-0">
-          <div className="relative h-full aspect-video max-h-[220px] md:max-h-[240px] bg-black rounded-xl overflow-hidden shadow-2xl border border-zinc-800 flex items-center justify-center group">
+        {/* 视频监视器播放视窗：自适应真实画幅比例，彻底杜绝竖屏大黑边与插图错位漂移 */}
+        <div className="h-full flex flex-col items-center justify-center shrink-0">
+          <div
+            style={{ aspectRatio: monitorAspect }}
+            className="relative h-full max-h-[220px] md:max-h-[245px] bg-black rounded-xl overflow-hidden shadow-2xl border border-zinc-800 flex items-center justify-center group"
+          >
             {videoSrc ? (
               <video
                 ref={videoPreviewRef}
                 src={videoSrc}
                 className="w-full h-full object-contain block"
+                onLoadedMetadata={(e) => {
+                  const v = e.currentTarget;
+                  if (v.videoWidth && v.videoHeight) {
+                    setLoadedDim({ width: v.videoWidth, height: v.videoHeight });
+                  }
+                }}
                 onPlay={() => {
                   if (!isPlaying) onTogglePlay();
                 }}
@@ -485,20 +553,20 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
                 onClick={onTogglePlay}
               />
             ) : (
-              <div className="flex flex-col items-center justify-center text-zinc-600 gap-1.5">
+              <div className="flex flex-col items-center justify-center text-zinc-600 gap-1.5 p-6">
                 <VideoIcon className="w-8 h-8 text-zinc-700" />
                 <span className="text-xs">暂无视频源</span>
               </div>
             )}
 
-            {/* 实时分镜插图浮层（随当前时间轴秒数同步叠放预览） */}
+            {/* 实时分镜插图浮层（随当前时间轴秒数同步叠放预览，与画面严格贴合） */}
             {activeIllustration && (
               <div
                 style={{
                   left: `${(globalLayout?.xPercent ?? 0.11) * 100}%`,
                   top: `${(globalLayout?.yPercent ?? 0.26) * 100}%`,
                   width: `${(globalLayout?.widthPercent ?? 0.78) * 100}%`,
-                  aspectRatio: aspectRatio || '16/9',
+                  aspectRatio: activeIllustration.ratio?.replace(':', '/') || aspectRatio || '16/9',
                 }}
                 className="absolute pointer-events-none rounded-lg overflow-hidden border border-indigo-400/80 shadow-2xl bg-zinc-900/90 z-20 flex items-center justify-center transition-all duration-200"
               >
@@ -791,8 +859,10 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
             <div className="flex-1 relative bg-zinc-950/60 py-2.5 overflow-hidden">
               {illustrations.map((item, idx) => {
                 const left = item.startTime * pxPerSec;
-                const width = Math.max(36, (item.endTime - item.startTime) * pxPerSec);
+                const width = Math.max(26, (item.endTime - item.startTime) * pxPerSec);
                 const isSelected = item.id === internalSelectedId;
+                const isMini = width < 65;
+                const isMedium = width >= 65 && width < 125;
 
                 return (
                   <div
@@ -804,61 +874,106 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
                       height: '70px',
                     }}
                     onMouseDown={(e) => handleMouseDownItem(e, item.id, 'move')}
-                    className={`absolute rounded-xl border flex flex-col justify-between p-2 cursor-move transition-shadow select-none shadow-md ${
+                    className={`absolute rounded-xl border flex flex-col justify-between cursor-move transition-shadow select-none shadow-md overflow-hidden ${
+                      isMini ? 'p-1' : 'p-2'
+                    } ${
                       isSelected
-                        ? 'bg-gradient-to-r from-purple-900/90 to-indigo-900/90 border-indigo-400 ring-2 ring-indigo-400 shadow-indigo-500/20 z-10'
+                        ? 'bg-gradient-to-r from-purple-900/95 to-indigo-900/95 border-indigo-400 ring-2 ring-indigo-400 shadow-indigo-500/30 z-10'
                         : 'bg-zinc-800/90 hover:bg-zinc-800 border-zinc-700/80 hover:border-zinc-600'
                     }`}
                   >
                     {/* 左侧拉伸调整把手 */}
-                    <div
-                      onMouseDown={(e) => handleMouseDownItem(e, item.id, 'resize-left')}
-                      className="absolute left-0 inset-y-0 w-3 cursor-w-resize hover:bg-white/30 rounded-l-xl flex items-center justify-center group"
-                      title="按住向左或向右拉伸开始时间"
-                    >
-                      <div className="w-1 h-5 rounded-full bg-white/40 group-hover:bg-white transition-colors" />
-                    </div>
+                    {width >= 36 && (
+                      <div
+                        onMouseDown={(e) => handleMouseDownItem(e, item.id, 'resize-left')}
+                        className="absolute left-0 inset-y-0 w-2.5 cursor-w-resize hover:bg-white/30 rounded-l-xl flex items-center justify-center group z-10"
+                        title="按住向左或向右拉伸开始时间"
+                      >
+                        <div className="w-0.5 h-4 rounded-full bg-white/40 group-hover:bg-white transition-colors" />
+                      </div>
+                    )}
 
                     {/* 右侧拉伸调整把手 */}
-                    <div
-                      onMouseDown={(e) => handleMouseDownItem(e, item.id, 'resize-right')}
-                      className="absolute right-0 inset-y-0 w-3 cursor-e-resize hover:bg-white/30 rounded-r-xl flex items-center justify-center group"
-                      title="按住向左或向右拉伸结束时间"
-                    >
-                      <div className="w-1 h-5 rounded-full bg-white/40 group-hover:bg-white transition-colors" />
-                    </div>
-
-                    {/* 卡片内容展示 */}
-                    <div className="flex items-center gap-2 pointer-events-none min-w-0 pl-1">
-                      {item.imageUrl ? (
-                        <img
-                          src={item.imageUrl}
-                          alt=""
-                          className="w-9 h-9 rounded-lg object-cover border border-white/20 shrink-0"
-                        />
-                      ) : (
-                        <div className="w-9 h-9 rounded-lg bg-zinc-900/80 border border-white/10 flex items-center justify-center text-zinc-500 text-[10px] shrink-0 font-bold">
-                          #{idx + 1}
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[11px] font-bold text-white truncate">
-                          {item.concept}
-                        </div>
-                        <div className="text-[9.5px] text-zinc-400 truncate">
-                          {item.storyArcId ? `故事线: ${item.storyArcId}` : item.category || '插图'}
-                        </div>
+                    {width >= 36 && (
+                      <div
+                        onMouseDown={(e) => handleMouseDownItem(e, item.id, 'resize-right')}
+                        className="absolute right-0 inset-y-0 w-2.5 cursor-e-resize hover:bg-white/30 rounded-r-xl flex items-center justify-center group z-10"
+                        title="按住向左或向右拉伸结束时间"
+                      >
+                        <div className="w-0.5 h-4 rounded-full bg-white/40 group-hover:bg-white transition-colors" />
                       </div>
-                    </div>
+                    )}
 
-                    {/* 底部时间显示 */}
-                    <div className="flex items-center justify-between text-[9px] font-mono text-zinc-300 pointer-events-none pl-1">
-                      <span>{item.startTime.toFixed(1)}s</span>
-                      <span className="text-zinc-400 font-bold">
-                        {(item.endTime - item.startTime).toFixed(1)}s
-                      </span>
-                      <span>{item.endTime.toFixed(1)}s</span>
-                    </div>
+                    {/* 卡片内容展示：自适应防挤压模式 */}
+                    {isMini ? (
+                      /* 极简模式：小宽度只显示序号与时长，杜绝文字重叠粘连 */
+                      <div className="w-full h-full flex flex-col items-center justify-center pointer-events-none text-center">
+                        <span className="text-[10px] font-mono font-bold text-white leading-tight">
+                          #{idx + 1}
+                        </span>
+                        <span className="text-[8.5px] font-mono text-zinc-400 leading-tight">
+                          {(item.endTime - item.startTime).toFixed(1)}s
+                        </span>
+                      </div>
+                    ) : isMedium ? (
+                      /* 中等宽度紧凑模式 */
+                      <>
+                        <div className="flex items-center gap-1.5 pointer-events-none min-w-0 pl-1">
+                          {item.imageUrl ? (
+                            <img
+                              src={item.imageUrl}
+                              alt=""
+                              className="w-7 h-7 rounded object-cover border border-white/20 shrink-0"
+                            />
+                          ) : (
+                            <span className="w-6 h-6 rounded bg-zinc-900/80 text-zinc-400 text-[10px] font-bold flex items-center justify-center shrink-0">
+                              #{idx + 1}
+                            </span>
+                          )}
+                          <span className="text-[10.5px] font-bold text-white truncate flex-1 min-w-0">
+                            {item.concept}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[8.5px] font-mono text-zinc-400 pointer-events-none pl-1">
+                          <span>{item.startTime.toFixed(1)}s</span>
+                          <span>{item.endTime.toFixed(1)}s</span>
+                        </div>
+                      </>
+                    ) : (
+                      /* 大宽度完整丰富模式 */
+                      <>
+                        <div className="flex items-center gap-2 pointer-events-none min-w-0 pl-1">
+                          {item.imageUrl ? (
+                            <img
+                              src={item.imageUrl}
+                              alt=""
+                              className="w-9 h-9 rounded-lg object-cover border border-white/20 shrink-0 shadow-sm"
+                            />
+                          ) : (
+                            <div className="w-9 h-9 rounded-lg bg-zinc-900/80 border border-white/10 flex items-center justify-center text-zinc-500 text-[10px] shrink-0 font-bold">
+                              #{idx + 1}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[11px] font-bold text-white truncate" title={item.concept}>
+                              {item.concept}
+                            </div>
+                            <div className="text-[9.5px] text-zinc-400 truncate mt-0.5">
+                              {item.storyArcId ? `故事线: ${item.storyArcId}` : item.category || '插图'}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 底部时间显示 */}
+                        <div className="flex items-center justify-between text-[9px] font-mono text-zinc-300 pointer-events-none pl-1">
+                          <span>{item.startTime.toFixed(1)}s</span>
+                          <span className="text-zinc-400 font-bold">
+                            {(item.endTime - item.startTime).toFixed(1)}s
+                          </span>
+                          <span>{item.endTime.toFixed(1)}s</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })}
