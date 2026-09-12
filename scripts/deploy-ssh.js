@@ -46,7 +46,9 @@ const SSH = {
   host: process.env.SSH_HOST || '47.115.58.109',
   port: Number(process.env.SSH_PORT || 22),
   username: process.env.SSH_USER || 'root',
-  readyTimeout: 20000,
+  readyTimeout: 30000,
+  keepaliveInterval: 5000,
+  keepaliveCountMax: 5,
 };
 
 if (process.env.SSH_KEY_PATH) {
@@ -129,8 +131,8 @@ async function main() {
         try {
           await new Promise((res, rej) => {
             sftp.fastPut(local, remote, {
-              concurrency: 64,
-              chunkSize: 65536,
+              concurrency: 16,
+              chunkSize: 32768,
               step: (trans, chunk, total) => {
                 const pct = Math.floor((trans / total) * 100);
                 process.stdout.write(`\r  进度: ${pct}% (${(trans / 1048576).toFixed(1)}/${(total / 1048576).toFixed(1)}MB)`);
