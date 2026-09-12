@@ -79,11 +79,29 @@ export function ChangelogModal({ open, onClose }: Props) {
     return list;
   }, [remoteLogs, update.available]);
 
+  // 监听 ESC 键关闭弹窗
+  React.useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open, onClose]);
+
+  // 关键防御：若未打开则绝对不渲染任何 DOM，杜绝全屏遮罩阻塞
+  if (!open) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-xs p-4 animate-in fade-in">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-xs p-4 animate-in fade-in"
+      onClick={onClose}
+    >
       <div
-        className="w-full max-w-3xl bg-white dark:bg-[#121319] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150"
-        onClick={e => e.stopPropagation()}
+        className="w-full max-w-3xl bg-white dark:bg-[#121319] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150 relative z-10"
+        onClick={(e) => e.stopPropagation()}
       >
         {/* 顶部标题栏 */}
         <div className="p-5 border-b border-zinc-100 dark:border-zinc-800/80 flex items-start justify-between bg-zinc-50/60 dark:bg-zinc-900/40">
@@ -108,7 +126,11 @@ export function ChangelogModal({ open, onClose }: Props) {
           </div>
 
           <button
-            onClick={onClose}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
             className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800 transition cursor-pointer"
             title="关闭更新日志"
           >
@@ -368,8 +390,12 @@ export function ChangelogModal({ open, onClose }: Props) {
               <span>{update.checking ? '检查中…' : '检查更新'}</span>
             </button>
             <button
-              onClick={onClose}
-              className="btn-modern-primary text-xs px-4 py-1.5"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              className="btn-modern-primary text-xs px-4 py-1.5 cursor-pointer"
             >
               我知道了
             </button>

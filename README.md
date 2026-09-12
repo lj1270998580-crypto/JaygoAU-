@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://ailabing.cn/jaygo-au.html">官方网站</a> •
-  <a href="https://ailabing.cn/jaygo-au/updates/Jaygo.AU.Setup.0.7.29.exe">Windows 安装包下载</a> •
+  <a href="https://ailabing.cn/jaygo-au/updates/Jaygo.AU.Setup.0.7.30.exe">Windows 安装包下载</a> •
   <a href="https://github.com/lj1270998580-crypto/JaygoAU-">GitHub 仓库</a>
 </p>
 
@@ -106,7 +106,7 @@
 ## 📥 下载与安装
 
 ### Windows 推荐安装
-- **最新正式版**：[Jaygo AU v0.7.29 安装包（exe）](https://ailabing.cn/jaygo-au/updates/Jaygo.AU.Setup.0.7.29.exe)
+- **最新正式版**：[Jaygo AU v0.7.30 安装包（exe）](https://ailabing.cn/jaygo-au/updates/Jaygo.AU.Setup.0.7.30.exe)
 - **官网发布页**：[https://ailabing.cn/jaygo-au.html](https://ailabing.cn/jaygo-au.html)
 - **系统要求**：Windows 10 / 11（64-bit）
 
