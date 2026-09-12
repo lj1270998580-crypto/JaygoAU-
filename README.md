@@ -10,7 +10,8 @@
 
 <p align="center">
   <a href="https://ailabing.cn/jaygo-au.html">官方网站</a> •
-  <a href="https://ailabing.cn/jaygo-au/updates/Jaygo.AU.Setup.0.7.30.exe">Windows 安装包下载</a> •
+  <a href="https://github.com/lj1270998580-crypto/JaygoAU-/releases/latest">GitHub Releases 下载 (v0.7.32)</a> •
+  <a href="https://ailabing.cn/jaygo-au/updates/Jaygo.AU.Setup.0.7.32.exe">镜像高速下载</a> •
   <a href="https://github.com/lj1270998580-crypto/JaygoAU-">GitHub 仓库</a>
 </p>
 
@@ -21,6 +22,29 @@
 **Jaygo AU** 是一款面向自媒体创作者、短视频剪辑师、独立播客与内容出海团队的**全能 AI 视听创作桌面工作台**。
 
 项目深度融合了 **字节跳动火山引擎（豆包语音大模型 Seed-TTS 2.0 / 声音复刻 Seed-Clone 2.0 / 录音识别 Seed-ASR 2.0）**、**商汤科技日日新（SenseNova）生图大模型**、**蝉镜（ChanJing）大模型数字人驱动** 以及 **全平台短视频与流媒体无水印智能解析引擎**，打破了传统自媒体创作中“录音难、复刻贵、文案提取繁琐、数字人工具分散、配图剪辑耗时”的痛点，帮助创作者实现从素材采集、声音克隆、口播生成、智能视频配图到剪映草稿工程直出的工业化闭环。
+
+---
+
+## 📸 真实界面展示 (UI Showcase)
+
+### 🎙️ 1. 语音合成工作台（火山引擎豆包大模型 Seed-TTS 2.0 / BigTTS）
+> 支持拟真多音色生成、情感微调、超低延迟流式试听与工业级多格式导出。
+
+![语音合成工作台](docs/screenshots/01-voice-synthesis.png)
+
+---
+
+### ✍️ 2. AI 自媒体文案工坊（多轮深度思考 · 风格解析 · 爆款对齐）
+> 搭载 MiMo-V2.5 深度推理引擎，支持从文档逆向提炼风格、长记忆上下文与自媒体爆款选题深度推演。
+
+![AI 自媒体文案工坊](docs/screenshots/02-ai-copywriting.png)
+
+---
+
+### 🎬 3. AI 智能视频配图与剪映联动（分镜规划 · 风格大厅 · 母带级无损导出）
+> 智能识别视频台词语义，严格单图 ≤6s 防碰撞对齐，非信息图纯画面排版，支持剪映 Pro 官方草稿工程 100% 物理无损直出！
+
+![智能视频配图工作台](docs/screenshots/03-video-illustrator.png)
 
 ---
 
@@ -106,8 +130,10 @@
 ## 📥 下载与安装
 
 ### Windows 推荐安装
-- **最新正式版**：[Jaygo AU v0.7.30 安装包（exe）](https://ailabing.cn/jaygo-au/updates/Jaygo.AU.Setup.0.7.30.exe)
-- **官网发布页**：[https://ailabing.cn/jaygo-au.html](https://ailabing.cn/jaygo-au.html)
+- **GitHub Releases 最新版下载**：[Jaygo.AU.Setup.0.7.32.exe (GitHub Releases)](https://github.com/lj1270998580-crypto/JaygoAU-/releases/download/v0.7.32/Jaygo.AU.Setup.0.7.32.exe)
+- **GitHub 所有发布版本**：[https://github.com/lj1270998580-crypto/JaygoAU-/releases](https://github.com/lj1270998580-crypto/JaygoAU-/releases)
+- **国内镜像高速直链**：[Jaygo.AU.Setup.0.7.32.exe (ailabing.cn)](https://ailabing.cn/jaygo-au/updates/Jaygo.AU.Setup.0.7.32.exe)
+- **官方发布页**：[https://ailabing.cn/jaygo-au.html](https://ailabing.cn/jaygo-au.html)
 - **系统要求**：Windows 10 / 11（64-bit）
 
 ---
