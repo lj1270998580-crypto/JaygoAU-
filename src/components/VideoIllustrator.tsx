@@ -1837,7 +1837,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   return (
     <div className="flex-1 h-full flex flex-col bg-zinc-50 dark:bg-[#0c0d11] text-zinc-800 dark:text-zinc-200 overflow-hidden select-none">
       {/* 顶部标题栏：呼吸感良好，中窗口防挤压 */}
-      <div className="py-2.5 px-4 border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between bg-white dark:bg-[#111217] shrink-0 min-h-[52px] gap-2 overflow-x-auto">
+      <div className="py-2.5 px-4 border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between bg-white dark:bg-[#111217] shrink-0 min-h-[52px] gap-2 overflow-visible relative z-30">
         <div className="flex items-center gap-2.5 shrink-0 whitespace-nowrap">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-rose-500 via-purple-500 to-indigo-500 flex items-center justify-center text-white shadow-sm shrink-0">
             <Sparkles className="w-4 h-4" />
@@ -1846,7 +1846,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             <div className="flex items-center gap-1.5 whitespace-nowrap">
               <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">智能视频配插图</span>
               <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/60 dark:border-indigo-800/60 whitespace-nowrap">
-                v0.7.27
+                v0.7.28
               </span>
             </div>
             <p className="text-[11px] text-zinc-400 hidden xl:block whitespace-nowrap">
@@ -1923,77 +1923,6 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
               )}
             </button>
           )}
-
-          {/* 剪映草稿与视频导出下拉按钮 */}
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => setShowExportMenu((v) => !v)}
-              disabled={illustrations.filter((i) => i.status === 'success').length === 0}
-              className="px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-sm transition cursor-pointer flex items-center gap-1 disabled:opacity-40"
-              title="导出剪映 Pro 工程草稿或合成视频"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>导出工程 / 视频</span>
-              <ChevronDown className="w-3 h-3" />
-            </button>
-            {showExportMenu && (
-              <div className="absolute right-0 top-full mt-1.5 w-64 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-[#181a22] shadow-2xl z-50 p-2 space-y-1 animate-in fade-in slide-in-from-top-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowExportMenu(false);
-                    handleExportJianying('direct');
-                  }}
-                  disabled={isExportingJianying}
-                  className="w-full text-left p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer flex items-center gap-2"
-                >
-                  <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-500 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                    <Sparkles className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">导出为剪映工程草稿</div>
-                    <div className="text-[10px] text-zinc-400 truncate">直存本地剪映，打开剪映即可见</div>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowExportMenu(false);
-                    handleExportJianying('zip');
-                  }}
-                  disabled={isExportingJianying}
-                  className="w-full text-left p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer flex items-center gap-2"
-                >
-                  <div className="w-7 h-7 rounded-lg bg-indigo-500/20 text-indigo-500 dark:text-indigo-400 flex items-center justify-center shrink-0">
-                    <Download className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">下载剪映工程 ZIP 包</div>
-                    <div className="text-[10px] text-zinc-400 truncate">解压后放入剪映草稿目录</div>
-                  </div>
-                </button>
-                <div className="border-t border-zinc-100 dark:border-zinc-800 my-1" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowExportMenu(false);
-                    handleExportVideo();
-                  }}
-                  disabled={isExporting}
-                  className="w-full text-left p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer flex items-center gap-2"
-                >
-                  <div className="w-7 h-7 rounded-lg bg-purple-500/20 text-purple-500 dark:text-purple-400 flex items-center justify-center shrink-0">
-                    <Film className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">直接压制成品视频</div>
-                    <div className="text-[10px] text-zinc-400 truncate">FFmpeg 自动叠图压制 MP4</div>
-                  </div>
-                </button>
-              </div>
-            )}
-          </div>
 
           {/* AI 规划模型胶囊：展示 [供应商] 模型名称，中窗口自适应宽度截断 */}
           <div className="relative shrink-0">
@@ -2182,75 +2111,68 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             </div>
           </div>
 
-          {/* 图片画风（默认自动 AI 语义匹配，全片统一，支持画风大厅具象化参考） */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
-                <Palette className="w-3.5 h-3.5 text-rose-500" />
-                <span>图片画风</span>
-              </label>
-              <button
-                type="button"
+          {/* 图片画风 & 信息图版式 并排同一行 (Point 6) */}
+          <div className="grid grid-cols-2 gap-2">
+            {/* 图片画风 */}
+            <div className="min-w-0">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1 truncate">
+                  <Palette className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                  <span>图片画风</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowStyleModal(true)}
+                  className="text-[10px] text-rose-600 dark:text-rose-400 hover:underline flex items-center cursor-pointer font-medium shrink-0"
+                >
+                  <span>大厅</span>
+                  <ChevronRight className="w-2.5 h-2.5" />
+                </button>
+              </div>
+
+              <div
                 onClick={() => setShowStyleModal(true)}
-                className="text-[10.5px] text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
+                className="w-full px-2 py-1.5 rounded-lg border border-rose-200/80 dark:border-rose-900/60 bg-rose-50/40 dark:bg-rose-950/20 hover:border-rose-400 dark:hover:border-rose-700 transition cursor-pointer flex items-center justify-between text-xs group"
+                title="点击打开图片画风参考大厅"
               >
-                <span>画风大厅</span>
-                <ChevronRight className="w-3 h-3" />
-              </button>
-            </div>
-
-            {/* 可视化画风卡片触发器 */}
-            <div
-              onClick={() => setShowStyleModal(true)}
-              className="w-full px-2.5 py-1.5 rounded-lg border border-rose-200 dark:border-rose-900/70 bg-rose-50/50 dark:bg-rose-950/20 hover:border-rose-400 dark:hover:border-rose-700 transition cursor-pointer flex items-center justify-between text-xs group mb-1.5"
-              title="点击打开图片画风全景参考大厅（带代表色板、光影质感与真实效果预览）"
-            >
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300 font-semibold shrink-0">
-                  {defaultStyle === 'auto' ? '全片统一' : (STYLE_OPTIONS.find((s) => s.id === defaultStyle)?.badge || '画风')}
-                </span>
-                <span className="font-medium text-zinc-800 dark:text-zinc-200 truncate">
-                  {defaultStyle === 'auto' ? '✨ 自动 (AI 语义分析匹配)' : (STYLE_OPTIONS.find((s) => s.id === defaultStyle)?.label || defaultStyle)}
+                <div className="truncate text-[11px] font-semibold text-zinc-800 dark:text-zinc-200">
+                  {defaultStyle === 'auto' ? '✨ 自动' : (STYLE_OPTIONS.find((s) => s.id === defaultStyle)?.label || defaultStyle)}
+                </div>
+                <span className="text-[10px] text-rose-600 dark:text-rose-400 shrink-0 font-medium ml-1">
+                  选 ›
                 </span>
               </div>
-              <span className="text-[10.5px] text-rose-600 dark:text-rose-400 shrink-0 font-medium group-hover:translate-x-0.5 transition-transform">
-                选画风 ›
-              </span>
             </div>
-          </div>
 
-          {/* 信息图版式（88+ 种官方版式可视化线框与分类选择） */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1">
-                <LayoutGrid className="w-3.5 h-3.5 text-cyan-500" />
-                <span>信息图版式</span>
-              </label>
-              <button
-                type="button"
+            {/* 信息图版式 */}
+            <div className="min-w-0">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1 truncate">
+                  <LayoutGrid className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+                  <span>信息图版式</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowLayoutModal(true)}
+                  className="text-[10px] text-cyan-600 dark:text-cyan-400 hover:underline flex items-center cursor-pointer font-medium shrink-0"
+                >
+                  <span>88+库</span>
+                  <ChevronRight className="w-2.5 h-2.5" />
+                </button>
+              </div>
+
+              <div
                 onClick={() => setShowLayoutModal(true)}
-                className="text-[10.5px] text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
+                className="w-full px-2 py-1.5 rounded-lg border border-cyan-200/80 dark:border-cyan-900/60 bg-cyan-50/40 dark:bg-cyan-950/20 hover:border-cyan-400 dark:hover:border-cyan-700 transition cursor-pointer flex items-center justify-between text-xs group"
+                title="点击打开 88+ 种信息图版式大厅"
               >
-                <span>88+ 版式库</span>
-                <ChevronRight className="w-3 h-3" />
-              </button>
-            </div>
-            <div
-              onClick={() => setShowLayoutModal(true)}
-              className="w-full px-2.5 py-1.5 rounded-lg border border-cyan-200 dark:border-cyan-900/70 bg-cyan-50/50 dark:bg-cyan-950/20 hover:border-cyan-400 dark:hover:border-cyan-700 transition cursor-pointer flex items-center justify-between text-xs group"
-              title="点击打开 88+ 种官方全量信息图版式大厅（带线框结构示意图）"
-            >
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-100 dark:bg-cyan-900/60 text-cyan-700 dark:text-cyan-300 font-semibold shrink-0">
-                  {selectedLayoutId === 'auto' ? 'AI 自适应' : (LAYOUTS[selectedLayoutId]?.category || '版式')}
-                </span>
-                <span className="font-medium text-zinc-800 dark:text-zinc-200 truncate">
-                  {selectedLayoutId === 'auto' ? '🤖 智能自适应匹配 (推荐)' : (LAYOUTS[selectedLayoutId]?.label || selectedLayoutId)}
+                <div className="truncate text-[11px] font-semibold text-zinc-800 dark:text-zinc-200">
+                  {selectedLayoutId === 'auto' ? '🤖 自动' : (LAYOUTS[selectedLayoutId]?.label || selectedLayoutId)}
+                </div>
+                <span className="text-[10px] text-cyan-600 dark:text-cyan-400 shrink-0 font-medium ml-1">
+                  选 ›
                 </span>
               </div>
-              <span className="text-[10.5px] text-cyan-600 dark:text-cyan-400 shrink-0 font-medium group-hover:translate-x-0.5 transition-transform">
-                选择 ›
-              </span>
             </div>
           </div>
 
@@ -2349,20 +2271,6 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                 <span className="text-[10px] font-normal text-zinc-400">({scriptText.length} 字)</span>
               </label>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const cleaned = scriptText.replace(/[*＊]/g, '');
-                    setScriptText(cleaned);
-                    showToast('已净洗文案中的星号 * 字符', 'ok');
-                  }}
-                  className="text-[10.5px] text-zinc-400 hover:text-indigo-500 flex items-center gap-0.5 cursor-pointer"
-                  title="彻底消除星号，避免语音朗读被污染"
-                >
-                  <Wand2 className="w-3 h-3 text-purple-500" />
-                  <span>去星号</span>
-                </button>
-
                 <button
                   type="button"
                   onClick={handleExtractAsr}
@@ -3540,15 +3448,72 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={handleExportVideo}
-              disabled={isExporting || illustrations.filter((i) => i.status === 'success').length === 0}
-              className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              <Download className="w-4 h-4" />
-              <span>{isExporting ? '合成导出中…' : '导出视频'}</span>
-            </button>
+            <div className="flex items-center gap-1.5 relative">
+              <button
+                type="button"
+                onClick={handleExportVideo}
+                disabled={isExporting || illustrations.filter((i) => i.status === 'success').length === 0}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                title="通过 FFmpeg 压制包含所有画中画插图与动效的成品 MP4 视频"
+              >
+                <Download className="w-4 h-4" />
+                <span>{isExporting ? '合成导出中…' : '导出视频'}</span>
+              </button>
+
+              {/* 剪映工程草稿快捷导出 */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowExportMenu((v) => !v)}
+                  disabled={illustrations.filter((i) => i.status === 'success').length === 0}
+                  className="px-2.5 py-2.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 text-xs font-semibold border border-zinc-200 dark:border-zinc-700 transition cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                  title="导出为剪映 Pro 草稿或下载 ZIP 工程包"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>剪映草稿</span>
+                  <ChevronDown className="w-3 h-3 text-zinc-400" />
+                </button>
+
+                {showExportMenu && (
+                  <div className="absolute right-0 bottom-full mb-2 w-64 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-[#181a22] shadow-2xl z-50 p-2 space-y-1 animate-in fade-in slide-in-from-bottom-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowExportMenu(false);
+                        handleExportJianying('direct');
+                      }}
+                      disabled={isExportingJianying}
+                      className="w-full text-left p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer flex items-center gap-2"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-500 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                        <Sparkles className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">直存剪映工程草稿</div>
+                        <div className="text-[10px] text-zinc-400 truncate">写入本地剪映，打开立见</div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowExportMenu(false);
+                        handleExportJianying('zip');
+                      }}
+                      disabled={isExportingJianying}
+                      className="w-full text-left p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer flex items-center gap-2"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-indigo-500/20 text-indigo-500 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                        <Download className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">下载剪映工程 ZIP 包</div>
+                        <div className="text-[10px] text-zinc-400 truncate">解压放入剪映草稿目录</div>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
         )}
@@ -3956,6 +3921,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         }}
         asrUtterances={asrUtterances}
         videoSrc={videoUrl || undefined}
+        globalLayout={globalLayout}
+        aspectRatio={activeRatioObj.cssRatio}
       />
     </div>
   );
