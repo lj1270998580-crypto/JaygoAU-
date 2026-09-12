@@ -11,7 +11,8 @@ import {
   FileText,
   Type,
   FolderArchive,
-  CheckCircle2,
+  Loader2,
+  Bot,
 } from 'lucide-react';
 import { useStore } from '../../store';
 import type {
@@ -43,7 +44,8 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
   onOpenModelHub,
   onPushToIllustrator,
 }) => {
-  const { showToast, setPendingIllustrator, setTab } = useStore();
+  const { showToast, setPendingIllustrator, setTab, theme } = useStore();
+  const isDark = theme !== 'light';
 
   // 阶段状态：'rough_cut' (AI 智能粗剪) | 'polish_export' (视觉包装与导出)
   const [activeStep, setActiveStep] = useState<'rough_cut' | 'polish_export'>('rough_cut');
@@ -65,6 +67,7 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
   const [subtitles, setSubtitles] = useState<SubtitleItem[]>([]);
 
   const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
+  const [transcribeStage, setTranscribeStage] = useState<string>('');
   const [isAnalyzingNarrative, setIsAnalyzingNarrative] = useState<boolean>(false);
   const [narrativeAnalysis, setNarrativeAnalysis] = useState<NarrativeAnalysisResult | null>(null);
 
@@ -98,7 +101,7 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
     },
   });
 
-  // 字幕样式配置 (默认爆款双行强化模版)
+  // 字幕样式配置 (默认爆款双行强化模版，带 visible 控制)
   const [subtitleConfig, setSubtitleConfig] = useState<SubtitleStyleConfig>({
     templateId: 'viral_double',
     fontSize: 26,
@@ -107,9 +110,10 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
     strokeColor: '#000000',
     strokeWidth: 2.5,
     yPercent: 0.18,
+    visible: true,
   });
 
-  // 文件导入逻辑
+  // 文件导入与 ASR 转录逻辑 (彻底修复毫秒单位换算错误)
   const handleLoadVideoFile = async (file: File) => {
     const localPath = (file as any).path || '';
     const objUrl = URL.createObjectURL(file);
@@ -122,27 +126,43 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
 
     // 自动发起 ASR 转录
     setIsTranscribing(true);
+    setTranscribeStage('正在提取本地音轨并提交火山引擎 Seed-ASR 2.0…');
     try {
       if (localPath && (window as any).JaygoAPI?.transcribe) {
-        showToast('正在通过火山引擎 Seed-ASR 2.0 毫秒级提取台词与气口…', 'info');
         const res = await (window as any).JaygoAPI.transcribe({
           filePath: localPath,
           enableSpeakerInfo: false,
         });
+
         if (res?.utterances && res.utterances.length > 0) {
+          setTranscribeStage('正在毫秒级解析字词时间戳与气口停顿…');
+
+          // 🌟 核心防错：判断 ASR 返回的是毫秒还是秒 (火山 Seed-ASR 通常是毫秒，如 2800ms)
+          const lastUtt = res.utterances[res.utterances.length - 1];
+          const isMs = res.durationMs ? res.durationMs > 1000 : (lastUtt?.endTime > 600);
+          const factor = isMs ? 1000 : 1;
+
           const rawUtterances = res.utterances.map((u: any, i: number) => ({
             id: `utt-${i}`,
             text: u.text,
-            startTime: u.startTime,
-            endTime: u.endTime,
+            startTime: Number((u.startTime / factor).toFixed(3)),
+            endTime: Number((u.endTime / factor).toFixed(3)),
+            words: u.words?.map((w: any) => ({
+              text: w.text,
+              startTime: Number((w.startTime / factor).toFixed(3)),
+              endTime: Number((w.endTime / factor).toFixed(3)),
+            })),
           }));
 
-          const dur = rawUtterances[rawUtterances.length - 1].endTime + 1;
+          const dur = res.durationMs
+            ? Number((res.durationMs / 1000).toFixed(2))
+            : rawUtterances[rawUtterances.length - 1].endTime + 0.5;
+
           setVideoDuration(dur);
 
-          // 1. 初始化切片（带有 120ms~150ms 黄金自然呼吸保护）
+          // 1. 初始化切片（带有 120ms~150ms 黄金自然呼吸保护，且默认保持 isDeleted: false 完整呈现）
           const initialSegments = scanSilenceSegments(rawUtterances, dur, {
-            silenceThresholdSec: 0.45,
+            silenceThresholdSec: 0.40,
             headPaddingSec: 0.12,
             tailPaddingSec: 0.15,
           });
@@ -158,14 +178,16 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
             }))
           );
 
-          showToast('台词与停顿气口解析完成！已自动标记冗长空白。', 'ok');
+          showToast('台词提取与字级时间轴解析完成！文稿已完整载入。', 'ok');
           return;
         }
       }
     } catch (err: any) {
       console.warn('[TalkEditor] ASR 提取异常:', err);
+      showToast(`ASR 语音转录遇到问题: ${err?.message || err}`, 'err');
     } finally {
       setIsTranscribing(false);
+      setTranscribeStage('');
     }
 
     // 兜底：保留用户的真实视频轨道供剪辑，绝不强制覆盖测试假文案
@@ -197,7 +219,7 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
     ];
 
     const initialSegs = scanSilenceSegments(mockUtterances, mockDur, {
-      silenceThresholdSec: 0.45,
+      silenceThresholdSec: 0.40,
       headPaddingSec: 0.12,
       tailPaddingSec: 0.15,
     });
@@ -210,21 +232,63 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
         text: u.text,
       }))
     );
-    showToast('已载入 42 秒自媒体口播演示素材，包含气口、嘴瓢与跑题！', 'ok');
+    showToast('已载入 42 秒自媒体口播演示素材，包含气口、语气词、嘴瓢与跑题！', 'ok');
   };
 
-  // 1. 一键去气口
+  // 🌟 AI 一键全自动精剪 (执行确认后的批量剪切)
+  const handleApplyFullAiCut = ({
+    cutSilence,
+    cutFillers,
+    cutStumbles,
+  }: {
+    cutSilence: boolean;
+    cutFillers: boolean;
+    cutStumbles: boolean;
+  }) => {
+    setSegments((prev) => {
+      let next = [...prev];
+
+      // 1. 去除停顿气口
+      if (cutSilence) {
+        next = next.map((s) =>
+          s.deleteReason === 'silence' || s.tagLabel?.includes('气口')
+            ? { ...s, isDeleted: true, deleteReason: 'silence' as const }
+            : s
+        );
+      }
+
+      // 2. 清理语气词 (句级与字级)
+      if (cutFillers) {
+        next = detectFillerSegments(next);
+      }
+
+      // 3. 剔除嘴瓢与多轮重录前序版本
+      if (cutStumbles) {
+        next = detectRetakeAndStumbles(next);
+      }
+
+      return next;
+    });
+
+    showToast('🎉 AI 全自动精剪已应用！已为您切除多余气口、语气词与嘴瓢重录', 'ok');
+  };
+
+  // 1. 一键去气口 (独立手动触发)
   const handleRunSilenceCut = () => {
     setSegments((prev) =>
-      prev.map((s) => (s.deleteReason === 'silence' ? { ...s, isDeleted: true } : s))
+      prev.map((s) =>
+        s.deleteReason === 'silence' || s.tagLabel?.includes('气口')
+          ? { ...s, isDeleted: true, deleteReason: 'silence' as const }
+          : s
+      )
     );
-    showToast('已一键剔除所有冗长停顿，保留 120ms 自然呼吸缓冲！', 'ok');
+    showToast('已切除所有冗长停顿，保留 120ms 自然呼吸缓冲！', 'ok');
   };
 
   // 2. 一键清语气词
   const handleRunFillerClean = () => {
     setSegments((prev) => detectFillerSegments(prev));
-    showToast('已标记并剔除常见语气词（呃、啊、然后、就是说）！', 'ok');
+    showToast('已标记并切除常见语气词（呃、啊、然后、就是说）！', 'ok');
   };
 
   // 3. 一键清嘴瓢重录
@@ -256,9 +320,18 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
       return;
     }
 
+    // 提取精简清洗后的纯净台词全文 (排除已删除字词)
     const cleanedScript = segments
       .filter((s) => !s.isDeleted && s.deleteReason !== 'silence')
-      .map((s) => s.text)
+      .map((s) => {
+        if (s.words && s.words.length > 0) {
+          return s.words
+            .filter((w) => !w.isDeleted)
+            .map((w) => w.text)
+            .join('');
+        }
+        return s.text;
+      })
       .join('\n');
 
     const targetPayload = {
@@ -315,9 +388,17 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#0f1016] select-none overflow-hidden text-xs">
+    <div
+      className={`h-full flex flex-col select-none overflow-hidden text-xs relative ${
+        isDark ? 'bg-[#0f1016] text-white' : 'bg-zinc-50 text-zinc-900'
+      }`}
+    >
       {/* 顶部总控导航条 */}
-      <div className="h-12 border-b border-zinc-800/80 px-4 flex items-center justify-between shrink-0 bg-[#13141c]/95 backdrop-blur z-20">
+      <div
+        className={`h-12 border-b px-4 flex items-center justify-between shrink-0 z-20 backdrop-blur ${
+          isDark ? 'bg-[#13141c]/95 border-zinc-800/80' : 'bg-white/95 border-zinc-200 shadow-xs'
+        }`}
+      >
         {/* 左侧：标题与当前视频信息 */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
@@ -325,21 +406,27 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
               <Scissors className="w-4 h-4" />
             </div>
             <div>
-              <div className="text-sm font-bold text-white flex items-center gap-1.5">
+              <div className="text-sm font-bold flex items-center gap-1.5">
                 <span>AI 口播智能剪辑</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                  Descript & Gling 架构
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                  字级精剪
                 </span>
               </div>
-              <div className="text-[10.5px] text-zinc-400 truncate max-w-[240px]">
-                {videoTitle || '未载入素材 · 请点击右侧导入视频'}
+              <div className={`text-[10.5px] truncate max-w-[240px] ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                {videoTitle || '未载入素材 · 请导入视频'}
               </div>
             </div>
           </div>
 
           {/* 导入素材按钮 */}
-          <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium cursor-pointer transition border border-zinc-700/60 shadow-sm ml-2">
-            <Upload className="w-3.5 h-3.5 text-indigo-400" />
+          <label
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition border shadow-xs ml-2 ${
+              isDark
+                ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700/60'
+                : 'bg-white hover:bg-zinc-100 text-zinc-800 border-zinc-300'
+            }`}
+          >
+            <Upload className="w-3.5 h-3.5 text-indigo-500" />
             <span>导入音视频</span>
             <input
               type="file"
@@ -357,23 +444,33 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
             <button
               type="button"
               onClick={generateFallbackDemoSegments}
-              className="px-2.5 py-1.5 rounded-lg bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-300 border border-indigo-500/30 text-xs transition cursor-pointer flex items-center gap-1"
+              className={`px-2.5 py-1.5 rounded-lg border text-xs transition cursor-pointer flex items-center gap-1 ${
+                isDark
+                  ? 'bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-300 border-indigo-500/30'
+                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+              }`}
             >
-              <Sparkles className="w-3 h-3 text-amber-400" />
+              <Sparkles className="w-3 h-3 text-amber-500" />
               <span>载入演示示例</span>
             </button>
           )}
         </div>
 
         {/* 中间：两阶段步骤导航指示器 */}
-        <div className="flex items-center gap-1 bg-zinc-900/90 p-1 rounded-xl border border-zinc-800">
+        <div
+          className={`flex items-center gap-1 p-1 rounded-xl border ${
+            isDark ? 'bg-zinc-900/90 border-zinc-800' : 'bg-zinc-100 border-zinc-200'
+          }`}
+        >
           <button
             type="button"
             onClick={() => setActiveStep('rough_cut')}
             className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
               activeStep === 'rough_cut'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : isDark
+                ? 'text-zinc-400 hover:text-zinc-200'
+                : 'text-zinc-600 hover:text-zinc-900'
             }`}
           >
             <Scissors className="w-3.5 h-3.5" />
@@ -384,8 +481,10 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
             onClick={() => setActiveStep('polish_export')}
             className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
               activeStep === 'polish_export'
-                ? 'bg-amber-600 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : isDark
+                ? 'text-zinc-400 hover:text-zinc-200'
+                : 'text-zinc-600 hover:text-zinc-900'
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
@@ -408,7 +507,11 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
             <button
               type="button"
               onClick={() => setActiveStep('rough_cut')}
-              className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium text-xs border border-zinc-700/60 transition flex items-center gap-1.5 cursor-pointer"
+              className={`px-3.5 py-1.5 rounded-lg font-medium text-xs border transition flex items-center gap-1.5 cursor-pointer ${
+                isDark
+                  ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700/60'
+                  : 'bg-white hover:bg-zinc-100 text-zinc-800 border-zinc-300 shadow-xs'
+              }`}
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>返回台词精剪</span>
@@ -417,12 +520,32 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
         </div>
       </div>
 
+      {/* 🌟 醒目转录中状态遮罩提示 */}
+      {isTranscribing && (
+        <div className="absolute inset-0 z-50 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center text-white space-y-4 animate-in fade-in">
+          <div className="w-14 h-14 rounded-2xl bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center shadow-2xl">
+            <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
+          </div>
+          <div className="text-center space-y-1.5 max-w-md px-4">
+            <div className="text-base font-bold tracking-wide">
+              正在提取音视频台词与字级时间戳…
+            </div>
+            <div className="text-xs text-indigo-300 font-mono">
+              {transcribeStage || '火山引擎 Seed-ASR 2.0 正在进行毫秒级识别与停顿扫描…'}
+            </div>
+            <p className="text-[11px] text-zinc-400 leading-relaxed pt-2">
+              转录完成后将为您自动呈现完整文稿与字词切片，支持字级别划线剔除与气口试听。
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* 主工作区：根据当前步骤呈现清晰的两栏架构 */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {activeStep === 'rough_cut' ? (
           <>
             {/* 阶段一 左栏：交互式智能文稿 (占宽 58%) */}
-            <div className="w-7/12 shrink-0 min-h-0 border-r border-zinc-800/80 bg-[#111218] flex flex-col">
+            <div className="w-7/12 shrink-0 min-h-0 flex flex-col">
               <TranscriptCutter
                 segments={segments}
                 onUpdateSegments={setSegments}
@@ -434,11 +557,12 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
                 onRunNarrativePruning={handleRunNarrativePruning}
                 isAnalyzingNarrative={isAnalyzingNarrative}
                 narrativeAnalysis={narrativeAnalysis}
+                onApplyFullAiCut={handleApplyFullAiCut}
               />
             </div>
 
             {/* 阶段一 右栏：高响应单视频监视器 + 紧凑单轨波形 (自适应 flex-1) */}
-            <div className="flex-1 min-w-0 bg-[#0a0b0f] flex flex-col min-h-0 relative">
+            <div className="flex-1 min-w-0 flex flex-col min-h-0 relative">
               <CanvasMonitor
                 videoSrc={videoSrc}
                 videoDuration={videoDuration}
@@ -451,6 +575,7 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
                   setCanvasConfig((prev) => ({ ...prev, aspectRatio: ratio }))
                 }
                 subtitleConfig={subtitleConfig}
+                onChangeSubtitleConfig={setSubtitleConfig}
                 subtitles={subtitles}
                 segments={segments}
                 videoDimensions={videoDimensions}
@@ -472,7 +597,7 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
         ) : (
           <>
             {/* 阶段二 左栏：专属包装配置面板 (宽度 380px) */}
-            <div className="w-[380px] shrink-0 min-h-0 border-r border-zinc-800/80 bg-[#111218] flex flex-col">
+            <div className="w-[380px] shrink-0 min-h-0 flex flex-col">
               <PolishExportPanel
                 canvasConfig={canvasConfig}
                 onChangeCanvasConfig={setCanvasConfig}
@@ -488,7 +613,7 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
             </div>
 
             {/* 阶段二 右栏：全要素实时渲染监视器 (画布贴片 + 爆款字幕) */}
-            <div className="flex-1 min-w-0 bg-[#0a0b0f] flex flex-col min-h-0 relative">
+            <div className="flex-1 min-w-0 flex flex-col min-h-0 relative">
               <CanvasMonitor
                 videoSrc={videoSrc}
                 videoDuration={videoDuration}
@@ -501,6 +626,7 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
                   setCanvasConfig((prev) => ({ ...prev, aspectRatio: ratio }))
                 }
                 subtitleConfig={subtitleConfig}
+                onChangeSubtitleConfig={setSubtitleConfig}
                 subtitles={subtitles}
                 segments={segments}
                 videoDimensions={videoDimensions}

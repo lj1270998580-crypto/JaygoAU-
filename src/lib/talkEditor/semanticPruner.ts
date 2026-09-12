@@ -36,11 +36,33 @@ function calculateTextSimilarity(str1: string, str2: string): number {
   return union > 0 ? intersection / union : 0;
 }
 
+function cleanWordStutters(words?: import('./types').WordItem[]): import('./types').WordItem[] | undefined {
+  if (!words || words.length < 2) return words;
+  const updated = [...words];
+  for (let i = 0; i < updated.length - 1; i++) {
+    if (
+      !updated[i].isDeleted &&
+      updated[i].text === updated[i + 1].text &&
+      updated[i].text.length > 0 &&
+      !/[，。！？\s]/.test(updated[i].text)
+    ) {
+      updated[i] = { ...updated[i], isDeleted: true, deleteReason: 'stumble' };
+    }
+  }
+  return updated;
+}
+
 /**
- * 启发式检测嘴瓢、忘词与相邻重复录制 (类似 Gling.ai 多轮重录分组)
+ * 启发式检测嘴瓢、忘词与相邻重复录制 (包含句级重录与字级嘴瓢复读)
  */
 export function detectRetakeAndStumbles(segments: CutSegment[]): CutSegment[] {
-  const result = [...segments];
+  let result = segments.map((seg) => {
+    if (seg.words && seg.words.length > 0) {
+      return { ...seg, words: cleanWordStutters(seg.words) };
+    }
+    return seg;
+  });
+
   let currentGroupId = 1;
 
   let i = 0;
@@ -51,7 +73,7 @@ export function detectRetakeAndStumbles(segments: CutSegment[]): CutSegment[] {
       continue;
     }
 
-    // 寻找后续是否有重录的连续句子 (最多向前探索 3 句)
+    // 寻找后续是否有重录的连续句子 (最多向前探索 4 句)
     let j = i + 1;
     const groupIndices = [i];
 
@@ -90,6 +112,7 @@ export function detectRetakeAndStumbles(segments: CutSegment[]): CutSegment[] {
           deleteReason: isLast ? undefined : 'stumble',
           tagLabel: isLast ? `[保留·第${t + 1}遍]` : `[重录·第${t + 1}遍]`,
           confidence: 0.9,
+          words: result[idx].words?.map((w) => ({ ...w, isDeleted: !isLast })),
         };
       }
       currentGroupId++;

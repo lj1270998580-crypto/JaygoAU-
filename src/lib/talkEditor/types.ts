@@ -34,6 +34,15 @@ export type DeleteReason =
   | 'narrative_tangent'  // 宏观叙事跑题/冗长铺垫/车轱辘话
   | 'manual';            // 用户手动删除
 
+export interface WordItem {
+  id: string;
+  text: string;
+  startTime: number; // 秒
+  endTime: number;   // 秒
+  isDeleted: boolean;
+  deleteReason?: DeleteReason;
+}
+
 export interface CutSegment {
   id: string;
   startTime: number;
@@ -44,6 +53,7 @@ export interface CutSegment {
   tagLabel?: string;     // 如 "[建议精简 18s]", "[气口 0.9s]", "[语气词]", "[重录第1次]"
   takeGroup?: number;    // 属于同句多次重录的分组 ID
   takeIndex?: number;    // 重录序号 (如 1, 2, 3)
+  words?: WordItem[];    // 🌟 字级别切片列表
   confidence?: number;
 }
 
@@ -79,6 +89,7 @@ export interface SubtitleStyleConfig {
   yPercent: number; // 垂直位置 (从底部算起 0.05 ~ 0.40)
   fontFamily?: string;
   boxColor?: string;
+  visible?: boolean; // 🌟 实时控制字幕是否显隐
 }
 
 export type NarrativePreset =

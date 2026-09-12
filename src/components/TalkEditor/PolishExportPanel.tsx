@@ -19,6 +19,8 @@ import type {
 } from '../../lib/talkEditor/types';
 import { SUBTITLE_TEMPLATES } from '../../lib/talkEditor/subtitleTemplates';
 
+import { useStore } from '../../store';
+
 interface PolishExportPanelProps {
   canvasConfig: CanvasConfig;
   onChangeCanvasConfig: (config: CanvasConfig) => void;
@@ -44,6 +46,9 @@ export const PolishExportPanel: React.FC<PolishExportPanelProps> = ({
   onPushToIllustrator,
   onExportJianyingDraft,
 }) => {
+  const { theme } = useStore();
+  const isDark = theme !== 'light';
+
   const [activeTab, setActiveTab] = useState<'canvas' | 'subtitle'>('canvas');
 
   // 计算保留时长
@@ -54,10 +59,22 @@ export const PolishExportPanel: React.FC<PolishExportPanelProps> = ({
   const preservedDuration = Math.max(0, videoDuration - deletedDuration);
 
   return (
-    <div className="h-full flex flex-col bg-[#111218] border-r border-zinc-800/80 select-none overflow-hidden">
+    <div
+      className={`h-full flex flex-col border-r select-none overflow-hidden ${
+        isDark ? 'bg-[#111218] border-zinc-800/80 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-800'
+      }`}
+    >
       {/* 顶栏 Tab 切换 */}
-      <div className="p-3 border-b border-zinc-800 bg-[#14151f] shrink-0">
-        <div className="flex items-center gap-1.5 bg-zinc-900/90 p-1 rounded-xl border border-zinc-800">
+      <div
+        className={`p-3 border-b shrink-0 ${
+          isDark ? 'bg-[#14151f] border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+        }`}
+      >
+        <div
+          className={`flex items-center gap-1.5 p-1 rounded-xl border ${
+            isDark ? 'bg-zinc-900/90 border-zinc-800' : 'bg-white border-zinc-200 shadow-xs'
+          }`}
+        >
           <button
             type="button"
             onClick={() => setActiveTab('canvas')}

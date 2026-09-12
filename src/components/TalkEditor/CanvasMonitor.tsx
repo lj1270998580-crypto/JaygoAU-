@@ -2,15 +2,16 @@ import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import {
   Play,
   Pause,
-  RotateCcw,
   Volume2,
   VolumeX,
-  Maximize2,
   SkipBack,
   SkipForward,
   Layers,
-  Sparkles,
   Zap,
+  Type,
+  Eye,
+  EyeOff,
+  Sliders,
 } from 'lucide-react';
 import type {
   CanvasConfig,
@@ -18,7 +19,11 @@ import type {
   CutSegment,
   SubtitleItem,
   SubtitleStyleConfig,
+  SubtitleTemplateId,
 } from '../../lib/talkEditor/types';
+import { getDeletedIntervals } from '../../lib/talkEditor/audioSilenceScanner';
+import { SUBTITLE_TEMPLATES } from '../../lib/talkEditor/subtitleTemplates';
+import { useStore } from '../../store';
 
 interface CanvasMonitorProps {
   videoSrc: string;
@@ -30,6 +35,7 @@ interface CanvasMonitorProps {
   canvasConfig: CanvasConfig;
   onChangeCanvasRatio: (ratio: CanvasRatio) => void;
   subtitleConfig: SubtitleStyleConfig;
+  onChangeSubtitleConfig?: (config: SubtitleStyleConfig) => void;
   subtitles: SubtitleItem[];
   segments: CutSegment[];
   videoDimensions: { width: number; height: number };
@@ -46,17 +52,32 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
   canvasConfig,
   onChangeCanvasRatio,
   subtitleConfig,
+  onChangeSubtitleConfig,
   subtitles,
   segments,
   videoDimensions,
   onVideoLoaded,
 }) => {
+  const { theme } = useStore();
+  const isDark = theme !== 'light';
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const [isMuted, setIsMuted] = useState<boolean>(false);
-  // 是否开启「跳过已删片段」试听模式（默认关闭，保证编辑时顺畅拖拽与任意位置监听）
-  const [autoSkipDeleted, setAutoSkipDeleted] = useState<boolean>(false);
   const [isScrubbing, setIsScrubbing] = useState<boolean>(false);
+
+  // 计算所有被删除的时间片段 (包含整句与字词级)
+  const deletedIntervals = useMemo(() => getDeletedIntervals(segments), [segments]);
+
+  // 跳过已删片段开关 (只要有切除内容，默认开启跳切试听)
+  const [autoSkipDeleted, setAutoSkipDeleted] = useState<boolean>(true);
+
+  // 当有新删除区间产生时，自动激活跳切试听
+  useEffect(() => {
+    if (deletedIntervals.length > 0) {
+      setAutoSkipDeleted(true);
+    }
+  }, [deletedIntervals.length]);
 
   // 画布画幅宽高比字符串 (CSS aspect-ratio)
   const aspectCss = canvasConfig.aspectRatio.replace(':', ' / ');
@@ -79,25 +100,23 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
     }
   }, [isPlaying]);
 
-  // 播放进度更新（节流 50ms）
+  // 播放进度更新与高敏跳切
   const lastUpdateRef = useRef<number>(0);
   const handleTimeUpdate = () => {
     if (!videoRef.current || isScrubbing) return;
     const cur = videoRef.current.currentTime;
 
     const now = Date.now();
-    if (now - lastUpdateRef.current > 50) {
+    if (now - lastUpdateRef.current > 40) {
       lastUpdateRef.current = now;
       onSeek(cur);
     }
 
-    // 仅在用户明确开启「精剪跳过试听」且正在播放时才执行跳切
-    if (autoSkipDeleted && isPlaying) {
-      const activeDeletedSeg = segments.find(
-        (s) => s.isDeleted && cur >= s.startTime && cur < s.endTime
-      );
-      if (activeDeletedSeg) {
-        const nextTime = activeDeletedSeg.endTime + 0.02;
+    // 🌟 核心跳切逻辑：在播放且开启跳切时，遇到已删字句毫秒级瞬移
+    if (autoSkipDeleted && isPlaying && deletedIntervals.length > 0) {
+      const activeInterval = deletedIntervals.find((it) => cur >= it.start && cur < it.end);
+      if (activeInterval) {
+        const nextTime = activeInterval.end + 0.02;
         videoRef.current.currentTime = nextTime;
         onSeek(nextTime);
       }
@@ -107,16 +126,12 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
   // 全局播放快捷键 (Space, J/K/L, Left/Right)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 避免在 input/textarea 输入时误触快捷键
       const target = e.target as HTMLElement;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         return;
       }
 
-      if (e.code === 'Space') {
-        e.preventDefault();
-        onTogglePlay();
-      } else if (e.code === 'KeyK') {
+      if (e.code === 'Space' || e.code === 'KeyK') {
         e.preventDefault();
         onTogglePlay();
       } else if (e.code === 'KeyJ' || e.code === 'ArrowLeft') {
@@ -174,39 +189,98 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  // 获取当前朗读字幕
+  // 获取当前朗读字幕 (包含字级别高亮)
   const activeSubtitle = useMemo(() => {
+    // 首先从 segments 中寻找当前活动且未删除的文本
+    const curSeg = segments.find(
+      (s) => !s.isDeleted && currentTime >= s.startTime && currentTime <= s.endTime
+    );
+    if (curSeg) {
+      if (curSeg.words && curSeg.words.length > 0) {
+        // 过滤掉被单独删掉的字词
+        const visibleText = curSeg.words
+          .filter((w) => !w.isDeleted)
+          .map((w) => w.text)
+          .join('');
+        return { text: visibleText };
+      }
+      return { text: curSeg.text };
+    }
+
     return subtitles.find(
       (sub) => currentTime >= sub.startTime && currentTime <= sub.endTime
     );
-  }, [subtitles, currentTime]);
-
-  // 时长统计
-  const deletedDuration = useMemo(() => {
-    return segments.reduce(
-      (acc, s) => acc + (s.isDeleted ? s.endTime - s.startTime : 0),
-      0
-    );
-  }, [segments]);
-  const preservedDuration = Math.max(0, videoDuration - deletedDuration);
+  }, [segments, subtitles, currentTime]);
 
   // 格式化时间 00:00
   const formatTime = (sec: number) => {
+    if (isNaN(sec) || sec < 0) sec = 0;
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
+  // 实时字幕调节快捷处理
+  const toggleSubtitleVisibility = () => {
+    if (!onChangeSubtitleConfig) return;
+    onChangeSubtitleConfig({
+      ...subtitleConfig,
+      visible: subtitleConfig.visible === false ? true : false,
+    });
+  };
+
+  const adjustFontSize = (delta: number) => {
+    if (!onChangeSubtitleConfig) return;
+    const nextSize = Math.max(16, Math.min(42, (subtitleConfig.fontSize || 26) + delta));
+    onChangeSubtitleConfig({
+      ...subtitleConfig,
+      fontSize: nextSize,
+    });
+  };
+
+  const cycleSubtitleTemplate = () => {
+    if (!onChangeSubtitleConfig) return;
+    const currentId = subtitleConfig.templateId;
+    const idx = SUBTITLE_TEMPLATES.findIndex((t) => t.id === currentId);
+    const nextTmpl = SUBTITLE_TEMPLATES[(idx + 1) % SUBTITLE_TEMPLATES.length];
+    onChangeSubtitleConfig({
+      ...subtitleConfig,
+      ...nextTmpl.defaultConfig,
+      templateId: nextTmpl.id,
+    });
+  };
+
+  const setVerticalPositionPreset = (yPercent: number) => {
+    if (!onChangeSubtitleConfig) return;
+    onChangeSubtitleConfig({
+      ...subtitleConfig,
+      yPercent,
+    });
+  };
+
   return (
-    <div className="h-full flex flex-col bg-[#0c0d12] relative select-none overflow-hidden">
-      {/* 顶栏：画幅快速切换与试听跳切开关 */}
-      <div className="h-10 px-3 border-b border-zinc-800/80 bg-[#14151e] flex items-center justify-between shrink-0">
+    <div
+      className={`h-full flex flex-col relative select-none overflow-hidden ${
+        isDark ? 'bg-[#0c0d12] text-zinc-200' : 'bg-zinc-100 text-zinc-800'
+      }`}
+    >
+      {/* 顶栏：画幅切换 + 实时字幕快捷微调 + 试听跳切开关 */}
+      <div
+        className={`h-11 px-3 border-b flex items-center justify-between shrink-0 ${
+          isDark ? 'bg-[#14151e] border-zinc-800/80' : 'bg-white border-zinc-200 shadow-xs'
+        }`}
+      >
+        {/* 画幅快速切换 */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-zinc-400 font-medium flex items-center gap-1">
-            <Layers className="w-3.5 h-3.5 text-indigo-400" />
+          <span className="text-xs font-medium flex items-center gap-1 opacity-75">
+            <Layers className="w-3.5 h-3.5 text-indigo-500" />
             <span>画幅:</span>
           </span>
-          <div className="flex items-center gap-0.5 bg-zinc-900/90 p-0.5 rounded-lg border border-zinc-800">
+          <div
+            className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-200'
+            }`}
+          >
             {(['9:16', '16:9', '1:1', '4:5', '3:4'] as CanvasRatio[]).map((r) => (
               <button
                 key={r}
@@ -214,8 +288,8 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
                 onClick={() => onChangeCanvasRatio(r)}
                 className={`px-2 py-0.5 rounded-md text-[11px] font-mono transition cursor-pointer ${
                   canvasConfig.aspectRatio === r
-                    ? 'bg-indigo-600 text-white font-bold shadow-sm'
-                    : 'text-zinc-400 hover:text-zinc-200'
+                    ? 'bg-indigo-600 text-white font-bold shadow-xs'
+                    : 'hover:text-indigo-500 opacity-70'
                 }`}
               >
                 {r}
@@ -224,26 +298,79 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
           </div>
         </div>
 
-        {/* 试听跳切模式开关与统计 */}
-        <div className="flex items-center gap-2.5">
+        {/* 🌟 实时字幕快捷微调工具组 */}
+        {onChangeSubtitleConfig && (
+          <div
+            className={`hidden md:flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-xs ${
+              isDark ? 'bg-zinc-900/80 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+            }`}
+          >
+            {/* 字幕显隐 */}
+            <button
+              type="button"
+              onClick={toggleSubtitleVisibility}
+              className={`p-1 rounded hover:text-indigo-500 transition cursor-pointer flex items-center gap-1 text-[11px] ${
+                subtitleConfig.visible !== false ? 'text-indigo-500 font-bold' : 'opacity-40'
+              }`}
+              title="实时开启/关闭画面字幕"
+            >
+              {subtitleConfig.visible !== false ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+              <span>字幕</span>
+            </button>
+
+            <span className="opacity-25">|</span>
+
+            {/* 字号加减 */}
+            <div className="flex items-center gap-1 text-[10.5px]">
+              <span>字号:</span>
+              <button
+                type="button"
+                onClick={() => adjustFontSize(-2)}
+                className="px-1.5 py-0.2 rounded bg-zinc-700/20 hover:bg-zinc-700/40"
+                title="减小字号"
+              >
+                -
+              </button>
+              <span className="font-mono font-bold">{subtitleConfig.fontSize || 26}</span>
+              <button
+                type="button"
+                onClick={() => adjustFontSize(2)}
+                className="px-1.5 py-0.2 rounded bg-zinc-700/20 hover:bg-zinc-700/40"
+                title="增大字号"
+              >
+                +
+              </button>
+            </div>
+
+            <span className="opacity-25">|</span>
+
+            {/* 模版轮换 */}
+            <button
+              type="button"
+              onClick={cycleSubtitleTemplate}
+              className="text-[10.5px] px-1.5 py-0.2 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-500 font-medium"
+              title="切换下一个自媒体爆款字幕模版"
+            >
+              模版: {SUBTITLE_TEMPLATES.find((t) => t.id === subtitleConfig.templateId)?.name || '默认'}
+            </button>
+          </div>
+        )}
+
+        {/* 试听跳切模式开关 */}
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setAutoSkipDeleted(!autoSkipDeleted)}
             className={`px-2.5 py-1 rounded-lg text-xs font-medium transition flex items-center gap-1.5 border cursor-pointer ${
               autoSkipDeleted
-                ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/60 shadow-sm'
-                : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/40 font-bold shadow-xs'
+                : 'border-zinc-300 dark:border-zinc-800 opacity-60'
             }`}
-            title="开启后，播放时将自动跳过已删除的气口与嘴瓢片段"
+            title="开启后，播放时自动跳过所有被切除的气口与字句"
           >
-            <Zap className={`w-3.5 h-3.5 ${autoSkipDeleted ? 'text-emerald-400 fill-current' : 'text-zinc-500'}`} />
-            <span>⚡ 跳过已删试听: {autoSkipDeleted ? '开启' : '关闭'}</span>
+            <Zap className={`w-3.5 h-3.5 ${autoSkipDeleted ? 'fill-current text-emerald-500' : ''}`} />
+            <span>⚡ 跳过已剪试听: {autoSkipDeleted ? '开启' : '关闭'}</span>
           </button>
-
-          <span className="text-xs font-mono text-zinc-400 hidden sm:inline">
-            精剪后: <strong className="text-indigo-400">{formatTime(preservedDuration)}</strong>
-            <span className="text-zinc-600 ml-1">(减{deletedDuration.toFixed(1)}s)</span>
-          </span>
         </div>
       </div>
 
@@ -253,7 +380,7 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
           style={{ aspectRatio: aspectCss }}
           className="relative max-h-full max-w-full bg-black rounded-xl overflow-hidden shadow-2xl border border-zinc-800 flex items-center justify-center group"
         >
-          {/* 背景层：暗色渐变氛围 */}
+          {/* 背景层：暗色高雅氛围 */}
           {canvasConfig.backgroundType === 'blur' ? (
             <div className="absolute inset-0 overflow-hidden pointer-events-none bg-gradient-to-b from-[#181a24] via-[#0f1017] to-black">
               <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-transparent to-transparent" />
@@ -290,8 +417,8 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
                 className="w-full max-h-full object-contain block cursor-pointer shadow-lg"
               />
             ) : (
-              <div className="py-20 flex flex-col items-center justify-center text-zinc-600 gap-2">
-                <span className="text-xs">请上传视频素材</span>
+              <div className="py-20 flex flex-col items-center justify-center text-zinc-500 gap-2">
+                <span className="text-xs">请上传口播视频素材</span>
               </div>
             )}
           </div>
@@ -337,8 +464,8 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
             </div>
           )}
 
-          {/* 实时字幕叠层渲染 */}
-          {activeSubtitle && (
+          {/* 实时字幕叠层渲染 (当 subtitleConfig.visible !== false 时呈现) */}
+          {subtitleConfig.visible !== false && activeSubtitle?.text && (
             <div
               style={{
                 bottom: `${(subtitleConfig.yPercent ?? 0.18) * 100}%`,
@@ -399,20 +526,29 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
         </div>
       </div>
 
-      {/* 底部紧凑高响应单轨波形与播放控制条 (彻底代替繁重多轨时间轴) */}
-      <div className="bg-[#111218] border-t border-zinc-800/90 p-2.5 space-y-2 shrink-0">
-        {/* 单轨声学切片能量条 (极速渲染，毫秒级点按跳转) */}
+      {/* 底部紧凑单轨波形与播放控制条 */}
+      <div
+        className={`border-t p-2.5 space-y-2 shrink-0 ${
+          isDark ? 'bg-[#111218] border-zinc-800/90' : 'bg-white border-zinc-200'
+        }`}
+      >
+        {/* 单轨声学切片能量条 */}
         <div
           ref={trackRef}
           onMouseDown={handleTrackMouseDown}
-          className="h-7 w-full bg-zinc-950 rounded-lg border border-zinc-800 relative cursor-pointer overflow-hidden select-none group shadow-inner"
-          title="点击或拖拽播放指针快速定位 (绿色=保留，暗红=切除)"
+          className={`h-7 w-full rounded-lg border relative cursor-pointer overflow-hidden select-none shadow-inner ${
+            isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-100 border-zinc-200'
+          }`}
+          title="点击或拖拽播放指针快速定位"
         >
-          {/* 渲染各切片颜色块 */}
+          {/* 渲染切片块 */}
           {videoDuration > 0 &&
             segments.map((seg) => {
               const leftPercent = Math.max(0, (seg.startTime / videoDuration) * 100);
               const widthPercent = Math.max(0.1, ((seg.endTime - seg.startTime) / videoDuration) * 100);
+
+              const hasDeletedWord = seg.words?.some((w) => w.isDeleted);
+              const isFullyDeleted = seg.isDeleted;
 
               return (
                 <div
@@ -422,10 +558,14 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
                     width: `${widthPercent}%`,
                   }}
                   className={`absolute top-0 bottom-0 transition-colors ${
-                    seg.isDeleted
-                      ? 'bg-zinc-800/80 border-r border-rose-900/40 opacity-40'
+                    isFullyDeleted
+                      ? 'bg-rose-900/30 border-r border-rose-900/40 opacity-40'
+                      : hasDeletedWord
+                      ? 'bg-amber-600/70 border-r border-amber-500'
                       : seg.deleteReason === 'silence'
-                      ? 'bg-zinc-900'
+                      ? isDark
+                        ? 'bg-zinc-900'
+                        : 'bg-zinc-200'
                       : 'bg-indigo-600/80 hover:bg-indigo-500 border-r border-indigo-700/60'
                   }`}
                   title={`${seg.text} (${(seg.endTime - seg.startTime).toFixed(1)}s)`}
@@ -447,9 +587,8 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
         </div>
 
         {/* 播放控制按钮组与时间戳显示 */}
-        <div className="flex items-center justify-between text-xs text-zinc-300">
+        <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-2">
-            {/* 播放 / 暂停 */}
             <button
               type="button"
               onClick={onTogglePlay}
@@ -459,7 +598,6 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
               {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
             </button>
 
-            {/* 快退 3s (J) / 快进 3s (L) */}
             <button
               type="button"
               onClick={() => {
@@ -467,7 +605,9 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
                 if (videoRef.current) videoRef.current.currentTime = nextTime;
                 onSeek(nextTime);
               }}
-              className="p-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition cursor-pointer"
+              className={`p-1.5 rounded-md border transition cursor-pointer ${
+                isDark ? 'bg-zinc-800 border-zinc-700 hover:bg-zinc-700' : 'bg-zinc-100 border-zinc-200 hover:bg-zinc-200'
+              }`}
               title="后退 3 秒 (快捷键: J 或 ←)"
             >
               <SkipBack className="w-3.5 h-3.5" />
@@ -479,31 +619,31 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
                 if (videoRef.current) videoRef.current.currentTime = nextTime;
                 onSeek(nextTime);
               }}
-              className="p-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition cursor-pointer"
+              className={`p-1.5 rounded-md border transition cursor-pointer ${
+                isDark ? 'bg-zinc-800 border-zinc-700 hover:bg-zinc-700' : 'bg-zinc-100 border-zinc-200 hover:bg-zinc-200'
+              }`}
               title="快进 3 秒 (快捷键: L 或 →)"
             >
               <SkipForward className="w-3.5 h-3.5" />
             </button>
 
-            {/* 当前时间 / 总时长 */}
-            <span className="font-mono text-zinc-300 font-bold ml-1 text-xs">
+            <span className="font-mono font-bold ml-1 text-xs">
               {formatTime(currentTime)} / {formatTime(videoDuration)}
             </span>
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="text-[11px] text-zinc-500 hidden md:inline">
+            <span className={`text-[11px] hidden md:inline ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>
               快捷键: 空格播放 · J/L快进倒退 · 点击文稿直接定位
             </span>
 
-            {/* 静音开关 */}
             <button
               type="button"
               onClick={() => setIsMuted(!isMuted)}
-              className="p-1.5 hover:text-white text-zinc-400 transition cursor-pointer"
+              className="p-1.5 hover:text-indigo-500 opacity-70 hover:opacity-100 transition cursor-pointer"
               title={isMuted ? '取消静音' : '静音'}
             >
-              {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
+              {isMuted ? <VolumeX className="w-4 h-4 text-rose-500" /> : <Volume2 className="w-4 h-4" />}
             </button>
           </div>
         </div>
