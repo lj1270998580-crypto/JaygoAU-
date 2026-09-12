@@ -100,26 +100,62 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
     }
   }, [isPlaying]);
 
-  // 播放进度更新与高敏跳切
+  // 🌟 核心跳切引擎：60fps 帧精细检测与瞬移跳过已切除片段 (比 HTML5 onTimeUpdate 灵敏 15 倍)
+  useEffect(() => {
+    if (!isPlaying || !autoSkipDeleted || deletedIntervals.length === 0) return;
+
+    let animId: number;
+    const checkAndSkip = () => {
+      const video = videoRef.current;
+      if (video && !video.paused) {
+        const cur = video.currentTime;
+        // 检查当前或未来 35ms 即将撞上的切除区间 (带提前量，彻底消灭剪掉片段的微小杂音)
+        const hit = deletedIntervals.find(
+          (it) =>
+            (cur >= it.start && cur < it.end) ||
+            (cur < it.start && cur + 0.035 >= it.start && cur + 0.035 < it.end)
+        );
+        if (hit) {
+          const nextTarget = hit.end + 0.005;
+          if (nextTarget < videoDuration) {
+            video.currentTime = nextTarget;
+            onSeek(nextTarget);
+          } else {
+            video.pause();
+          }
+        }
+      }
+      animId = requestAnimationFrame(checkAndSkip);
+    };
+
+    animId = requestAnimationFrame(checkAndSkip);
+    return () => cancelAnimationFrame(animId);
+  }, [isPlaying, autoSkipDeleted, deletedIntervals, videoDuration, onSeek]);
+
+  // 播放器开始播放瞬移安全校验
+  const handleTogglePlay = () => {
+    if (videoRef.current) {
+      const cur = videoRef.current.currentTime;
+      if (videoRef.current.paused && autoSkipDeleted && deletedIntervals.length > 0) {
+        const hit = deletedIntervals.find((it) => cur >= it.start && cur < it.end);
+        if (hit) {
+          videoRef.current.currentTime = hit.end + 0.005;
+          onSeek(hit.end + 0.005);
+        }
+      }
+    }
+    onTogglePlay();
+  };
+
+  // 播放进度更新 (轻量用于 UI 同步)
   const lastUpdateRef = useRef<number>(0);
   const handleTimeUpdate = () => {
     if (!videoRef.current || isScrubbing) return;
     const cur = videoRef.current.currentTime;
-
     const now = Date.now();
     if (now - lastUpdateRef.current > 40) {
       lastUpdateRef.current = now;
       onSeek(cur);
-    }
-
-    // 🌟 核心跳切逻辑：在播放且开启跳切时，遇到已删字句毫秒级瞬移
-    if (autoSkipDeleted && isPlaying && deletedIntervals.length > 0) {
-      const activeInterval = deletedIntervals.find((it) => cur >= it.start && cur < it.end);
-      if (activeInterval) {
-        const nextTime = activeInterval.end + 0.02;
-        videoRef.current.currentTime = nextTime;
-        onSeek(nextTime);
-      }
     }
   };
 
@@ -133,7 +169,7 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
 
       if (e.code === 'Space' || e.code === 'KeyK') {
         e.preventDefault();
-        onTogglePlay();
+        handleTogglePlay();
       } else if (e.code === 'KeyJ' || e.code === 'ArrowLeft') {
         e.preventDefault();
         const delta = e.shiftKey ? -5 : -1.5;
@@ -151,7 +187,7 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentTime, videoDuration, onTogglePlay, onSeek]);
+  }, [currentTime, videoDuration, onSeek, autoSkipDeleted, deletedIntervals]);
 
   // 单轨波形拖拽/点击 Scrubbing 逻辑
   const seekByClientX = useCallback(
@@ -159,7 +195,7 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
       if (!trackRef.current || videoDuration <= 0) return;
       const rect = trackRef.current.getBoundingClientRect();
       const progress = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      const targetTime = progress * videoDuration;
+      let targetTime = progress * videoDuration;
       if (videoRef.current) videoRef.current.currentTime = targetTime;
       onSeek(targetTime);
     },
@@ -189,28 +225,32 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  // 获取当前朗读字幕 (包含字级别高亮)
+  // 获取当前朗读字幕 (严禁渲染任何气口/停顿标记)
   const activeSubtitle = useMemo(() => {
-    // 首先从 segments 中寻找当前活动且未删除的文本
+    // 🌟 严格只从非静音的台词句（sentence）中寻找当前活动且未删除的文本
     const curSeg = segments.find(
-      (s) => !s.isDeleted && currentTime >= s.startTime && currentTime <= s.endTime
+      (s) =>
+        !s.isDeleted &&
+        s.type !== 'silence' &&
+        s.deleteReason !== 'silence' &&
+        !s.id.startsWith('silence-') &&
+        currentTime >= s.startTime &&
+        currentTime <= s.endTime
     );
     if (curSeg) {
       if (curSeg.words && curSeg.words.length > 0) {
         // 过滤掉被单独删掉的字词
-        const visibleText = curSeg.words
-          .filter((w) => !w.isDeleted)
-          .map((w) => w.text)
-          .join('');
-        return { text: visibleText };
+        const validWords = curSeg.words.filter((w) => !w.isDeleted);
+        if (validWords.length === 0) return null;
+        return {
+          text: validWords.map((w) => w.text).join(''),
+        };
       }
       return { text: curSeg.text };
     }
 
-    return subtitles.find(
-      (sub) => currentTime >= sub.startTime && currentTime <= sub.endTime
-    );
-  }, [segments, subtitles, currentTime]);
+    return null;
+  }, [segments, currentTime]);
 
   // 格式化时间 00:00
   const formatTime = (sec: number) => {
@@ -264,114 +304,120 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
         isDark ? 'bg-[#0c0d12] text-zinc-200' : 'bg-zinc-100 text-zinc-800'
       }`}
     >
-      {/* 顶栏：画幅切换 + 实时字幕快捷微调 + 试听跳切开关 */}
+      {/* 顶栏控制区：画幅切换 + 试听跳切 + 实时字幕微调带 (双层流式，彻底告别文字挤压竖排) */}
       <div
-        className={`h-11 px-3 border-b flex items-center justify-between shrink-0 ${
+        className={`border-b shrink-0 flex flex-col ${
           isDark ? 'bg-[#14151e] border-zinc-800/80' : 'bg-white border-zinc-200 shadow-xs'
         }`}
       >
-        {/* 画幅快速切换 */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium flex items-center gap-1 opacity-75">
-            <Layers className="w-3.5 h-3.5 text-indigo-500" />
-            <span>画幅:</span>
-          </span>
-          <div
-            className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
-              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-200'
-            }`}
-          >
-            {(['9:16', '16:9', '1:1', '4:5', '3:4'] as CanvasRatio[]).map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => onChangeCanvasRatio(r)}
-                className={`px-2 py-0.5 rounded-md text-[11px] font-mono transition cursor-pointer ${
-                  canvasConfig.aspectRatio === r
-                    ? 'bg-indigo-600 text-white font-bold shadow-xs'
-                    : 'hover:text-indigo-500 opacity-70'
-                }`}
-              >
-                {r}
-              </button>
-            ))}
+        {/* 第一层：画幅选择 + 试听跳切开关 */}
+        <div className="h-10 px-3 flex items-center justify-between gap-2 overflow-x-auto whitespace-nowrap custom-scrollbar">
+          {/* 画幅快速切换 */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-xs font-medium flex items-center gap-1 opacity-75">
+              <Layers className="w-3.5 h-3.5 text-indigo-500" />
+              <span>画幅:</span>
+            </span>
+            <div
+              className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
+                isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-200'
+              }`}
+            >
+              {(['9:16', '16:9', '1:1', '4:5', '3:4'] as CanvasRatio[]).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => onChangeCanvasRatio(r)}
+                  className={`px-2 py-0.5 rounded-md text-[11px] font-mono transition cursor-pointer ${
+                    canvasConfig.aspectRatio === r
+                      ? 'bg-indigo-600 text-white font-bold shadow-xs'
+                      : 'hover:text-indigo-500 opacity-70'
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 试听跳切模式开关 (独立右侧，坚决不挤压) */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setAutoSkipDeleted(!autoSkipDeleted)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition flex items-center gap-1.5 border cursor-pointer whitespace-nowrap ${
+                autoSkipDeleted
+                  ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/40 font-bold shadow-xs'
+                  : 'border-zinc-300 dark:border-zinc-800 opacity-60'
+              }`}
+              title="开启后，播放时毫秒级瞬移跳过所有切除的气口、语气词与重录废话"
+            >
+              <Zap className={`w-3.5 h-3.5 shrink-0 ${autoSkipDeleted ? 'fill-current text-emerald-500' : ''}`} />
+              <span>⚡ 跳过已剪: {autoSkipDeleted ? '开启' : '关闭'}</span>
+            </button>
           </div>
         </div>
 
-        {/* 🌟 实时字幕快捷微调工具组 */}
+        {/* 第二层：实时字幕微调工具带 (独立整行，大方舒适) */}
         {onChangeSubtitleConfig && (
           <div
-            className={`hidden md:flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-xs ${
-              isDark ? 'bg-zinc-900/80 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+            className={`h-8 px-3 border-t flex items-center justify-between gap-2 overflow-x-auto whitespace-nowrap text-xs ${
+              isDark ? 'bg-zinc-950/60 border-zinc-800/60' : 'bg-zinc-50 border-zinc-100'
             }`}
           >
-            {/* 字幕显隐 */}
-            <button
-              type="button"
-              onClick={toggleSubtitleVisibility}
-              className={`p-1 rounded hover:text-indigo-500 transition cursor-pointer flex items-center gap-1 text-[11px] ${
-                subtitleConfig.visible !== false ? 'text-indigo-500 font-bold' : 'opacity-40'
-              }`}
-              title="实时开启/关闭画面字幕"
-            >
-              {subtitleConfig.visible !== false ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-              <span>字幕</span>
-            </button>
-
-            <span className="opacity-25">|</span>
-
-            {/* 字号加减 */}
-            <div className="flex items-center gap-1 text-[10.5px]">
-              <span>字号:</span>
+            <div className="flex items-center gap-2.5 shrink-0">
+              {/* 字幕显隐 */}
               <button
                 type="button"
-                onClick={() => adjustFontSize(-2)}
-                className="px-1.5 py-0.2 rounded bg-zinc-700/20 hover:bg-zinc-700/40"
-                title="减小字号"
+                onClick={toggleSubtitleVisibility}
+                className={`flex items-center gap-1 text-[11px] font-medium transition cursor-pointer ${
+                  subtitleConfig.visible !== false ? 'text-indigo-500 font-bold' : 'opacity-40'
+                }`}
+                title="实时开启/关闭画面字幕渲染"
               >
-                -
+                {subtitleConfig.visible !== false ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                <span>{subtitleConfig.visible !== false ? '字幕: 显示' : '字幕: 隐藏'}</span>
               </button>
-              <span className="font-mono font-bold">{subtitleConfig.fontSize || 26}</span>
-              <button
-                type="button"
-                onClick={() => adjustFontSize(2)}
-                className="px-1.5 py-0.2 rounded bg-zinc-700/20 hover:bg-zinc-700/40"
-                title="增大字号"
-              >
-                +
-              </button>
+
+              <span className="opacity-20">|</span>
+
+              {/* 字号加减 */}
+              <div className="flex items-center gap-1.5 text-[11px]">
+                <span className="opacity-75">字号:</span>
+                <button
+                  type="button"
+                  onClick={() => adjustFontSize(-2)}
+                  className="w-5 h-4.5 flex items-center justify-center rounded bg-zinc-700/20 hover:bg-zinc-700/40 font-bold text-xs"
+                  title="减小字号"
+                >
+                  -
+                </button>
+                <span className="font-mono font-bold w-4 text-center">{subtitleConfig.fontSize || 26}</span>
+                <button
+                  type="button"
+                  onClick={() => adjustFontSize(2)}
+                  className="w-5 h-4.5 flex items-center justify-center rounded bg-zinc-700/20 hover:bg-zinc-700/40 font-bold text-xs"
+                  title="增大字号"
+                >
+                  +
+                </button>
+              </div>
             </div>
 
-            <span className="opacity-25">|</span>
-
             {/* 模版轮换 */}
-            <button
-              type="button"
-              onClick={cycleSubtitleTemplate}
-              className="text-[10.5px] px-1.5 py-0.2 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-500 font-medium"
-              title="切换下一个自媒体爆款字幕模版"
-            >
-              模版: {SUBTITLE_TEMPLATES.find((t) => t.id === subtitleConfig.templateId)?.name || '默认'}
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={cycleSubtitleTemplate}
+                className="text-[10.5px] px-2 py-0.5 rounded-md bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-500 font-medium flex items-center gap-1 transition cursor-pointer"
+                title="点击快速切换下一个爆款字幕模版"
+              >
+                <Type className="w-3 h-3" />
+                <span>模版: {SUBTITLE_TEMPLATES.find((t) => t.id === subtitleConfig.templateId)?.name || '默认'}</span>
+              </button>
+            </div>
           </div>
         )}
-
-        {/* 试听跳切模式开关 */}
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setAutoSkipDeleted(!autoSkipDeleted)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition flex items-center gap-1.5 border cursor-pointer ${
-              autoSkipDeleted
-                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/40 font-bold shadow-xs'
-                : 'border-zinc-300 dark:border-zinc-800 opacity-60'
-            }`}
-            title="开启后，播放时自动跳过所有被切除的气口与字句"
-          >
-            <Zap className={`w-3.5 h-3.5 ${autoSkipDeleted ? 'fill-current text-emerald-500' : ''}`} />
-            <span>⚡ 跳过已剪试听: {autoSkipDeleted ? '开启' : '关闭'}</span>
-          </button>
-        </div>
       </div>
 
       {/* 中间舞台：真实比例画布监视器视窗 (极速单视频，60fps满帧) */}

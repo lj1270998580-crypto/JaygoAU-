@@ -45,6 +45,7 @@ export interface WordItem {
 
 export interface CutSegment {
   id: string;
+  type?: 'sentence' | 'silence'; // 🌟 区分普通台词句 vs 声学空白气口
   startTime: number;
   endTime: number;
   text: string;

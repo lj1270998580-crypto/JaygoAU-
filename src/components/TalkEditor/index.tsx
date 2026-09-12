@@ -71,7 +71,7 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
   const [isAnalyzingNarrative, setIsAnalyzingNarrative] = useState<boolean>(false);
   const [narrativeAnalysis, setNarrativeAnalysis] = useState<NarrativeAnalysisResult | null>(null);
 
-  // 画布与贴片设置 (默认 9:16 竖屏)
+  // 画布与贴片设置 (默认 9:16 竖屏，默认关闭贴片避免遮挡画面)
   const [canvasConfig, setCanvasConfig] = useState<CanvasConfig>({
     aspectRatio: '9:16',
     backgroundType: 'blur',
@@ -80,7 +80,7 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
     videoScale: 1.0,
     videoYPercent: 0,
     topPatch: {
-      enabled: true,
+      enabled: false, // 🌟 默认关闭，保持原画面干净纯净
       text: 'AI 口播精剪 · 爆款结构速成',
       fontSize: 24,
       textColor: '#ffffff',
@@ -90,7 +90,7 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
       yOffsetPercent: 0.06,
     },
     bottomPatch: {
-      enabled: true,
+      enabled: false, // 🌟 默认关闭
       text: '关注我 · 获取自媒体全套生产力工具',
       fontSize: 16,
       textColor: '#d4d4d8',
@@ -235,54 +235,82 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
     showToast('已载入 42 秒自媒体口播演示素材，包含气口、语气词、嘴瓢与跑题！', 'ok');
   };
 
-  // 🌟 AI 一键全自动精剪 (执行确认后的批量剪切)
-  const handleApplyFullAiCut = ({
+  // 🌟 AI 一键全自动精剪 (执行确认后的批量剪切，涵盖声学、发音与深度内容主线)
+  const handleApplyFullAiCut = async ({
     cutSilence,
     cutFillers,
     cutStumbles,
+    cutNarrative,
+    narrativePreset,
   }: {
     cutSilence: boolean;
     cutFillers: boolean;
     cutStumbles: boolean;
+    cutNarrative?: boolean;
+    narrativePreset?: NarrativePreset;
   }) => {
-    setSegments((prev) => {
-      let next = [...prev];
+    let next = [...segments];
 
-      // 1. 去除停顿气口
-      if (cutSilence) {
-        next = next.map((s) =>
-          s.deleteReason === 'silence' || s.tagLabel?.includes('气口')
-            ? { ...s, isDeleted: true, deleteReason: 'silence' as const }
-            : s
-        );
+    // 1. 去除停顿气口 (匹配所有声学空白与停顿标记)
+    if (cutSilence) {
+      next = next.map((s) =>
+        s.type === 'silence' ||
+        s.deleteReason === 'silence' ||
+        s.tagLabel?.includes('气口') ||
+        s.tagLabel?.includes('停顿') ||
+        s.id.startsWith('silence-')
+          ? { ...s, isDeleted: true, deleteReason: 'silence' as const }
+          : s
+      );
+    }
+
+    // 2. 清理语气词 (句级与字级)
+    if (cutFillers) {
+      next = detectFillerSegments(next);
+    }
+
+    // 3. 剔除嘴瓢与多轮重录前序版本
+    if (cutStumbles) {
+      next = detectRetakeAndStumbles(next);
+    }
+
+    // 4. 深度文案内容主线精炼 (剔除跑题冗余，保留主干逻辑)
+    if (cutNarrative) {
+      setIsAnalyzingNarrative(true);
+      try {
+        const res = await runNarrativePruning(next, narrativePreset || 'balanced', modelSettings);
+        next = res.updatedSegments;
+        setNarrativeAnalysis(res.analysis);
+      } catch (err: any) {
+        console.warn('篇章精炼失败，平滑执行基础精剪:', err);
+      } finally {
+        setIsAnalyzingNarrative(false);
       }
+    }
 
-      // 2. 清理语气词 (句级与字级)
-      if (cutFillers) {
-        next = detectFillerSegments(next);
-      }
-
-      // 3. 剔除嘴瓢与多轮重录前序版本
-      if (cutStumbles) {
-        next = detectRetakeAndStumbles(next);
-      }
-
-      return next;
-    });
-
-    showToast('🎉 AI 全自动精剪已应用！已为您切除多余气口、语气词与嘴瓢重录', 'ok');
+    setSegments(next);
+    showToast(
+      cutNarrative
+        ? '🎉 AI 全自动精剪已就绪！已智能切除气口、语气词、重录嘴瓢与冗余跑题文案'
+        : '🎉 AI 全自动精剪已应用！已切除气口、语气词与嘴瓢重录',
+      'ok'
+    );
   };
 
   // 1. 一键去气口 (独立手动触发)
   const handleRunSilenceCut = () => {
     setSegments((prev) =>
       prev.map((s) =>
-        s.deleteReason === 'silence' || s.tagLabel?.includes('气口')
+        s.type === 'silence' ||
+        s.deleteReason === 'silence' ||
+        s.tagLabel?.includes('气口') ||
+        s.tagLabel?.includes('停顿') ||
+        s.id.startsWith('silence-')
           ? { ...s, isDeleted: true, deleteReason: 'silence' as const }
           : s
       )
     );
-    showToast('已切除所有冗长停顿，保留 120ms 自然呼吸缓冲！', 'ok');
+    showToast('已切除所有语音停顿与气口！', 'ok');
   };
 
   // 2. 一键清语气词

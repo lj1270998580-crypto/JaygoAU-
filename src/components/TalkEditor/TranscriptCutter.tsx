@@ -32,7 +32,13 @@ interface TranscriptCutterProps {
   onRunNarrativePruning: (preset: NarrativePreset) => Promise<void>;
   isAnalyzingNarrative: boolean;
   narrativeAnalysis: NarrativeAnalysisResult | null;
-  onApplyFullAiCut: (options: { cutSilence: boolean; cutFillers: boolean; cutStumbles: boolean }) => void;
+  onApplyFullAiCut: (options: {
+    cutSilence: boolean;
+    cutFillers: boolean;
+    cutStumbles: boolean;
+    cutNarrative?: boolean;
+    narrativePreset?: NarrativePreset;
+  }) => void;
 }
 
 export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
@@ -61,6 +67,7 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
     cutSilence: true,
     cutFillers: true,
     cutStumbles: true,
+    cutNarrative: true, // 🌟 默认勾选深度文案内容分析
   });
 
   // 时长统计 (包含字级别删除)
@@ -94,9 +101,10 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
     let silenceSec = 0;
     let fillersCount = 0;
     let stumblesCount = 0;
+    let tangentsCount = 0;
 
     for (const s of segments) {
-      if (s.deleteReason === 'silence' || s.tagLabel?.includes('气口')) {
+      if (s.type === 'silence' || s.deleteReason === 'silence' || s.tagLabel?.includes('气口') || s.tagLabel?.includes('停顿')) {
         silencesCount++;
         silenceSec += s.endTime - s.startTime;
       }
@@ -112,9 +120,12 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
       if (s.deleteReason === 'stumble' || s.tagLabel?.includes('重录')) {
         stumblesCount++;
       }
+      if (s.deleteReason === 'narrative_tangent' || s.tagLabel?.includes('车轱辘') || s.tagLabel?.includes('冗余') || s.tagLabel?.includes('闲暄')) {
+        tangentsCount++;
+      }
     }
 
-    return { silencesCount, silenceSec, fillersCount, stumblesCount };
+    return { silencesCount, silenceSec, fillersCount, stumblesCount, tangentsCount };
   }, [segments]);
 
   // 切换单条切片的删除状态
@@ -172,7 +183,10 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
 
   // 执行 AI 一键精剪确认
   const handleConfirmAiCut = () => {
-    onApplyFullAiCut(aiCutOptions);
+    onApplyFullAiCut({
+      ...aiCutOptions,
+      narrativePreset: selectedPreset,
+    });
     setShowAiCutModal(false);
   };
 
@@ -263,42 +277,42 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
           <button
             type="button"
             onClick={onRunSilenceCut}
-            className={`py-1.5 px-2 rounded-lg border text-[11px] font-medium transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs ${
+            className={`py-1.5 px-2 rounded-lg border text-[11px] font-medium transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs whitespace-nowrap ${
               isDark
                 ? 'bg-zinc-800/90 hover:bg-zinc-700 border-zinc-700/60 text-zinc-200'
                 : 'bg-white hover:bg-zinc-100 border-zinc-300 text-zinc-700'
             }`}
             title="自动识别语音停顿并施加 120ms 自然呼吸缓冲保护"
           >
-            <Zap className="w-3.5 h-3.5 text-amber-400" />
+            <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span>⚡ 一键去气口</span>
           </button>
 
           <button
             type="button"
             onClick={onRunFillerClean}
-            className={`py-1.5 px-2 rounded-lg border text-[11px] font-medium transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs ${
+            className={`py-1.5 px-2 rounded-lg border text-[11px] font-medium transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs whitespace-nowrap ${
               isDark
                 ? 'bg-zinc-800/90 hover:bg-zinc-700 border-zinc-700/60 text-zinc-200'
                 : 'bg-white hover:bg-zinc-100 border-zinc-300 text-zinc-700'
             }`}
             title="一键标记并剔除语气词（呃、啊、然后、就是说）"
           >
-            <Volume2 className="w-3.5 h-3.5 text-sky-400" />
+            <Volume2 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
             <span>🧹 清语气词</span>
           </button>
 
           <button
             type="button"
             onClick={onRunStumbleClean}
-            className={`py-1.5 px-2 rounded-lg border text-[11px] font-medium transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs ${
+            className={`py-1.5 px-2 rounded-lg border text-[11px] font-medium transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs whitespace-nowrap ${
               isDark
                 ? 'bg-zinc-800/90 hover:bg-zinc-700 border-zinc-700/60 text-zinc-200'
                 : 'bg-white hover:bg-zinc-100 border-zinc-300 text-zinc-700'
             }`}
             title="启发式识别相邻忘词嘴瓢，自动分组并保留最后一次完整录制"
           >
-            <AlertTriangle className="w-3.5 h-3.5 text-orange-400" />
+            <AlertTriangle className="w-3.5 h-3.5 text-orange-400 shrink-0" />
             <span>🎯 剔除嘴瓢重录</span>
           </button>
 
@@ -306,11 +320,11 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
             type="button"
             onClick={() => onRunNarrativePruning(selectedPreset)}
             disabled={isAnalyzingNarrative}
-            className="py-1.5 px-2 rounded-lg bg-gradient-to-r from-purple-900/70 to-indigo-900/70 hover:from-purple-800 hover:to-indigo-800 border border-purple-500/40 text-white text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 shadow-xs disabled:opacity-50"
-            title="大模型宏观分析篇章主线，剔除跑题冗余，保全逻辑完整"
+            className="py-1.5 px-2 rounded-lg bg-gradient-to-r from-purple-900/70 to-indigo-900/70 hover:from-purple-800 hover:to-indigo-800 border border-purple-500/40 text-white text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 shadow-xs disabled:opacity-50 whitespace-nowrap"
+            title="深度分析篇章文案主线，剔除跑题冗余，保全主干逻辑"
           >
-            <BrainCircuit className={`w-3.5 h-3.5 text-purple-300 ${isAnalyzingNarrative ? 'animate-spin' : ''}`} />
-            <span>{isAnalyzingNarrative ? '分析中…' : '🧠 AI 叙事精炼'}</span>
+            <BrainCircuit className={`w-3.5 h-3.5 text-purple-300 shrink-0 ${isAnalyzingNarrative ? 'animate-spin' : ''}`} />
+            <span>{isAnalyzingNarrative ? '分析中…' : '🧠 AI 篇章精炼'}</span>
           </button>
         </div>
 
@@ -333,7 +347,7 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
           <button
             type="button"
             onClick={() => setHideSilences(!hideSilences)}
-            className={`px-2 py-1 rounded-md text-[10px] font-medium border transition cursor-pointer shrink-0 ${
+            className={`px-2 py-1 rounded-md text-[10px] font-medium border transition cursor-pointer shrink-0 whitespace-nowrap ${
               hideSilences
                 ? 'bg-indigo-950/60 text-indigo-300 border-indigo-500/50'
                 : isDark
@@ -353,7 +367,7 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-amber-300" />
-              <span className="font-bold text-xs text-white">AI 智能剪辑方案已就绪</span>
+              <span className="font-bold text-xs text-white">AI 智能精剪诊断方案已就绪</span>
             </div>
             <button
               type="button"
@@ -364,25 +378,31 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
             </button>
           </div>
 
+          {/* 4 大维度诊断卡片 */}
           <div className="p-2.5 bg-black/40 rounded-xl border border-white/10 space-y-1.5 text-[11px]">
             <div className="text-zinc-300 font-medium">智能识别诊断结果：</div>
-            <div className="grid grid-cols-3 gap-2 font-mono text-[10.5px]">
-              <div className="bg-white/5 p-1.5 rounded">
-                <span className="text-zinc-400 block">停顿气口</span>
+            <div className="grid grid-cols-4 gap-1.5 font-mono text-[10.5px]">
+              <div className="bg-white/5 p-1.5 rounded text-center">
+                <span className="text-zinc-400 block text-[9.5px]">停顿气口</span>
                 <span className="font-bold text-amber-300">{detectedIssues.silencesCount} 处</span>
               </div>
-              <div className="bg-white/5 p-1.5 rounded">
-                <span className="text-zinc-400 block">口癖语气词</span>
+              <div className="bg-white/5 p-1.5 rounded text-center">
+                <span className="text-zinc-400 block text-[9.5px]">口癖语气词</span>
                 <span className="font-bold text-sky-300">{detectedIssues.fillersCount} 处</span>
               </div>
-              <div className="bg-white/5 p-1.5 rounded">
-                <span className="text-zinc-400 block">嘴瓢重录</span>
+              <div className="bg-white/5 p-1.5 rounded text-center">
+                <span className="text-zinc-400 block text-[9.5px]">嘴瓢重录</span>
                 <span className="font-bold text-orange-300">{detectedIssues.stumblesCount} 组</span>
+              </div>
+              <div className="bg-white/5 p-1.5 rounded text-center">
+                <span className="text-zinc-400 block text-[9.5px]">跑题车轱辘</span>
+                <span className="font-bold text-purple-300">{detectedIssues.tangentsCount || '待精炼'}</span>
               </div>
             </div>
           </div>
 
-          <div className="space-y-1 text-[11px]">
+          {/* 可选项列表 */}
+          <div className="space-y-1.5 text-[11px]">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -390,7 +410,7 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
                 onChange={(e) => setAiCutOptions({ ...aiCutOptions, cutSilence: e.target.checked })}
                 className="rounded accent-indigo-500"
               />
-              <span>切除 ≥0.4s 冗长气口（保留 120ms 自然呼吸）</span>
+              <span>切除停顿气口（保留 120ms 自然呼吸缓冲）</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -410,6 +430,40 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
               />
               <span>剔除多轮重录前序嘴瓢（保留最佳版本）</span>
             </label>
+
+            {/* 🌟 核心：文案内容主线深度精炼 */}
+            <div className="p-2 rounded-lg bg-white/5 border border-purple-500/20 space-y-1">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={aiCutOptions.cutNarrative}
+                  onChange={(e) => setAiCutOptions({ ...aiCutOptions, cutNarrative: e.target.checked })}
+                  className="rounded accent-purple-500"
+                />
+                <span className="font-bold text-purple-300">
+                  🧠 深度文案内容分析（剔除冗余跑题，保留主干逻辑）
+                </span>
+              </label>
+              {aiCutOptions.cutNarrative && (
+                <div className="pl-5 pt-1 flex items-center gap-1.5">
+                  <span className="text-[10px] text-zinc-400">精炼强度:</span>
+                  {(['balanced', 'viral', 'light'] as NarrativePreset[]).map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setSelectedPreset(p)}
+                      className={`px-2 py-0.5 rounded text-[10px] transition cursor-pointer ${
+                        selectedPreset === p
+                          ? 'bg-purple-600 text-white font-bold'
+                          : 'bg-white/10 text-zinc-300 hover:bg-white/20'
+                      }`}
+                    >
+                      {p === 'balanced' ? '紧凑高效 (推荐)' : p === 'viral' ? '爆款极速' : '轻度微调'}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-1 border-t border-white/10">
@@ -442,7 +496,12 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
         ) : (
           filteredSegments.map((seg) => {
             const isCurrent = currentTime >= seg.startTime && currentTime <= seg.endTime;
-            const isSilence = seg.deleteReason === 'silence' || seg.tagLabel?.includes('气口');
+            const isSilence =
+              seg.type === 'silence' ||
+              seg.deleteReason === 'silence' ||
+              seg.tagLabel?.includes('气口') ||
+              seg.tagLabel?.includes('停顿') ||
+              seg.id.startsWith('silence-');
 
             // 停顿气口条目
             if (isSilence) {

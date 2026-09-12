@@ -107,13 +107,14 @@ export function scanSilenceSegments(
       const isLongSilence = gap >= silenceThresholdSec;
       segments.push({
         id: `silence-${i}-${cursor.toFixed(2)}`,
+        type: 'silence',
         startTime: Number(cursor.toFixed(2)),
         endTime: Number(currentStart.toFixed(2)),
         text: isLongSilence ? `[停顿气口 ${gap.toFixed(1)}s]` : `[微小停顿 ${gap.toFixed(1)}s]`,
         isDeleted: false, // 🌟 默认不切除！交给用户预览与一键精剪确认
-        deleteReason: isLongSilence ? 'silence' : undefined,
-        tagLabel: isLongSilence ? `[气口 ${gap.toFixed(1)}s]` : undefined,
-        confidence: isLongSilence ? 0.95 : 0.5,
+        deleteReason: 'silence', // 明确声学空白性质
+        tagLabel: isLongSilence ? `[气口 ${gap.toFixed(1)}s]` : `[停顿 ${gap.toFixed(1)}s]`,
+        confidence: isLongSilence ? 0.95 : 0.6,
       });
     }
 
@@ -123,6 +124,7 @@ export function scanSilenceSegments(
     // 压入当前有效说话片段
     segments.push({
       id: utt.id || `utt-${i}-${utt.startTime.toFixed(2)}`,
+      type: 'sentence',
       startTime: Number(currentStart.toFixed(2)),
       endTime: Number(Math.max(currentStart + 0.1, utt.endTime).toFixed(2)),
       text: utt.text.trim(),
@@ -139,12 +141,13 @@ export function scanSilenceSegments(
     const isLongSilence = gap >= silenceThresholdSec;
     segments.push({
       id: `silence-tail-${cursor.toFixed(2)}`,
+      type: 'silence',
       startTime: Number(cursor.toFixed(2)),
       endTime: Number(totalDuration.toFixed(2)),
       text: isLongSilence ? `[结尾空白 ${gap.toFixed(1)}s]` : `[尾部缓冲 ${gap.toFixed(1)}s]`,
       isDeleted: false, // 🌟 默认不切除
-      deleteReason: isLongSilence ? 'silence' : undefined,
-      tagLabel: isLongSilence ? `[气口 ${gap.toFixed(1)}s]` : undefined,
+      deleteReason: 'silence',
+      tagLabel: isLongSilence ? `[气口 ${gap.toFixed(1)}s]` : `[停顿 ${gap.toFixed(1)}s]`,
       confidence: 0.98,
     });
   }
