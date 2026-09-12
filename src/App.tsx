@@ -11,6 +11,7 @@ import Transcribe from './components/Transcribe';
 import AvatarStudio from './components/AvatarStudio';
 import MediaExtractor from './components/MediaExtractor';
 import VideoIllustrator from './components/VideoIllustrator';
+import TalkEditor from './components/TalkEditor';
 import { ScriptStudio } from './components/ScriptStudio';
 import { WorkflowStudio } from './components/WorkflowStudio';
 import { ModelHubModal } from './components/ModelHubModal';
@@ -21,6 +22,15 @@ const Icon = {
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 20h9" />
       <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+    </svg>
+  ),
+  talkEditor: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <line x1="20" y1="4" x2="8.12" y2="15.88" />
+      <line x1="14.47" y1="14.48" x2="20" y2="20" />
+      <line x1="8.12" y1="8.12" x2="12" y2="12" />
     </svg>
   ),
   workflow: (
@@ -118,6 +128,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     title: '内容创作',
     items: [
       { key: 'script', label: 'AI 文案工坊', icon: Icon.script },
+      { key: 'talkEditor', label: 'AI 口播剪辑', icon: Icon.talkEditor },
       { key: 'workflow', label: '自动化流水线', icon: Icon.workflow },
       { key: 'avatar', label: '数字人口播', icon: Icon.avatar },
       { key: 'illustrator', label: 'AI 视频配图', icon: Icon.illustrator },
@@ -138,6 +149,7 @@ const TAB_BREADCRUMBS: Record<Tab, { group: string; label: string }> = {
   clone: { group: '声音制作', label: '声音克隆' },
   voices: { group: '声音制作', label: '我的音色' },
   script: { group: '内容创作', label: 'AI 文案工坊' },
+  talkEditor: { group: '内容创作', label: 'AI 口播剪辑' },
   workflow: { group: '内容创作', label: '自动化流水线' },
   avatar: { group: '内容创作', label: '数字人口播' },
   illustrator: { group: '内容创作', label: 'AI 视频配图' },
@@ -357,6 +369,7 @@ export default function App() {
     setModelHubSettings,
     setPendingSynthText,
     setPendingAvatarText,
+    setPendingIllustrator,
     changelogOpen,
     setChangelogOpen,
   } = useStore();
@@ -627,6 +640,18 @@ export default function App() {
               {visitedTabs.has('avatar') && (
                 <div className={`h-full ${tab === 'avatar' ? 'flex flex-col' : 'hidden'}`}>
                   <AvatarStudio />
+                </div>
+              )}
+              {visitedTabs.has('talkEditor') && (
+                <div className={`h-full ${tab === 'talkEditor' ? 'flex flex-col' : 'hidden'}`}>
+                  <TalkEditor
+                    modelSettings={modelHubSettings}
+                    onOpenModelHub={() => setModelHubOpen(true)}
+                    onPushToIllustrator={({ videoPath, scriptText, title }) => {
+                      setPendingIllustrator({ videoPath, scriptText, title });
+                      setTab('illustrator');
+                    }}
+                  />
                 </div>
               )}
               {visitedTabs.has('illustrator') && (
