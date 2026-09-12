@@ -53,60 +53,50 @@ export function scanSilenceSegments(
 
   for (let i = 0; i < sorted.length; i++) {
     const utt = sorted[i];
-    const prevEnd = i === 0 ? 0 : sorted[i - 1].endTime;
-    const currentStart = utt.startTime;
+    const currentStart = Math.max(cursor, utt.startTime);
 
-    // 检查与上一句之间的停顿气口
-    const rawGap = currentStart - prevEnd;
-    if (rawGap >= silenceThresholdSec) {
-      // 施加呼吸缓冲保护：上一句尾部留 tailPadding，当前句头部留 headPadding
-      const safeSilenceStart = Math.min(currentStart, prevEnd + tailPaddingSec);
-      const safeSilenceEnd = Math.max(safeSilenceStart, currentStart - headPaddingSec);
-      const silenceDuration = safeSilenceEnd - safeSilenceStart;
-
-      if (silenceDuration >= 0.25) {
-        segments.push({
-          id: `silence-${i}-${safeSilenceStart.toFixed(2)}`,
-          startTime: Math.round(safeSilenceStart * 100) / 100,
-          endTime: Math.round(safeSilenceEnd * 100) / 100,
-          text: `[气口停顿 ${silenceDuration.toFixed(1)}s]`,
-          isDeleted: true,
-          deleteReason: 'silence',
-          tagLabel: `[气口 ${silenceDuration.toFixed(1)}s]`,
-          confidence: 0.95,
-        });
-      }
+    // 如果光标与当前句之间有间隙，生成静音/间隙片段
+    if (currentStart > cursor + 0.04) {
+      const gap = currentStart - cursor;
+      const isLongSilence = gap >= silenceThresholdSec;
+      segments.push({
+        id: `silence-${i}-${cursor.toFixed(2)}`,
+        startTime: Number(cursor.toFixed(2)),
+        endTime: Number(currentStart.toFixed(2)),
+        text: isLongSilence ? `[停顿气口 ${gap.toFixed(1)}s]` : `[微小停顿 ${gap.toFixed(1)}s]`,
+        isDeleted: isLongSilence,
+        deleteReason: isLongSilence ? 'silence' : undefined,
+        tagLabel: isLongSilence ? `[气口 ${gap.toFixed(1)}s]` : undefined,
+        confidence: isLongSilence ? 0.95 : 0.5,
+      });
     }
 
     // 压入当前有效说话片段
     segments.push({
       id: utt.id || `utt-${i}-${utt.startTime.toFixed(2)}`,
-      startTime: Math.round(utt.startTime * 100) / 100,
-      endTime: Math.round(utt.endTime * 100) / 100,
+      startTime: Number(currentStart.toFixed(2)),
+      endTime: Number(Math.max(currentStart + 0.1, utt.endTime).toFixed(2)),
       text: utt.text.trim(),
       isDeleted: false,
     });
 
-    cursor = utt.endTime;
+    cursor = Math.max(cursor, utt.endTime);
   }
 
   // 检查最后一句与视频结尾之间的停顿
-  if (totalDuration - cursor >= silenceThresholdSec) {
-    const safeSilenceStart = cursor + tailPaddingSec;
-    const safeSilenceEnd = totalDuration;
-    const silenceDuration = safeSilenceEnd - safeSilenceStart;
-    if (silenceDuration >= 0.25) {
-      segments.push({
-        id: `silence-tail-${safeSilenceStart.toFixed(2)}`,
-        startTime: Math.round(safeSilenceStart * 100) / 100,
-        endTime: Math.round(safeSilenceEnd * 100) / 100,
-        text: `[结尾空白 ${silenceDuration.toFixed(1)}s]`,
-        isDeleted: true,
-        deleteReason: 'silence',
-        tagLabel: `[尾部停顿 ${silenceDuration.toFixed(1)}s]`,
-        confidence: 0.98,
-      });
-    }
+  if (totalDuration > cursor + 0.04) {
+    const gap = totalDuration - cursor;
+    const isLongSilence = gap >= silenceThresholdSec;
+    segments.push({
+      id: `silence-tail-${cursor.toFixed(2)}`,
+      startTime: Number(cursor.toFixed(2)),
+      endTime: Number(totalDuration.toFixed(2)),
+      text: isLongSilence ? `[结尾空白 ${gap.toFixed(1)}s]` : `[尾部缓冲 ${gap.toFixed(1)}s]`,
+      isDeleted: isLongSilence,
+      deleteReason: isLongSilence ? 'silence' : undefined,
+      tagLabel: isLongSilence ? `[气口 ${gap.toFixed(1)}s]` : undefined,
+      confidence: 0.98,
+    });
   }
 
   return segments;

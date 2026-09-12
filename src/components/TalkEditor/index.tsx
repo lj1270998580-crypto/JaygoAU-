@@ -210,8 +210,16 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
       setIsTranscribing(false);
     }
 
-    // 兜底：若未联网或无配置，生成测试台词切片供预览体验
-    generateFallbackDemoSegments(file.name);
+    // 兜底：若未联网或 ASR 未配置，保留用户的真实视频轨道供剪辑，绝不强制覆盖测试假文案
+    setSegments([
+      {
+        id: 'seg-init',
+        startTime: 0,
+        endTime: videoDuration > 0 ? videoDuration : 60,
+        text: `${file.name}（可直接使用剃刀分割进行专业剪辑与字幕设置）`,
+        isDeleted: false,
+      },
+    ]);
   };
 
   const generateFallbackDemoSegments = (fileName: string) => {
@@ -274,6 +282,12 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
     } finally {
       setIsAnalyzingNarrative(false);
     }
+  };
+
+  // 恢复所有切片为保留状态
+  const handleRestoreAllSegments = () => {
+    setSegments((prev) => prev.map((s) => ({ ...s, isDeleted: false })));
+    showToast('已恢复全部切片为正常状态！', 'ok');
   };
 
   // 剃刀在当前播放头处剪断切片
@@ -582,7 +596,15 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
                 videoDimensions={videoDimensions}
                 onVideoLoaded={(dim) => {
                   setVideoDimensions({ width: dim.width, height: dim.height });
-                  if (dim.duration && dim.duration > 0) setVideoDuration(dim.duration);
+                  if (dim.duration && dim.duration > 0) {
+                    setVideoDuration(dim.duration);
+                    setSegments((prev) => {
+                      if (prev.length === 1 && prev[0].id === 'seg-init') {
+                        return [{ ...prev[0], endTime: dim.duration }];
+                      }
+                      return prev;
+                    });
+                  }
                 }}
               />
             </div>
@@ -660,6 +682,7 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
             onTrimSegment={handleTrimSegment}
             onBatchDeleteSilences={handleRunSilenceCut}
             onBatchDeleteStumbles={handleRunStumbleClean}
+            onRestoreAllSegments={handleRestoreAllSegments}
             selectedSegmentId={selectedSegmentId}
             onSelectSegment={setSelectedSegmentId}
             subtitles={subtitles}

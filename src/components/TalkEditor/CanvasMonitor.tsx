@@ -10,6 +10,7 @@ import {
   SkipForward,
   Layers,
   Sparkles,
+  Zap,
 } from 'lucide-react';
 import type {
   CanvasConfig,
@@ -51,16 +52,17 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
   onVideoLoaded,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const bgVideoRef = useRef<HTMLVideoElement>(null);
   const [isMuted, setIsMuted] = useState<boolean>(false);
+  // 是否开启「跳过已删片段」试听模式（默认关闭，保证编辑时顺畅拖拽与任意位置监听）
+  const [autoSkipDeleted, setAutoSkipDeleted] = useState<boolean>(false);
 
   // 画布画幅宽高比字符串 (CSS aspect-ratio)
   const aspectCss = canvasConfig.aspectRatio.replace(':', ' / ');
 
-  // 同步外部播放指针
+  // 同步外部播放指针（当拖拽或定位时间轴时响应）
   useEffect(() => {
     if (!videoRef.current) return;
-    if (Math.abs(videoRef.current.currentTime - currentTime) > 0.3) {
+    if (Math.abs(videoRef.current.currentTime - currentTime) > 0.18) {
       videoRef.current.currentTime = currentTime;
     }
   }, [currentTime]);
@@ -70,33 +72,31 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
     if (!videoRef.current) return;
     if (isPlaying && videoRef.current.paused) {
       videoRef.current.play().catch(() => {});
-      if (bgVideoRef.current && bgVideoRef.current.paused) {
-        bgVideoRef.current.play().catch(() => {});
-      }
     } else if (!isPlaying && !videoRef.current.paused) {
       videoRef.current.pause();
-      if (bgVideoRef.current && !bgVideoRef.current.paused) {
-        bgVideoRef.current.pause();
-      }
     }
   }, [isPlaying]);
 
-  // 核心声学与粗剪实时跳过引擎 (Real-time Skip-Cut Engine)
+  // 播放进度更新（节流更新，防止过高频率重绘）
+  const lastUpdateRef = useRef<number>(0);
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
     const cur = videoRef.current.currentTime;
-    onSeek(cur);
 
-    // 检查当前时刻是否处于任何被删除的片段内
-    const activeDeletedSeg = segments.find(
-      (s) => s.isDeleted && cur >= s.startTime && cur < s.endTime
-    );
+    const now = Date.now();
+    if (now - lastUpdateRef.current > 60) {
+      lastUpdateRef.current = now;
+      onSeek(cur);
+    }
 
-    if (activeDeletedSeg) {
-      // 瞬时跳过删除片段，跳转到其结束点
-      videoRef.current.currentTime = activeDeletedSeg.endTime + 0.02;
-      if (bgVideoRef.current) {
-        bgVideoRef.current.currentTime = activeDeletedSeg.endTime + 0.02;
+    // 仅在用户明确开启「精剪跳过试听」且正在播放时才执行跳切
+    if (autoSkipDeleted && isPlaying) {
+      const activeDeletedSeg = segments.find(
+        (s) => s.isDeleted && cur >= s.startTime && cur < s.endTime
+      );
+      if (activeDeletedSeg) {
+        videoRef.current.currentTime = activeDeletedSeg.endTime + 0.02;
+        onSeek(activeDeletedSeg.endTime + 0.02);
       }
     }
   };
@@ -109,22 +109,32 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
   }, [subtitles, currentTime]);
 
   // 计算当前有效保留时长统计
-  const deletedDuration = segments.reduce(
-    (acc, s) => acc + (s.isDeleted ? s.endTime - s.startTime : 0),
-    0
-  );
+  const deletedDuration = useMemo(() => {
+    return segments.reduce(
+      (acc, s) => acc + (s.isDeleted ? s.endTime - s.startTime : 0),
+      0
+    );
+  }, [segments]);
   const preservedDuration = Math.max(0, videoDuration - deletedDuration);
+
+  // 逐帧微调
+  const handleStepFrame = (deltaSec: number) => {
+    if (!videoRef.current) return;
+    const nextTime = Math.max(0, Math.min(videoDuration, videoRef.current.currentTime + deltaSec));
+    videoRef.current.currentTime = nextTime;
+    onSeek(nextTime);
+  };
 
   return (
     <div className="h-full flex flex-col bg-[#0c0d12] relative select-none overflow-hidden">
-      {/* 顶栏：画布画幅比例快速切换药丸栏 */}
-      <div className="h-11 px-4 border-b border-zinc-800/80 bg-[#14151e] flex items-center justify-between shrink-0">
+      {/* 顶栏：画布画幅比例快速切换与试听模式切换 */}
+      <div className="h-10 px-3 border-b border-zinc-800/80 bg-[#14151e] flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-xs text-zinc-400 font-medium flex items-center gap-1">
             <Layers className="w-3.5 h-3.5 text-indigo-400" />
-            <span>画布比例:</span>
+            <span>画幅:</span>
           </span>
-          <div className="flex items-center gap-1 bg-zinc-900/90 p-0.5 rounded-lg border border-zinc-800">
+          <div className="flex items-center gap-0.5 bg-zinc-900/90 p-0.5 rounded-lg border border-zinc-800">
             {(['9:16', '16:9', '1:1', '4:5', '3:4'] as CanvasRatio[]).map((r) => (
               <button
                 key={r}
@@ -142,29 +152,39 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-mono text-emerald-400 font-bold">
-            精剪预览: 自动跳过切除片段
+        {/* 试听跳切模式开关与统计 */}
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setAutoSkipDeleted(!autoSkipDeleted)}
+            className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition flex items-center gap-1 border cursor-pointer ${
+              autoSkipDeleted
+                ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/50 shadow-sm'
+                : 'bg-zinc-900/80 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+            }`}
+            title="开启后，播放时将自动跳过已删除的气口与嘴瓢片段"
+          >
+            <Zap className={`w-3 h-3 ${autoSkipDeleted ? 'text-emerald-400 fill-current' : 'text-zinc-500'}`} />
+            <span>跳过已删试听: {autoSkipDeleted ? '开启' : '关闭'}</span>
+          </button>
+
+          <span className="text-[11px] font-mono text-zinc-400 hidden sm:inline">
+            精剪后: <strong className="text-indigo-400">{preservedDuration.toFixed(1)}s</strong>
+            <span className="text-zinc-600 ml-1">(减{deletedDuration.toFixed(1)}s)</span>
           </span>
         </div>
       </div>
 
       {/* 中间舞台：真实比例画布监视器视窗 */}
-      <div className="flex-1 flex items-center justify-center p-4 min-h-0 overflow-hidden relative">
+      <div className="flex-1 flex items-center justify-center p-3 min-h-0 overflow-hidden relative">
         <div
           style={{ aspectRatio: aspectCss }}
-          className="relative max-h-full max-w-full bg-black rounded-2xl overflow-hidden shadow-2xl border border-zinc-800 flex items-center justify-center group"
+          className="relative max-h-full max-w-full bg-black rounded-xl overflow-hidden shadow-2xl border border-zinc-800 flex items-center justify-center group"
         >
-          {/* 背景层：毛玻璃模糊原片 或 纯色 */}
-          {canvasConfig.backgroundType === 'blur' && videoSrc ? (
-            <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-65">
-              <video
-                ref={bgVideoRef}
-                src={videoSrc}
-                muted
-                className="w-full h-full object-cover filter blur-2xl scale-125 transform"
-              />
-              <div className="absolute inset-0 bg-black/40" />
+          {/* 背景层：高雅毛玻璃氛围暗色渐变 或 纯色背景 */}
+          {canvasConfig.backgroundType === 'blur' ? (
+            <div className="absolute inset-0 overflow-hidden pointer-events-none bg-gradient-to-b from-[#181a24] via-[#0f1017] to-black">
+              <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-transparent to-transparent" />
             </div>
           ) : (
             <div
@@ -173,7 +193,7 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
             />
           )}
 
-          {/* 前景视频主体 (根据缩放比与垂直偏移居中) */}
+          {/* 前景视频主体 (单视频元素渲染，杜绝多重解码卡顿) */}
           <div
             style={{
               transform: `scale(${canvasConfig.videoScale || 1.0}) translateY(${canvasConfig.videoYPercent || 0}%)`,
@@ -214,7 +234,7 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
                 style={{
                   backgroundColor: canvasConfig.topPatch.backgroundColor || 'rgba(0,0,0,0.75)',
                   color: canvasConfig.topPatch.textColor || '#ffffff',
-                  fontSize: `${canvasConfig.topPatch.fontSize || 26}px`,
+                  fontSize: `${canvasConfig.topPatch.fontSize || 24}px`,
                   borderRadius: `${canvasConfig.topPatch.borderRadius || 10}px`,
                   fontWeight: canvasConfig.topPatch.fontWeight || 'bold',
                 }}
@@ -235,7 +255,7 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
                 style={{
                   backgroundColor: canvasConfig.bottomPatch.backgroundColor || 'rgba(0,0,0,0.65)',
                   color: canvasConfig.bottomPatch.textColor || '#d4d4d8',
-                  fontSize: `${canvasConfig.bottomPatch.fontSize || 18}px`,
+                  fontSize: `${canvasConfig.bottomPatch.fontSize || 16}px`,
                   borderRadius: `${canvasConfig.bottomPatch.borderRadius || 8}px`,
                 }}
                 className="px-3 py-1 shadow-lg text-center max-w-[85%] truncate border border-white/5"
@@ -259,131 +279,91 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
                   style={{
                     backgroundColor: subtitleConfig.boxColor || '#fbbf24',
                     color: subtitleConfig.textColor || '#000000',
-                    fontSize: `${subtitleConfig.fontSize || 22}px`,
+                    fontSize: `${subtitleConfig.fontSize || 24}px`,
+                    borderRadius: '8px',
                   }}
-                  className="px-3 py-1 rounded-lg font-black shadow-2xl max-w-[90%]"
-                >
-                  {activeSubtitle.text}
-                </div>
-              ) : subtitleConfig.templateId === 'viral_double' ? (
-                /* 爆款双行强化模版 */
-                <div
-                  style={{
-                    fontSize: `${subtitleConfig.fontSize || 26}px`,
-                    color: subtitleConfig.textColor || '#ffffff',
-                    WebkitTextStroke: `${subtitleConfig.strokeWidth || 2.5}px ${subtitleConfig.strokeColor || '#000000'}`,
-                    textShadow: '0 3px 6px rgba(0,0,0,0.9)',
-                  }}
-                  className="font-black tracking-wide max-w-[90%]"
+                  className="px-3 py-1 font-bold shadow-lg"
                 >
                   {activeSubtitle.text}
                 </div>
               ) : subtitleConfig.templateId === 'karaoke' ? (
-                /* 卡拉OK逐词点亮模版 */
+                /* 卡拉OK渐变点亮模版 */
                 <div
                   style={{
-                    fontSize: `${subtitleConfig.fontSize || 24}px`,
-                    color: subtitleConfig.highlightColor || '#38bdf8',
-                    WebkitTextStroke: `2px #000000`,
-                    textShadow: '0 2px 5px rgba(0,0,0,0.8)',
+                    fontSize: `${subtitleConfig.fontSize || 26}px`,
+                    color: subtitleConfig.textColor || '#ffffff',
+                    WebkitTextStroke: `${subtitleConfig.strokeWidth || 2}px ${
+                      subtitleConfig.strokeColor || '#000000'
+                    }`,
                   }}
-                  className="font-black max-w-[90%]"
+                  className="font-extrabold tracking-wide drop-shadow-md text-amber-300"
+                >
+                  {activeSubtitle.text}
+                </div>
+              ) : subtitleConfig.templateId === 'clean_white' ? (
+                /* 极简无描边白字 */
+                <div
+                  style={{
+                    fontSize: `${subtitleConfig.fontSize || 22}px`,
+                    color: '#ffffff',
+                  }}
+                  className="font-medium tracking-wider drop-shadow"
                 >
                   {activeSubtitle.text}
                 </div>
               ) : (
-                /* 极简白字黑边模版 */
+                /* 默认：爆款双行醒目模版 */
                 <div
                   style={{
-                    fontSize: `${subtitleConfig.fontSize || 24}px`,
+                    fontSize: `${subtitleConfig.fontSize || 26}px`,
                     color: subtitleConfig.textColor || '#ffffff',
-                    WebkitTextStroke: `${subtitleConfig.strokeWidth || 2}px #000000`,
-                    textShadow: '0 2px 4px rgba(0,0,0,0.8)',
+                    WebkitTextStroke: `${subtitleConfig.strokeWidth || 2}px ${
+                      subtitleConfig.strokeColor || '#000000'
+                    }`,
                   }}
-                  className="font-bold max-w-[90%]"
+                  className="font-black tracking-wide drop-shadow-lg"
                 >
                   {activeSubtitle.text}
                 </div>
               )}
-
-              {/* 双语副字幕 */}
-              {subtitleConfig.templateId === 'bilingual' && activeSubtitle.secondaryText && (
-                <div className="text-xs text-zinc-300 italic mt-0.5 font-sans drop-shadow-md">
-                  {activeSubtitle.secondaryText}
-                </div>
-              )}
             </div>
           )}
-
-          {/* 播放悬浮遮罩控制 */}
-          <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-            <button
-              type="button"
-              onClick={onTogglePlay}
-              className="w-12 h-12 rounded-full bg-indigo-600/90 hover:bg-indigo-500 text-white flex items-center justify-center shadow-2xl transition pointer-events-auto cursor-pointer"
-            >
-              {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
-            </button>
-          </div>
         </div>
       </div>
 
-      {/* 底部控制台：播放进度条与时间码 */}
-      <div className="h-12 px-4 border-t border-zinc-800/80 bg-[#14151e] flex items-center justify-between gap-4 shrink-0 font-mono">
-        <div className="flex items-center gap-2 shrink-0">
+      {/* 底部简易控制辅助栏 (微调入出点、逐帧与声音) */}
+      <div className="h-8 px-4 bg-[#111218] border-t border-zinc-800/80 flex items-center justify-between text-zinc-400 text-xs shrink-0">
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={onTogglePlay}
-            className="w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white flex items-center justify-center transition cursor-pointer"
+            onClick={() => handleStepFrame(-1 / 30)}
+            className="px-1.5 py-0.5 rounded hover:bg-zinc-800 text-[10.5px] text-zinc-400 hover:text-zinc-200 transition"
+            title="后退一帧"
           >
-            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+            -1帧
           </button>
           <button
             type="button"
-            onClick={() => onSeek(Math.max(0, currentTime - 5))}
-            className="p-1.5 text-zinc-400 hover:text-white transition cursor-pointer"
-            title="后退 5 秒"
+            onClick={() => handleStepFrame(1 / 30)}
+            className="px-1.5 py-0.5 rounded hover:bg-zinc-800 text-[10.5px] text-zinc-400 hover:text-zinc-200 transition"
+            title="前进一帧"
           >
-            <SkipBack className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => onSeek(Math.min(videoDuration, currentTime + 5))}
-            className="p-1.5 text-zinc-400 hover:text-white transition cursor-pointer"
-            title="前进 5 秒"
-          >
-            <SkipForward className="w-3.5 h-3.5" />
+            +1帧
           </button>
         </div>
 
-        {/* 极简全局时间码显示 */}
-        <div className="flex-1 flex items-center gap-3 text-xs">
-          <span className="text-white font-bold">
-            {Math.floor(currentTime / 60)}:{String(Math.floor(currentTime % 60)).padStart(2, '0')}.
-            {String(Math.floor((currentTime % 1) * 10)).padStart(1, '0')}
-          </span>
-          <span className="text-zinc-600">/</span>
-          <span className="text-emerald-400" title="剪辑后实际时长">
-            精剪 {Math.floor(preservedDuration / 60)}:
-            {String(Math.floor(preservedDuration % 60)).padStart(2, '0')}
-          </span>
-          <span className="text-zinc-500 text-[10px]" title="原片总长">
-            (原 {Math.floor(videoDuration / 60)}:
-            {String(Math.floor(videoDuration % 60)).padStart(2, '0')})
-          </span>
-        </div>
-
-        {/* 静音开关 */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => setIsMuted(!isMuted)}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-white transition cursor-pointer"
+            className="p-1 hover:text-white transition cursor-pointer"
+            title={isMuted ? '取消静音' : '静音'}
           >
-            {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
+            {isMuted ? <VolumeX className="w-3.5 h-3.5 text-rose-400" /> : <Volume2 className="w-3.5 h-3.5" />}
           </button>
         </div>
       </div>
     </div>
   );
 };
+export default CanvasMonitor;

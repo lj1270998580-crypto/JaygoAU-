@@ -10,8 +10,8 @@
 
 <p align="center">
   <a href="https://ailabing.cn/jaygo-au.html">官方网站</a> •
-  <a href="https://github.com/lj1270998580-crypto/JaygoAU-/releases/latest">GitHub Releases 下载 (v0.7.33)</a> •
-  <a href="https://ailabing.cn/jaygo-au/updates/Jaygo.AU.Setup.0.7.33.exe">镜像高速下载</a> •
+  <a href="https://github.com/lj1270998580-crypto/JaygoAU-/releases/latest">GitHub Releases 下载 (v0.7.34)</a> •
+  <a href="https://ailabing.cn/jaygo-au/updates/Jaygo.AU.Setup.0.7.34.exe">镜像高速下载</a> •
   <a href="https://github.com/lj1270998580-crypto/JaygoAU-">GitHub 仓库</a>
 </p>
 
