@@ -30,6 +30,7 @@ import { TranscriptCutter } from './TranscriptCutter';
 import { CanvasMonitor } from './CanvasMonitor';
 import { CanvasSettingsPanel } from './CanvasSettingsPanel';
 import { SubtitleEditorPanel } from './SubtitleEditorPanel';
+import { TalkTimeline } from './TalkTimeline';
 import type { ModelHubSettings } from '../../lib/modelHubTypes';
 
 interface TalkEditorProps {
@@ -61,6 +62,9 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
   // 核心剪辑切片与字幕列表
   const [segments, setSegments] = useState<CutSegment[]>([]);
   const [subtitles, setSubtitles] = useState<SubtitleItem[]>([]);
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
+  const [selectedSubtitleId, setSelectedSubtitleId] = useState<string | null>(null);
+
   const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
   const [isAnalyzingNarrative, setIsAnalyzingNarrative] = useState<boolean>(false);
   const [narrativeAnalysis, setNarrativeAnalysis] = useState<NarrativeAnalysisResult | null>(null);
@@ -106,8 +110,46 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
     yPercent: 0.18,
   });
 
-  // 右侧栏活动 Tab
-  const [activeRightTab, setActiveRightTab] = useState<'canvas' | 'subtitle'>('canvas');
+  // 右侧属性面板活动 Tab
+  const [activeRightTab, setActiveRightTab] = useState<'canvas' | 'subtitle'>('subtitle');
+
+  // 时间轴面板高度调节 (180px ~ 480px, 默认 260px)
+  const [timelineHeight, setTimelineHeight] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('jaygo_talk_timeline_h');
+      if (saved) {
+        const val = parseInt(saved, 10);
+        if (!isNaN(val) && val >= 180 && val <= 480) return val;
+      }
+    } catch (_) {}
+    return 260;
+  });
+  const [isResizingTimeline, setIsResizingTimeline] = useState(false);
+
+  // 监听水平分割条上下拖动
+  useEffect(() => {
+    if (!isResizingTimeline) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const windowHeight = window.innerHeight;
+      const newHeight = Math.max(180, Math.min(480, windowHeight - e.clientY));
+      setTimelineHeight(newHeight);
+      try {
+        localStorage.setItem('jaygo_talk_timeline_h', String(newHeight));
+      } catch (_) {}
+    };
+
+    const handleMouseUp = () => {
+      setIsResizingTimeline(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizingTimeline]);
 
   // 文件导入逻辑
   const handleLoadVideoFile = async (file: File) => {
@@ -234,6 +276,66 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
     }
   };
 
+  // 剃刀在当前播放头处剪断切片
+  const handleSplitSegmentAtPlayhead = () => {
+    if (!segments.length) return;
+    const splitTime = currentTime;
+    const targetIdx = segments.findIndex(
+      (s) => splitTime > s.startTime + 0.1 && splitTime < s.endTime - 0.1
+    );
+    if (targetIdx === -1) {
+      showToast('当前播放头位置无法分割（距离片段边界太近或不在有效片段内）', 'info');
+      return;
+    }
+    const target = segments[targetIdx];
+    const part1: CutSegment = {
+      ...target,
+      endTime: Number(splitTime.toFixed(2)),
+    };
+    const part2: CutSegment = {
+      ...target,
+      id: `seg-split-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      startTime: Number(splitTime.toFixed(2)),
+    };
+
+    const nextSegs = [...segments];
+    nextSegs.splice(targetIdx, 1, part1, part2);
+    setSegments(nextSegs);
+    setSelectedSegmentId(part2.id);
+    showToast('✂️ 已在当前播放头处完成剃刀分割！', 'ok');
+  };
+
+  // 拉伸微调切片入出点
+  const handleTrimSegment = (id: string, newStart: number, newEnd: number) => {
+    setSegments((prev) =>
+      prev.map((s) =>
+        s.id === id
+          ? { ...s, startTime: Number(newStart.toFixed(2)), endTime: Number(newEnd.toFixed(2)) }
+          : s
+      )
+    );
+  };
+
+  // 切换切片删除状态
+  const handleToggleSegmentDelete = (id: string) => {
+    setSegments((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, isDeleted: !s.isDeleted } : s))
+    );
+  };
+
+  // 更新指定字幕属性
+  const handleUpdateSubtitle = (id: string, updates: Partial<SubtitleItem>) => {
+    setSubtitles((prev) =>
+      prev.map((sub) => (sub.id === id ? { ...sub, ...updates } : sub))
+    );
+  };
+
+  // 选中字幕并自动跳转与激活检查器
+  const handleSelectSubtitle = (id: string) => {
+    setSelectedSubtitleId(id);
+    setActiveRightTab('subtitle');
+  };
+
   // 🌟 跨模块联动核心：一键推送到 AI 视频配图
   const handlePushToIllustrator = () => {
     if (!videoSrc) {
@@ -303,189 +405,271 @@ export const TalkEditor: React.FC<TalkEditorProps> = ({
   return (
     <div className="h-full flex flex-col bg-[#0f1016] select-none overflow-hidden">
       {/* 顶部总控导航条 */}
-      <div className="h-13 px-4 border-b border-zinc-800 bg-[#14151f] flex items-center justify-between shrink-0">
+      <div className="h-12 border-b border-zinc-800/80 px-4 flex items-center justify-between shrink-0 bg-[#13141c]/90 backdrop-blur z-20">
+        {/* 左侧：模块标题与素材状态 */}
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
-            <Scissors className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-white tracking-wide">
-                AI 口播智能剪辑工坊
-              </h2>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-medium border border-purple-500/30">
-                声学防吞字 · 篇章完整性保障
-              </span>
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow">
+              <Scissors className="w-4 h-4" />
             </div>
-            <p className="text-[10px] text-zinc-400 mt-0.5">
-              一键去气口 · 删跑题闲话 · 9:16贴片横转竖 · 剪完直通视频插图
-            </p>
+            <div>
+              <div className="text-sm font-bold text-white flex items-center gap-1.5">
+                <span>AI 口播专业剪辑</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  NLE 专业时间轴
+                </span>
+              </div>
+              <div className="text-[11px] text-zinc-400 truncate max-w-[260px]">
+                {videoTitle || '未载入素材 · 请点击右侧导入音视频'}
+              </div>
+            </div>
           </div>
-        </div>
 
-        {/* 顶部操作按钮组 */}
-        <div className="flex items-center gap-2">
-          {/* 上传本地视频按钮 */}
-          <label className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition cursor-pointer flex items-center gap-1.5 border border-zinc-700/60 shadow-sm">
-            <Upload className="w-3.5 h-3.5 text-zinc-400" />
-            <span>选择素材</span>
+          {/* 载入素材按钮 */}
+          <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium cursor-pointer transition border border-zinc-700/60 shadow-sm ml-2">
+            <Upload className="w-3.5 h-3.5 text-indigo-400" />
+            <span>导入音视频</span>
             <input
               type="file"
               accept="video/*,audio/*"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleLoadVideoFile(f);
-              }}
               className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleLoadVideoFile(file);
+              }}
             />
           </label>
+        </div>
 
-          {/* 🌟 核心跨模块联动：一键推送到 AI 视频配图 */}
-          <button
-            type="button"
-            onClick={handlePushToIllustrator}
-            disabled={!videoSrc}
-            className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-md shadow-indigo-500/20 disabled:opacity-40"
-            title="将剪辑后的视频与清洗好的高密度文案一键推送到 AI 视频配图工作台"
-          >
-            <span>🚀 推送到视频插图</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
+        {/* 中间：AI 自动化快捷指令胶囊 */}
+        {videoSrc && (
+          <div className="flex items-center gap-1.5 bg-zinc-900/80 p-1 rounded-xl border border-zinc-800/90 text-xs shadow-inner">
+            <button
+              type="button"
+              onClick={handleRunSilenceCut}
+              className="px-2.5 py-1 rounded-lg hover:bg-zinc-800 text-zinc-300 hover:text-white transition flex items-center gap-1 cursor-pointer"
+              title="一键切除所有 ≥300ms 沉默停顿"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>去气口</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleRunFillerClean}
+              className="px-2.5 py-1 rounded-lg hover:bg-zinc-800 text-zinc-300 hover:text-white transition flex items-center gap-1 cursor-pointer"
+              title="标记并切除常见语气词（呃、啊、然后、就是说）"
+            >
+              <FileText className="w-3.5 h-3.5 text-emerald-400" />
+              <span>清语气词</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleRunStumbleClean}
+              className="px-2.5 py-1 rounded-lg hover:bg-zinc-800 text-zinc-300 hover:text-white transition flex items-center gap-1 cursor-pointer"
+              title="识别口误与反复重读语句"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-rose-400" />
+              <span>清嘴瓢</span>
+            </button>
+          </div>
+        )}
 
-          {/* 导出剪映草稿 */}
-          <button
-            type="button"
-            onClick={handleExportJianyingDraft}
-            disabled={!videoSrc}
-            className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border border-zinc-700 disabled:opacity-40"
-            title="生成官方剪映工程，包含切片主轨、贴片与字幕轨"
-          >
-            <Film className="w-3.5 h-3.5 text-purple-400" />
-            <span>导出剪映草稿</span>
-          </button>
+        {/* 右侧：导出与跨模块一键推送 */}
+        <div className="flex items-center gap-2">
+          {videoSrc && (
+            <>
+              <button
+                type="button"
+                onClick={handleExportJianyingDraft}
+                className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white text-xs font-medium transition cursor-pointer flex items-center gap-1.5 border border-zinc-700/60"
+                title="导出标准剪映 Pro 草稿工程（包含切片轨、贴片轨与时间对齐字幕轨）"
+              >
+                <Film className="w-3.5 h-3.5 text-cyan-400" />
+                <span>导出剪映工程</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handlePushToIllustrator}
+                className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold transition shadow-lg shadow-indigo-600/30 flex items-center gap-1.5 cursor-pointer"
+                title="将精修视频与高密度台词一键推送至 AI 视频配图"
+              >
+                <span>🚀 推送到视频插图</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* 主体三栏布局 (防挤压自适应布局) */}
+      {/* 主体工作区 */}
       {!videoSrc ? (
-        /* 未上传视频时的精美引导空状态 */
-        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none">
-          <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-indigo-500/20 via-purple-500/20 to-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 mb-4 shadow-xl">
-            <Film className="w-8 h-8" />
+        /* 空状态提示与快速引导 */
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[#0d0e14]">
+          <div className="w-20 h-20 rounded-2xl bg-indigo-950/40 border border-indigo-500/30 flex items-center justify-center text-indigo-400 mb-4 shadow-xl">
+            <Film className="w-10 h-10 stroke-1" />
           </div>
-          <h3 className="text-base font-bold text-white mb-2">
-            载入您的口播视频，开启 AI 智能精剪
-          </h3>
-          <p className="text-xs text-zinc-400 max-w-md leading-relaxed mb-6">
-            支持长视频拖拽导入。AI 将自动毫秒级识别语音停顿（100ms
-            呼吸保护绝不吃字）、语气词与重录；并通过大模型深度分析篇章主线，剔除跑题闲聊，保全完整叙事。
+          <h2 className="text-xl font-bold text-white mb-2">欢迎使用 AI 口播专业剪辑</h2>
+          <p className="text-zinc-400 text-sm max-w-md mb-6 leading-relaxed">
+            导入录制好的口播视频，系统将自动扫描声学停顿气口、识别嘴瓢重录，并通过大模型提炼宏观篇章。
+            下方配备全宽专业多轨时间轴，支持剃刀切割、拉伸入出点、多画幅贴片与 5 款爆款字幕模版！
           </p>
-          <label className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition cursor-pointer shadow-lg shadow-indigo-600/30 flex items-center gap-2">
-            <Upload className="w-4 h-4" />
-            <span>选择本地口播素材开始</span>
-            <input
-              type="file"
-              accept="video/*,audio/*"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleLoadVideoFile(f);
-              }}
-              className="hidden"
-            />
-          </label>
+
+          <div className="flex items-center gap-3">
+            <label className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm cursor-pointer transition shadow-lg shadow-indigo-600/30 flex items-center gap-2">
+              <Upload className="w-4 h-4" />
+              <span>选择本地视频开始剪辑</span>
+              <input
+                type="file"
+                accept="video/*,audio/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleLoadVideoFile(file);
+                }}
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={() => generateFallbackDemoSegments('口播演示示例.mp4')}
+              className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium text-sm transition"
+            >
+              载入演示示例体验
+            </button>
+          </div>
         </div>
       ) : (
-        /* 三栏工作台主体 */
-        <div className="flex-1 flex min-h-0 overflow-hidden relative">
-          {/* 1. 左栏：文稿与智能剪辑流 (min 340px, max 440px) */}
-          <div className="w-[360px] xl:w-[400px] h-full shrink-0 flex flex-col overflow-hidden">
-            <TranscriptCutter
-              segments={segments}
-              onUpdateSegments={setSegments}
-              currentTime={currentTime}
-              onSeek={setCurrentTime}
-              onRunSilenceCut={handleRunSilenceCut}
-              onRunFillerClean={handleRunFillerClean}
-              onRunStumbleClean={handleRunStumbleClean}
-              onRunNarrativePruning={handleRunNarrativePruning}
-              isAnalyzingNarrative={isAnalyzingNarrative}
-              narrativeAnalysis={narrativeAnalysis}
-            />
-          </div>
+        <div className="flex-1 flex flex-col min-h-0 relative overflow-hidden">
+          {/* 上半工作区：三栏布局 (左栏文稿 + 中栏监视器 + 右栏属性检查器) */}
+          <div className="flex-1 flex min-h-0 relative overflow-hidden">
+            {/* 左栏：文稿修订剪辑区 (width: 320px) */}
+            <div className="w-80 border-r border-zinc-800/80 bg-[#111218] flex flex-col shrink-0 min-h-0">
+              <TranscriptCutter
+                segments={segments}
+                onUpdateSegments={setSegments}
+                currentTime={currentTime}
+                onSeek={(time) => {
+                  setCurrentTime(time);
+                  const seg = segments.find((s) => time >= s.startTime && time <= s.endTime);
+                  if (seg) setSelectedSegmentId(seg.id);
+                }}
+                onRunSilenceCut={handleRunSilenceCut}
+                onRunFillerClean={handleRunFillerClean}
+                onRunStumbleClean={handleRunStumbleClean}
+                onRunNarrativePruning={handleRunNarrativePruning}
+                isAnalyzingNarrative={isAnalyzingNarrative}
+                narrativeAnalysis={narrativeAnalysis}
+              />
+            </div>
 
-          {/* 2. 中栏：画布监视器视窗 (flex-1 弹性延伸) */}
-          <div className="flex-1 h-full min-w-[400px] flex flex-col overflow-hidden">
-            <CanvasMonitor
-              videoSrc={videoSrc}
-              videoDuration={videoDuration}
-              currentTime={currentTime}
-              onSeek={setCurrentTime}
-              isPlaying={isPlaying}
-              onTogglePlay={() => setIsPlaying(!isPlaying)}
-              canvasConfig={canvasConfig}
-              onChangeCanvasRatio={(r) => setCanvasConfig({ ...canvasConfig, aspectRatio: r })}
-              subtitleConfig={subtitleConfig}
-              subtitles={subtitles}
-              segments={segments}
-              videoDimensions={videoDimensions}
-              onVideoLoaded={(dim) => {
-                setVideoDimensions({ width: dim.width, height: dim.height });
-                if (dim.duration && (!videoDuration || videoDuration <= 1)) {
-                  setVideoDuration(dim.duration);
+            {/* 中栏：多画幅实时跳切监视器 (自适应 flex-1) */}
+            <div className="flex-1 min-w-0 bg-[#0a0b0f] flex flex-col min-h-0 relative">
+              <CanvasMonitor
+                videoSrc={videoSrc}
+                videoDuration={videoDuration}
+                currentTime={currentTime}
+                onSeek={setCurrentTime}
+                isPlaying={isPlaying}
+                onTogglePlay={() => setIsPlaying(!isPlaying)}
+                canvasConfig={canvasConfig}
+                onChangeCanvasRatio={(ratio) =>
+                  setCanvasConfig((prev) => ({ ...prev, aspectRatio: ratio }))
                 }
-              }}
-            />
-          </div>
-
-          {/* 3. 右栏：画布贴片与字幕属性工作台 (固定 350px 防挤压) */}
-          <div className="w-[350px] h-full bg-[#111218] border-l border-zinc-800/80 flex flex-col shrink-0 overflow-hidden">
-            {/* 顶栏 Tab 切换 */}
-            <div className="h-10 px-3 border-b border-zinc-800/80 bg-[#14151f] flex items-center justify-around shrink-0 text-xs">
-              <button
-                type="button"
-                onClick={() => setActiveRightTab('canvas')}
-                className={`flex-1 py-1.5 text-center font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
-                  activeRightTab === 'canvas'
-                    ? 'text-indigo-400 border-b-2 border-indigo-500'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>画布与贴片</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveRightTab('subtitle')}
-                className={`flex-1 py-1.5 text-center font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
-                  activeRightTab === 'subtitle'
-                    ? 'text-indigo-400 border-b-2 border-indigo-500'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <Type className="w-3.5 h-3.5" />
-                <span>字幕模版与改字</span>
-              </button>
+                subtitleConfig={subtitleConfig}
+                subtitles={subtitles}
+                segments={segments}
+                videoDimensions={videoDimensions}
+                onVideoLoaded={(dim) => {
+                  setVideoDimensions({ width: dim.width, height: dim.height });
+                  if (dim.duration && dim.duration > 0) setVideoDuration(dim.duration);
+                }}
+              />
             </div>
 
-            {/* 右栏内容 */}
-            <div className="flex-1 min-h-0 overflow-hidden">
-              {activeRightTab === 'canvas' ? (
-                <CanvasSettingsPanel
-                  config={canvasConfig}
-                  onChangeConfig={setCanvasConfig}
-                />
-              ) : (
-                <SubtitleEditorPanel
-                  subtitles={subtitles}
-                  onChangeSubtitles={setSubtitles}
-                  config={subtitleConfig}
-                  onChangeConfig={setSubtitleConfig}
-                  currentTime={currentTime}
-                  onSeek={setCurrentTime}
-                />
-              )}
+            {/* 右栏：属性检查器（🌟 用户强调：字幕设置与模版、画布与贴片全功能） (width: 340px) */}
+            <div className="w-84 border-l border-zinc-800/80 bg-[#111218] flex flex-col shrink-0 min-h-0">
+              {/* 顶部 Tab 切换 */}
+              <div className="h-10 border-b border-zinc-800 flex items-center px-2 shrink-0 bg-[#13141c]">
+                <button
+                  type="button"
+                  onClick={() => setActiveRightTab('subtitle')}
+                  className={`flex-1 py-1.5 text-xs font-bold transition rounded-md flex items-center justify-center gap-1.5 cursor-pointer ${
+                    activeRightTab === 'subtitle'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <Type className="w-3.5 h-3.5 text-amber-400" />
+                  <span>字幕设置与模版</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveRightTab('canvas')}
+                  className={`flex-1 py-1.5 text-xs font-bold transition rounded-md flex items-center justify-center gap-1.5 cursor-pointer ${
+                    activeRightTab === 'canvas'
+                      ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <Sliders className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>画布与上下贴片</span>
+                </button>
+              </div>
+
+              {/* 属性检查器内容区 */}
+              <div className="flex-1 min-h-0 overflow-hidden">
+                {activeRightTab === 'subtitle' ? (
+                  <SubtitleEditorPanel
+                    subtitles={subtitles}
+                    onChangeSubtitles={setSubtitles}
+                    config={subtitleConfig}
+                    onChangeConfig={setSubtitleConfig}
+                    currentTime={currentTime}
+                    onSeek={setCurrentTime}
+                  />
+                ) : (
+                  <CanvasSettingsPanel
+                    config={canvasConfig}
+                    onChangeConfig={setCanvasConfig}
+                  />
+                )}
+              </div>
             </div>
           </div>
+
+          {/* 水平拖拽分割条 (上下自由拖拽调节时间轴高度) */}
+          <div
+            onMouseDown={() => setIsResizingTimeline(true)}
+            className="h-2 bg-zinc-950 hover:bg-indigo-600/70 cursor-row-resize transition-colors shrink-0 flex items-center justify-center group border-y border-zinc-800/80"
+            title="上下拖拽调整专业时间轴高度 (180px ~ 480px)"
+          >
+            <div className="w-10 h-1 bg-zinc-700 group-hover:bg-white rounded-full transition shadow" />
+          </div>
+
+          {/* 下半工作区：专业多轨时间轴 */}
+          <TalkTimeline
+            duration={videoDuration}
+            currentTime={currentTime}
+            onSeek={setCurrentTime}
+            isPlaying={isPlaying}
+            onTogglePlay={() => setIsPlaying(!isPlaying)}
+            segments={segments}
+            onToggleSegmentDelete={handleToggleSegmentDelete}
+            onSplitSegmentAtPlayhead={handleSplitSegmentAtPlayhead}
+            onTrimSegment={handleTrimSegment}
+            onBatchDeleteSilences={handleRunSilenceCut}
+            onBatchDeleteStumbles={handleRunStumbleClean}
+            selectedSegmentId={selectedSegmentId}
+            onSelectSegment={setSelectedSegmentId}
+            subtitles={subtitles}
+            onUpdateSubtitle={handleUpdateSubtitle}
+            onSelectSubtitle={handleSelectSubtitle}
+            selectedSubtitleId={selectedSubtitleId}
+            canvasConfig={canvasConfig}
+            videoSrc={videoSrc}
+            height={timelineHeight}
+          />
         </div>
       )}
     </div>
