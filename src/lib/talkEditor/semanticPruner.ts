@@ -37,29 +37,65 @@ function calculateTextSimilarity(str1: string, str2: string): number {
 }
 
 /**
- * 启发式检测嘴瓢、忘词与相邻重复录制
+ * 启发式检测嘴瓢、忘词与相邻重复录制 (类似 Gling.ai 多轮重录分组)
  */
 export function detectRetakeAndStumbles(segments: CutSegment[]): CutSegment[] {
   const result = [...segments];
+  let currentGroupId = 1;
 
-  for (let i = 0; i < result.length - 1; i++) {
+  let i = 0;
+  while (i < result.length) {
     const cur = result[i];
-    const next = result[i + 1];
+    if (cur.deleteReason === 'silence') {
+      i++;
+      continue;
+    }
 
-    if (cur.isDeleted || next.isDeleted) continue;
-    if (cur.deleteReason === 'silence' || next.deleteReason === 'silence') continue;
+    // 寻找后续是否有重录的连续句子 (最多向前探索 3 句)
+    let j = i + 1;
+    const groupIndices = [i];
 
-    // 比对当前句与下一句的相似度
-    const sim = calculateTextSimilarity(cur.text, next.text);
-    // 如果后一句包含了前一句的大部分词汇，且前一句更短（典型嘴瓢重读），或者相似度大于 0.65
-    if (sim >= 0.65 || (cur.text.length < next.text.length && next.text.includes(cur.text.slice(0, 4)))) {
-      result[i] = {
-        ...cur,
-        isDeleted: true,
-        deleteReason: 'stumble',
-        tagLabel: '[疑似重录嘴瓢]',
-        confidence: Math.max(0.85, sim),
-      };
+    while (j < result.length && j <= i + 4) {
+      const candidate = result[j];
+      if (candidate.deleteReason === 'silence') {
+        j++;
+        continue;
+      }
+
+      const sim = calculateTextSimilarity(cur.text, candidate.text);
+      const isPrefixMatch =
+        cur.text.length >= 3 &&
+        candidate.text.length >= 3 &&
+        (candidate.text.startsWith(cur.text.slice(0, 4)) || cur.text.startsWith(candidate.text.slice(0, 4)));
+
+      if (sim >= 0.55 || isPrefixMatch) {
+        groupIndices.push(j);
+        j++;
+      } else {
+        break;
+      }
+    }
+
+    if (groupIndices.length > 1) {
+      // 命中多次重录！前序所有版本自动划删除线，仅保留最后一次完整录制
+      const totalTakes = groupIndices.length;
+      for (let t = 0; t < totalTakes; t++) {
+        const idx = groupIndices[t];
+        const isLast = t === totalTakes - 1;
+        result[idx] = {
+          ...result[idx],
+          takeGroup: currentGroupId,
+          takeIndex: t + 1,
+          isDeleted: !isLast,
+          deleteReason: isLast ? undefined : 'stumble',
+          tagLabel: isLast ? `[保留·第${t + 1}遍]` : `[重录·第${t + 1}遍]`,
+          confidence: 0.9,
+        };
+      }
+      currentGroupId++;
+      i = groupIndices[groupIndices.length - 1] + 1;
+    } else {
+      i++;
     }
   }
 

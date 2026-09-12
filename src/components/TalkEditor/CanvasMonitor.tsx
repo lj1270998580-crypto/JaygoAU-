@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useMemo } from 'react';
+import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import {
   Play,
   Pause,
@@ -52,20 +52,22 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
   onVideoLoaded,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   // 是否开启「跳过已删片段」试听模式（默认关闭，保证编辑时顺畅拖拽与任意位置监听）
   const [autoSkipDeleted, setAutoSkipDeleted] = useState<boolean>(false);
+  const [isScrubbing, setIsScrubbing] = useState<boolean>(false);
 
   // 画布画幅宽高比字符串 (CSS aspect-ratio)
   const aspectCss = canvasConfig.aspectRatio.replace(':', ' / ');
 
-  // 同步外部播放指针（当拖拽或定位时间轴时响应）
+  // 同步外部播放指针
   useEffect(() => {
-    if (!videoRef.current) return;
+    if (!videoRef.current || isScrubbing) return;
     if (Math.abs(videoRef.current.currentTime - currentTime) > 0.18) {
       videoRef.current.currentTime = currentTime;
     }
-  }, [currentTime]);
+  }, [currentTime, isScrubbing]);
 
   // 同步播放/暂停状态
   useEffect(() => {
@@ -77,14 +79,14 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
     }
   }, [isPlaying]);
 
-  // 播放进度更新（节流更新，防止过高频率重绘）
+  // 播放进度更新（节流 50ms）
   const lastUpdateRef = useRef<number>(0);
   const handleTimeUpdate = () => {
-    if (!videoRef.current) return;
+    if (!videoRef.current || isScrubbing) return;
     const cur = videoRef.current.currentTime;
 
     const now = Date.now();
-    if (now - lastUpdateRef.current > 60) {
+    if (now - lastUpdateRef.current > 50) {
       lastUpdateRef.current = now;
       onSeek(cur);
     }
@@ -95,20 +97,91 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
         (s) => s.isDeleted && cur >= s.startTime && cur < s.endTime
       );
       if (activeDeletedSeg) {
-        videoRef.current.currentTime = activeDeletedSeg.endTime + 0.02;
-        onSeek(activeDeletedSeg.endTime + 0.02);
+        const nextTime = activeDeletedSeg.endTime + 0.02;
+        videoRef.current.currentTime = nextTime;
+        onSeek(nextTime);
       }
     }
   };
 
-  // 获取当前正在朗读的字幕
+  // 全局播放快捷键 (Space, J/K/L, Left/Right)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 避免在 input/textarea 输入时误触快捷键
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        onTogglePlay();
+      } else if (e.code === 'KeyK') {
+        e.preventDefault();
+        onTogglePlay();
+      } else if (e.code === 'KeyJ' || e.code === 'ArrowLeft') {
+        e.preventDefault();
+        const delta = e.shiftKey ? -5 : -1.5;
+        const nextTime = Math.max(0, currentTime + delta);
+        if (videoRef.current) videoRef.current.currentTime = nextTime;
+        onSeek(nextTime);
+      } else if (e.code === 'KeyL' || e.code === 'ArrowRight') {
+        e.preventDefault();
+        const delta = e.shiftKey ? 5 : 1.5;
+        const nextTime = Math.min(videoDuration, currentTime + delta);
+        if (videoRef.current) videoRef.current.currentTime = nextTime;
+        onSeek(nextTime);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentTime, videoDuration, onTogglePlay, onSeek]);
+
+  // 单轨波形拖拽/点击 Scrubbing 逻辑
+  const seekByClientX = useCallback(
+    (clientX: number) => {
+      if (!trackRef.current || videoDuration <= 0) return;
+      const rect = trackRef.current.getBoundingClientRect();
+      const progress = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const targetTime = progress * videoDuration;
+      if (videoRef.current) videoRef.current.currentTime = targetTime;
+      onSeek(targetTime);
+    },
+    [videoDuration, onSeek]
+  );
+
+  const handleTrackMouseDown = (e: React.MouseEvent) => {
+    setIsScrubbing(true);
+    seekByClientX(e.clientX);
+
+    let rafId: number | null = null;
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        seekByClientX(moveEvent.clientX);
+      });
+    };
+
+    const handleMouseUp = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      setIsScrubbing(false);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  // 获取当前朗读字幕
   const activeSubtitle = useMemo(() => {
     return subtitles.find(
       (sub) => currentTime >= sub.startTime && currentTime <= sub.endTime
     );
   }, [subtitles, currentTime]);
 
-  // 计算当前有效保留时长统计
+  // 时长统计
   const deletedDuration = useMemo(() => {
     return segments.reduce(
       (acc, s) => acc + (s.isDeleted ? s.endTime - s.startTime : 0),
@@ -117,17 +190,16 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
   }, [segments]);
   const preservedDuration = Math.max(0, videoDuration - deletedDuration);
 
-  // 逐帧微调
-  const handleStepFrame = (deltaSec: number) => {
-    if (!videoRef.current) return;
-    const nextTime = Math.max(0, Math.min(videoDuration, videoRef.current.currentTime + deltaSec));
-    videoRef.current.currentTime = nextTime;
-    onSeek(nextTime);
+  // 格式化时间 00:00
+  const formatTime = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
   return (
     <div className="h-full flex flex-col bg-[#0c0d12] relative select-none overflow-hidden">
-      {/* 顶栏：画布画幅比例快速切换与试听模式切换 */}
+      {/* 顶栏：画幅快速切换与试听跳切开关 */}
       <div className="h-10 px-3 border-b border-zinc-800/80 bg-[#14151e] flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-xs text-zinc-400 font-medium flex items-center gap-1">
@@ -157,31 +229,31 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
           <button
             type="button"
             onClick={() => setAutoSkipDeleted(!autoSkipDeleted)}
-            className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition flex items-center gap-1 border cursor-pointer ${
+            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition flex items-center gap-1.5 border cursor-pointer ${
               autoSkipDeleted
-                ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/50 shadow-sm'
-                : 'bg-zinc-900/80 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/60 shadow-sm'
+                : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
             }`}
             title="开启后，播放时将自动跳过已删除的气口与嘴瓢片段"
           >
-            <Zap className={`w-3 h-3 ${autoSkipDeleted ? 'text-emerald-400 fill-current' : 'text-zinc-500'}`} />
-            <span>跳过已删试听: {autoSkipDeleted ? '开启' : '关闭'}</span>
+            <Zap className={`w-3.5 h-3.5 ${autoSkipDeleted ? 'text-emerald-400 fill-current' : 'text-zinc-500'}`} />
+            <span>⚡ 跳过已删试听: {autoSkipDeleted ? '开启' : '关闭'}</span>
           </button>
 
-          <span className="text-[11px] font-mono text-zinc-400 hidden sm:inline">
-            精剪后: <strong className="text-indigo-400">{preservedDuration.toFixed(1)}s</strong>
+          <span className="text-xs font-mono text-zinc-400 hidden sm:inline">
+            精剪后: <strong className="text-indigo-400">{formatTime(preservedDuration)}</strong>
             <span className="text-zinc-600 ml-1">(减{deletedDuration.toFixed(1)}s)</span>
           </span>
         </div>
       </div>
 
-      {/* 中间舞台：真实比例画布监视器视窗 */}
+      {/* 中间舞台：真实比例画布监视器视窗 (极速单视频，60fps满帧) */}
       <div className="flex-1 flex items-center justify-center p-3 min-h-0 overflow-hidden relative">
         <div
           style={{ aspectRatio: aspectCss }}
           className="relative max-h-full max-w-full bg-black rounded-xl overflow-hidden shadow-2xl border border-zinc-800 flex items-center justify-center group"
         >
-          {/* 背景层：高雅毛玻璃氛围暗色渐变 或 纯色背景 */}
+          {/* 背景层：暗色渐变氛围 */}
           {canvasConfig.backgroundType === 'blur' ? (
             <div className="absolute inset-0 overflow-hidden pointer-events-none bg-gradient-to-b from-[#181a24] via-[#0f1017] to-black">
               <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-transparent to-transparent" />
@@ -193,7 +265,7 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
             />
           )}
 
-          {/* 前景视频主体 (单视频元素渲染，杜绝多重解码卡顿) */}
+          {/* 前景视频主体 (单一原生 <video>) */}
           <div
             style={{
               transform: `scale(${canvasConfig.videoScale || 1.0}) translateY(${canvasConfig.videoYPercent || 0}%)`,
@@ -265,7 +337,7 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
             </div>
           )}
 
-          {/* 实时字幕叠层渲染 (根据当前选中的模版样式呈现) */}
+          {/* 实时字幕叠层渲染 */}
           {activeSubtitle && (
             <div
               style={{
@@ -274,7 +346,6 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
               className="absolute inset-x-4 z-20 flex flex-col items-center justify-center pointer-events-none text-center"
             >
               {subtitleConfig.templateId === 'pill_badge' ? (
-                /* 亮黄胶囊底色模版 */
                 <div
                   style={{
                     backgroundColor: subtitleConfig.boxColor || '#fbbf24',
@@ -287,7 +358,6 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
                   {activeSubtitle.text}
                 </div>
               ) : subtitleConfig.templateId === 'karaoke' ? (
-                /* 卡拉OK渐变点亮模版 */
                 <div
                   style={{
                     fontSize: `${subtitleConfig.fontSize || 26}px`,
@@ -301,7 +371,6 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
                   {activeSubtitle.text}
                 </div>
               ) : subtitleConfig.templateId === 'clean_white' ? (
-                /* 极简无描边白字 */
                 <div
                   style={{
                     fontSize: `${subtitleConfig.fontSize || 22}px`,
@@ -312,7 +381,6 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
                   {activeSubtitle.text}
                 </div>
               ) : (
-                /* 默认：爆款双行醒目模版 */
                 <div
                   style={{
                     fontSize: `${subtitleConfig.fontSize || 26}px`,
@@ -331,39 +399,117 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
         </div>
       </div>
 
-      {/* 底部简易控制辅助栏 (微调入出点、逐帧与声音) */}
-      <div className="h-8 px-4 bg-[#111218] border-t border-zinc-800/80 flex items-center justify-between text-zinc-400 text-xs shrink-0">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => handleStepFrame(-1 / 30)}
-            className="px-1.5 py-0.5 rounded hover:bg-zinc-800 text-[10.5px] text-zinc-400 hover:text-zinc-200 transition"
-            title="后退一帧"
-          >
-            -1帧
-          </button>
-          <button
-            type="button"
-            onClick={() => handleStepFrame(1 / 30)}
-            className="px-1.5 py-0.5 rounded hover:bg-zinc-800 text-[10.5px] text-zinc-400 hover:text-zinc-200 transition"
-            title="前进一帧"
-          >
-            +1帧
-          </button>
+      {/* 底部紧凑高响应单轨波形与播放控制条 (彻底代替繁重多轨时间轴) */}
+      <div className="bg-[#111218] border-t border-zinc-800/90 p-2.5 space-y-2 shrink-0">
+        {/* 单轨声学切片能量条 (极速渲染，毫秒级点按跳转) */}
+        <div
+          ref={trackRef}
+          onMouseDown={handleTrackMouseDown}
+          className="h-7 w-full bg-zinc-950 rounded-lg border border-zinc-800 relative cursor-pointer overflow-hidden select-none group shadow-inner"
+          title="点击或拖拽播放指针快速定位 (绿色=保留，暗红=切除)"
+        >
+          {/* 渲染各切片颜色块 */}
+          {videoDuration > 0 &&
+            segments.map((seg) => {
+              const leftPercent = Math.max(0, (seg.startTime / videoDuration) * 100);
+              const widthPercent = Math.max(0.1, ((seg.endTime - seg.startTime) / videoDuration) * 100);
+
+              return (
+                <div
+                  key={seg.id}
+                  style={{
+                    left: `${leftPercent}%`,
+                    width: `${widthPercent}%`,
+                  }}
+                  className={`absolute top-0 bottom-0 transition-colors ${
+                    seg.isDeleted
+                      ? 'bg-zinc-800/80 border-r border-rose-900/40 opacity-40'
+                      : seg.deleteReason === 'silence'
+                      ? 'bg-zinc-900'
+                      : 'bg-indigo-600/80 hover:bg-indigo-500 border-r border-indigo-700/60'
+                  }`}
+                  title={`${seg.text} (${(seg.endTime - seg.startTime).toFixed(1)}s)`}
+                />
+              );
+            })}
+
+          {/* 贯穿式高亮播放头与发光指针 */}
+          {videoDuration > 0 && (
+            <div
+              style={{
+                left: `${Math.min(100, Math.max(0, (currentTime / videoDuration) * 100))}%`,
+              }}
+              className="absolute top-0 bottom-0 w-0.5 bg-white pointer-events-none z-30 shadow-[0_0_8px_#ffffff]"
+            >
+              <div className="absolute -top-1 -left-1.5 w-3.5 h-3.5 bg-white rounded-full border-2 border-indigo-600 shadow" />
+            </div>
+          )}
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setIsMuted(!isMuted)}
-            className="p-1 hover:text-white transition cursor-pointer"
-            title={isMuted ? '取消静音' : '静音'}
-          >
-            {isMuted ? <VolumeX className="w-3.5 h-3.5 text-rose-400" /> : <Volume2 className="w-3.5 h-3.5" />}
-          </button>
+        {/* 播放控制按钮组与时间戳显示 */}
+        <div className="flex items-center justify-between text-xs text-zinc-300">
+          <div className="flex items-center gap-2">
+            {/* 播放 / 暂停 */}
+            <button
+              type="button"
+              onClick={onTogglePlay}
+              className="p-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow transition cursor-pointer flex items-center justify-center"
+              title="播放 / 暂停 (快捷键: 空格 或 K)"
+            >
+              {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
+            </button>
+
+            {/* 快退 3s (J) / 快进 3s (L) */}
+            <button
+              type="button"
+              onClick={() => {
+                const nextTime = Math.max(0, currentTime - 3);
+                if (videoRef.current) videoRef.current.currentTime = nextTime;
+                onSeek(nextTime);
+              }}
+              className="p-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition cursor-pointer"
+              title="后退 3 秒 (快捷键: J 或 ←)"
+            >
+              <SkipBack className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const nextTime = Math.min(videoDuration, currentTime + 3);
+                if (videoRef.current) videoRef.current.currentTime = nextTime;
+                onSeek(nextTime);
+              }}
+              className="p-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition cursor-pointer"
+              title="快进 3 秒 (快捷键: L 或 →)"
+            >
+              <SkipForward className="w-3.5 h-3.5" />
+            </button>
+
+            {/* 当前时间 / 总时长 */}
+            <span className="font-mono text-zinc-300 font-bold ml-1 text-xs">
+              {formatTime(currentTime)} / {formatTime(videoDuration)}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] text-zinc-500 hidden md:inline">
+              快捷键: 空格播放 · J/L快进倒退 · 点击文稿直接定位
+            </span>
+
+            {/* 静音开关 */}
+            <button
+              type="button"
+              onClick={() => setIsMuted(!isMuted)}
+              className="p-1.5 hover:text-white text-zinc-400 transition cursor-pointer"
+              title={isMuted ? '取消静音' : '静音'}
+            >
+              {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 };
+
 export default CanvasMonitor;

@@ -41,7 +41,9 @@ export interface CutSegment {
   text: string;
   isDeleted: boolean;
   deleteReason?: DeleteReason;
-  tagLabel?: string;     // 如 "[建议精简 18s]", "[气口 0.9s]", "[语气词]"
+  tagLabel?: string;     // 如 "[建议精简 18s]", "[气口 0.9s]", "[语气词]", "[重录第1次]"
+  takeGroup?: number;    // 属于同句多次重录的分组 ID
+  takeIndex?: number;    // 重录序号 (如 1, 2, 3)
   confidence?: number;
 }
 
