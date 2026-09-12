@@ -231,6 +231,7 @@ export interface JaygoAPI {
     videoPath: string;
     outputPath?: string;
     removeOriginalWatermark?: boolean; // 智能消除原视频左上角水印（如蝉镜）
+    quality?: 'master' | 'high' | 'fast'; // 导出画质：master(CRF 14超清原画) / high(CRF 17推荐) / fast(CRF 22极速)
     overlays: Array<{
       imagePath: string;
       startTime: number;

@@ -3122,6 +3122,7 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
   videoPath: string;
   outputPath?: string;
   removeOriginalWatermark?: boolean;
+  quality?: 'master' | 'high' | 'fast';
   overlays: Array<{
     imagePath: string;
     startTime: number;
@@ -3220,8 +3221,8 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
     const filterParts: string[] = [];
     let prevVideoTag = '0:v';
 
-    // 智能去除原片左上角水印（如蝉镜等水印标志，默认全自动静默消除）
-    if (removeOriginalWatermark !== false) {
+    // 智能去除原片左上角水印（如蝉镜等水印标志，仅在用户显式开启时执行，避免破坏原片画质）
+    if (Boolean(removeOriginalWatermark)) {
       const isVertical = H > W;
       const delogoW = isVertical ? 180 : 230;
       const delogoH = isVertical ? 70 : 80;
@@ -3333,13 +3334,31 @@ ipcMain.handle('export-video-with-overlays', async (event, args: {
       prevVideoTag = nextVideoTag;
     });
 
+    const qualityMode = args.quality || 'master';
+    let crf = '14'; // 默认大师级超清原画 (CRF 14，肉眼 0 损耗)
+    let preset = 'medium';
+    if (qualityMode === 'high') {
+      crf = '17';
+      preset = 'medium';
+    } else if (qualityMode === 'fast') {
+      crf = '22';
+      preset = 'fast';
+    }
+
     ffmpegArgs.push(
       '-filter_complex', filterParts.join(';'),
       '-map', '[outv]',
       '-map', '0:a?',
       '-c:v', 'libx264',
-      '-preset', 'fast',
-      '-crf', '18',
+      '-preset', preset,
+      '-crf', crf,
+      '-pix_fmt', 'yuv420p',
+      '-profile:v', 'high',
+      '-level', '4.2',
+      '-colorspace', 'bt709',
+      '-color_primaries', 'bt709',
+      '-color_trc', 'bt709',
+      '-movflags', '+faststart',
       '-c:a', 'copy',
       '-shortest',
       targetPath

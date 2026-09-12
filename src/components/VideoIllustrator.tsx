@@ -587,10 +587,12 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   // 缩略信息也挤成一团，基本没法用。
   const [activeView, setActiveView] = useState<'create' | 'history'>('create');
 
-  // 导出合成状态
+  // 导出合成状态与画质控制
   const [isExporting, setExporting] = useState<boolean>(false);
   const [exportProgress, setExportProgress] = useState<number>(0);
   const [exportResultPath, setExportResultPath] = useState<string | null>(null);
+  const [exportQuality, setExportQuality] = useState<'master' | 'high' | 'fast'>('master');
+  const [removeOriginalWatermark, setRemoveOriginalWatermark] = useState<boolean>(false);
 
   // 商汤 API Key 配置浮层
   const [showKeyConfig, setShowKeyConfig] = useState<boolean>(false);
@@ -1612,7 +1614,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
 
       const res = await api.exportVideoWithOverlays({
         videoPath: targetSource,
-        removeOriginalWatermark: true,
+        removeOriginalWatermark,
+        quality: exportQuality,
         overlays,
       });
 
@@ -3472,6 +3475,42 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
               </div>
             )}
 
+            {/* 导出画质档位与智能去水印控制 */}
+            <div className="p-2 rounded-xl bg-zinc-100/80 dark:bg-zinc-800/50 border border-zinc-200/60 dark:border-zinc-800 space-y-1.5">
+              <div className="flex items-center justify-between text-[11px]">
+                <div className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-300 font-medium">
+                  <span>导出画质:</span>
+                  <select
+                    value={exportQuality}
+                    onChange={(e) => setExportQuality(e.target.value as any)}
+                    className="px-2 py-0.5 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-100 text-[11px] font-semibold outline-none cursor-pointer"
+                  >
+                    <option value="master">👑 超清原画 (CRF 14 大师无损)</option>
+                    <option value="high">💎 高清品质 (CRF 17 推荐)</option>
+                    <option value="fast">⚡ 极速导出 (CRF 22)</option>
+                  </select>
+                </div>
+
+                <label
+                  className="flex items-center gap-1 cursor-pointer select-none text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition"
+                  title="仅在原视频左上角包含明显平台水印时勾选；若原片无水印，请勿勾选以避免左上角被模糊处理"
+                >
+                  <input
+                    type="checkbox"
+                    checked={removeOriginalWatermark}
+                    onChange={(e) => setRemoveOriginalWatermark(e.target.checked)}
+                    className="rounded border-zinc-300 dark:border-zinc-700 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <span>消除左上角水印</span>
+                </label>
+              </div>
+
+              <div className="text-[10px] text-zinc-400 dark:text-zinc-500 flex items-center justify-between">
+                <span>{exportQuality === 'master' ? 'CRF 14 原画级压制 · BT.709 色彩还原' : exportQuality === 'high' ? 'CRF 17 均衡压缩 · 兼顾速度' : 'CRF 22 快速渲染'}</span>
+                <span>音频：原片无损直出</span>
+              </div>
+            </div>
+
             <div className="flex items-center gap-1.5 relative">
               <button
                 type="button"
@@ -3537,6 +3576,10 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="text-[10px] text-zinc-400 dark:text-zinc-500 text-center leading-tight pt-0.5">
+              💡 追求 100% 绝对原画无损？推荐点击「<span className="text-emerald-500 font-medium">剪映草稿</span>」，原片 0 重采样直连！
             </div>
           </div>
         </div>
