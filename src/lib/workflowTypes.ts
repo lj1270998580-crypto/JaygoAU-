@@ -4,6 +4,8 @@ export type NodeType =
   | 'ai_script'
   | 'voice_tts'
   | 'digital_avatar'
+  | 'jianying_draft'
+  | 'video_illustrator'
   | 'export_notify';
 
 export interface TriggerNodeConfig {
@@ -17,32 +19,35 @@ export interface TopicSourceNodeConfig {
   sourceType: 'ai_brainstorm' | 'pool_rotation' | 'video_extract';
   domainKeyword: string;
   generateCount: number; // 每次发散生成的选题数
-  poolList: string[];    // 本地选题池
-  videoUrl?: string;     // 待提取的视频链接
+  poolList: string[]; // 本地待办选题池
+  poolMode?: 'rotate' | 'consume_fifo' | 'random'; // 选题消费模式: 轮换循环 / 先进先出出队 / 随机抽取
+  consumedList?: string[]; // 已消费的历史选题列表
+  videoUrl?: string; // 待提取的视频链接
 }
 
 export interface AiScriptNodeConfig {
   skillPresetId: string; // 绑定的创作者风格预设 ID
-  batchCount: number;    // 单主题衍生篇数 (1~5)
+  batchCount: number; // 单主题衍生篇数 (1~5)
   targetWordCount: number; // 目标字数
   hookStrategy: 'counter_intuitive' | 'pain_point' | 'suspense' | 'gold_sentence';
   customRequirement?: string;
+  checkProhibitedWords?: boolean; // 是否开启违禁词/敏感限流词检测与自动标注
 }
 
 export interface VoiceTtsNodeConfig {
   engine: 'seed-tts-2.0' | 'bigtts-1.0';
-  voiceId: string;      // 若为空则自动使用选定 Skill 预设所绑定的克隆音色
+  voiceId: string; // 若为空则自动使用选定 Skill 预设所绑定的克隆音色
   voiceName: string;
-  emotion: string;      // 开心/严肃/深情/激动等
-  speedRatio: number;   // 0.8 ~ 2.0
-  volumeRatio: number;  // 0.5 ~ 2.0
+  emotion: string; // 开心/严肃/深情/激动等
+  speedRatio: number; // 0.8 ~ 2.0
+  volumeRatio: number; // 0.5 ~ 2.0
   audioFormat: 'mp3' | 'wav';
 }
 
 export interface DigitalAvatarNodeConfig {
   avatarId: string;
   avatarName: string;
-  figureType: string;   // whole_body, sit_body, circle_view
+  figureType: string; // whole_body, sit_body, circle_view
   aspectRatio: '9:16' | '16:9';
   resolution: '1080p' | '4k';
   addSubtitle: boolean; // 是否自动烧录/内嵌字幕 (用户关键需求)
@@ -51,13 +56,28 @@ export interface DigitalAvatarNodeConfig {
   backgroundMode: 'transparent' | 'default' | 'custom';
 }
 
+export interface JianyingDraftNodeConfig {
+  draftNameTemplate: string; // 草稿工程名模板，如 {projectName}_{date}
+  includeAudio: boolean; // 是否包含合成音频主轨
+  includeSubtitles: boolean; // 是否自动生成并对齐字幕文本轨
+  autoOpenDir: boolean; // 导出完成后是否自动在资源管理器打开草稿目录
+}
+
+export interface VideoIllustratorNodeConfig {
+  styleId: string; // 叙事插画风格 (如 'swiss-style', 'minimal_line', 'auto')
+  density: 'sparse' | 'standard' | 'dense'; // 分镜密度: 稀疏/标准/密集
+  ratio: '9:16' | '16:9' | '1:1'; // 画布比例
+  routingMode: 'smart' | 'infographic' | 'standard'; // 路由分流模式
+  generatePromptOnly: boolean; // 是否仅规划分镜提示词 (快速就绪)
+}
+
 export interface ExportNotifyNodeConfig {
   outputDir: string;
   saveScript: boolean;
   saveAudio: boolean;
   saveVideo: boolean;
   enableTrayNotify: boolean; // 是否弹出系统托盘完成气泡
-  autoOpenFolder: boolean;   // 完成后是否自动打开目标目录
+  autoOpenFolder: boolean; // 完成后是否自动打开目标目录
 }
 
 export type NodeConfigMap = {
@@ -66,6 +86,8 @@ export type NodeConfigMap = {
   ai_script: AiScriptNodeConfig;
   voice_tts: VoiceTtsNodeConfig;
   digital_avatar: DigitalAvatarNodeConfig;
+  jianying_draft: JianyingDraftNodeConfig;
+  video_illustrator: VideoIllustratorNodeConfig;
   export_notify: ExportNotifyNodeConfig;
 };
 
@@ -74,6 +96,7 @@ export interface WorkflowNode<T extends NodeType = NodeType> {
   type: T;
   name: string;
   enabled: boolean; // 是否启用此节点 (Bypass 开关)
+  continueOnError?: boolean; // 是否在当前节点异常时容错降级并继续执行后续节点
   config: NodeConfigMap[T];
 }
 
@@ -81,11 +104,20 @@ export interface WorkflowRunHistoryItem {
   id: string;
   startTime: number;
   endTime: number;
-  status: 'success' | 'failed' | 'running';
+  timestamp?: string;
+  durationSec?: number;
+  status: 'success' | 'failed' | 'running' | 'aborted' | 'partial';
   log: string;
+  logs?: string[];
+  topics?: string[];
   generatedScripts?: string[];
+  scripts?: string[];
   generatedAudioPaths?: string[];
+  audioPaths?: string[];
   generatedVideoUrls?: string[];
+  videoUrls?: string[];
+  draftPaths?: string[];
+  plannedIllustrationsCount?: number;
   error?: string;
 }
 
@@ -98,7 +130,7 @@ export interface WorkflowProject {
   createdAt: number;
   updatedAt: number;
   lastRunTime?: number;
-  lastStatus?: 'idle' | 'running' | 'success' | 'failed';
+  lastStatus?: 'idle' | 'running' | 'success' | 'failed' | 'aborted' | 'partial';
   lastLog?: string;
   history?: WorkflowRunHistoryItem[];
 }
@@ -118,14 +150,14 @@ export const NODE_TYPE_META: Record<
     name: '选题灵感源',
     icon: '💡',
     tag: 'SOURCE',
-    description: 'AI 赛道爆款热点发散、本地待办选题池轮询消费或短视频素材原片提取',
+    description: 'AI 赛道爆款热点发散、本地选题池出队轮询消费或短视频素材原片提取',
     color: 'border-emerald-500/40 bg-emerald-500/5 text-emerald-400',
   },
   ai_script: {
     name: 'AI 文案工坊',
     icon: '✍️',
     tag: 'SCRIPT',
-    description: '根据选定老师 Skill 预设风格，自动化批量重构为 60 秒爆款口播台词',
+    description: '根据选定老师 Skill 风格生成 60 秒爆款口播台词，支持违禁词合规检测',
     color: 'border-blue-500/40 bg-blue-500/5 text-blue-400',
   },
   voice_tts: {
@@ -141,6 +173,20 @@ export const NODE_TYPE_META: Record<
     tag: 'AVATAR',
     description: '将合成音频推入蝉镜 API，由真人数字人出镜对齐口型，可选自动添加内嵌字幕',
     color: 'border-cyan-500/40 bg-cyan-500/5 text-cyan-400',
+  },
+  jianying_draft: {
+    name: '剪映 Pro 草稿导出',
+    icon: '✂️',
+    tag: 'JIANYING',
+    description: '直接将文案、TTS 语音轨、字幕轨一键打包进剪映本地草稿目录，打开剪映即可成片',
+    color: 'border-violet-500/40 bg-violet-500/5 text-violet-400',
+  },
+  video_illustrator: {
+    name: 'AI 视频配图分镜',
+    icon: '🎨',
+    tag: 'ILLUSTRATOR',
+    description: '根据口播文案自动拆解分镜视觉节拍、画面构图提示词，全自动无缝对齐时间轴',
+    color: 'border-teal-500/40 bg-teal-500/5 text-teal-400',
   },
   export_notify: {
     name: '交付与托盘通知',
@@ -176,6 +222,8 @@ export const DEFAULT_NODES_FACTORY: {
       domainKeyword: '自媒体副业与商业认知',
       generateCount: 1,
       poolList: [],
+      poolMode: 'consume_fifo',
+      consumedList: [],
     },
   }),
   ai_script: () => ({
@@ -188,6 +236,7 @@ export const DEFAULT_NODES_FACTORY: {
       batchCount: 1,
       targetWordCount: 300,
       hookStrategy: 'counter_intuitive',
+      checkProhibitedWords: true,
     },
   }),
   voice_tts: () => ({
@@ -218,6 +267,31 @@ export const DEFAULT_NODES_FACTORY: {
       resolution: '1080p',
       addSubtitle: true, // 默认开启字幕
       backgroundMode: 'default',
+    },
+  }),
+  jianying_draft: () => ({
+    id: `node_jianying_${Date.now()}`,
+    type: 'jianying_draft',
+    name: '剪映 Pro 草稿自动导出',
+    enabled: true,
+    config: {
+      draftNameTemplate: '{projectName}_{date}',
+      includeAudio: true,
+      includeSubtitles: true,
+      autoOpenDir: false,
+    },
+  }),
+  video_illustrator: () => ({
+    id: `node_illustrator_${Date.now()}`,
+    type: 'video_illustrator',
+    name: 'AI 视频配图分镜规划',
+    enabled: true,
+    config: {
+      styleId: 'swiss-style',
+      density: 'standard',
+      ratio: '9:16',
+      routingMode: 'smart',
+      generatePromptOnly: true,
     },
   }),
   export_notify: () => ({

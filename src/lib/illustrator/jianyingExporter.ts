@@ -9,6 +9,7 @@
  */
 
 import type { VideoIllustrationItem, IllustrationLayout } from '../../types';
+import type { CanvasConfig, CustomStickerPatch, SubtitleItem, SubtitleStyleConfig } from '../talkEditor/types';
 import JSZip from 'jszip';
 
 export interface JianyingExportOptions {
@@ -22,6 +23,10 @@ export interface JianyingExportOptions {
   borderStyle?: 'none' | 'clean_white' | 'rounded_card' | 'star_badge' | 'cyber_glow';
   /** 可选：分镜 ID 到已预渲染带边框/圆角图片本地路径的映射表 */
   framedImagePaths?: Record<string, string>;
+  stickers?: CustomStickerPatch[];
+  canvasConfig?: CanvasConfig;
+  subtitles?: SubtitleItem[];
+  subtitleStyle?: SubtitleStyleConfig;
 }
 
 /**
@@ -72,6 +77,7 @@ export function buildJianyingDraftData(opts: JianyingExportOptions) {
   const canvasesMaterial: any[] = [];
   const soundMappingsMaterial: any[] = [];
   const animationsMaterial: any[] = [];
+  const textsMaterial: any[] = [];
 
   // 主视频素材 (若有)
   let mainVideoMaterialId = '';
@@ -371,6 +377,235 @@ export function buildJianyingDraftData(opts: JianyingExportOptions) {
     });
   }
 
+  // 3. 自定义贴片轨 (若有从口播精剪保留的贴片)
+  const stickerList = opts.stickers || opts.canvasConfig?.stickers || [];
+  const stickerTrackSegments: any[] = [];
+  stickerList.forEach((sticker) => {
+    const stickerPath = sticker.localPath || sticker.imageUrl;
+    if (!sticker.enabled || !stickerPath) return;
+
+    const stickerMatId = generateId();
+    videosMaterial.push({
+      category_id: '',
+      category_name: 'local',
+      check_flag: 63487,
+      crop: { lower_left_x: 0.0, lower_left_y: 1.0, lower_right_x: 1.0, lower_right_y: 1.0, upper_left_x: 0.0, upper_left_y: 0.0, upper_right_x: 1.0, upper_right_y: 0.0 },
+      crop_ratio: 'free',
+      crop_scale: 1.0,
+      duration: totalDurationUs,
+      extra_type_option: 0,
+      formula_id: '',
+      freeze: null,
+      gameplay: null,
+      has_audio: false,
+      height: 1080,
+      id: stickerMatId,
+      intensifies_audio_path: '',
+      intensifies_path: '',
+      is_ai_generate_content: false,
+      is_unified_beauty_mode: false,
+      local_id: '',
+      local_material_id: '',
+      material_id: '',
+      material_name: sticker.name || '贴片',
+      material_url: '',
+      matting: { flag: 0, has_handled: false, interactive: null, path: '', strokes: [] },
+      media_path: stickerPath,
+      object_locked: null,
+      origin_material_id: '',
+      path: stickerPath,
+      reverse_intensifies_path: '',
+      reverse_path: '',
+      source: 0,
+      source_platform: 0,
+      stable: null,
+      team_id: '',
+      type: 'photo',
+      video_algorithm: { algorithms: [], deflicker: null, motion_blur_config: null, noise_reduction: null, path: '', quality_enhance: null, time_range: null },
+      width: 1080,
+    });
+
+    const speedId = generateId();
+    speedsMaterial.push({ curve_speed: null, id: speedId, mode: 0, speed: 1.0, type: 'speed' });
+    const canvasId = generateId();
+    canvasesMaterial.push({ album_image: '', blur: 0.0, color: '', id: canvasId, image: '', image_id: '', radius: 0.0, scale: 1.0, type: 'canvas_color' });
+
+    const transX = Number((((sticker.xPercent ?? 0.5) - 0.5) * 2).toFixed(3));
+    const transY = Number((1.0 - (sticker.yPercent ?? 0.3) * 2).toFixed(3));
+    const stScale = Number(((sticker.scale ?? 1.0) * 0.4).toFixed(3));
+
+    stickerTrackSegments.push({
+      caption_info: null,
+      cartoon: false,
+      clip: {
+        alpha: sticker.opacity ?? 1.0,
+        flip: { horizontal: false, vertical: false },
+        rotation: 0.0,
+        scale: { x: stScale, y: stScale },
+        transform: { x: transX, y: transY },
+      },
+      common_keyframes: [],
+      enable_adjust: true,
+      enable_color_curves: true,
+      enable_color_match_adjust: false,
+      enable_color_wheels: true,
+      enable_lut: true,
+      enable_smart_color_adjust: false,
+      extra_material_refs: [speedId, canvasId],
+      group_id: '',
+      hdr_settings: null,
+      id: generateId(),
+      intensifies_audio: false,
+      is_placeholder: false,
+      is_tone_modify: false,
+      keyframe_refs: [],
+      last_nonzero_volume: 1.0,
+      material_id: stickerMatId,
+      render_index: 1,
+      reverse: false,
+      source_timerange: { duration: totalDurationUs, start: 0 },
+      speed: 1.0,
+      target_timerange: { duration: totalDurationUs, start: 0 },
+      template_id: '',
+      template_scene_no: 0,
+      track_attribute: 0,
+      track_render_index: 0,
+      visible: true,
+      volume: 1.0,
+    });
+  });
+
+  if (stickerTrackSegments.length > 0) {
+    tracks.push({
+      attribute: 0,
+      flag: 0,
+      id: generateId(),
+      is_default_name: true,
+      name: '自定义贴片轨',
+      segments: stickerTrackSegments,
+      type: 'video',
+    });
+  }
+
+  // 4. 顶部大标题与底部标语文字轨
+  if (opts.canvasConfig?.topPatch?.enabled && opts.canvasConfig.topPatch.text?.trim()) {
+    const topTextId = generateId();
+    textsMaterial.push({
+      id: topTextId,
+      content: JSON.stringify({
+        styles: [
+          {
+            fill: { alpha: 1.0, content: { solid: { color: [1.0, 0.9, 0.2] } } },
+            size: opts.canvasConfig.topPatch.fontSize || 28,
+            bold: true,
+          },
+        ],
+        text: opts.canvasConfig.topPatch.text.trim(),
+      }),
+      type: 'text',
+    });
+    const topY = Number((1.0 - (opts.canvasConfig.topPatch.yOffsetPercent ?? 0.06) * 2).toFixed(3));
+    const topX = Number((((opts.canvasConfig.topPatch.xOffsetPercent ?? 0.5) - 0.5) * 2).toFixed(3));
+    tracks.push({
+      attribute: 0,
+      flag: 0,
+      id: generateId(),
+      is_default_name: true,
+      name: '顶部大标题轨',
+      segments: [
+        {
+          id: generateId(),
+          material_id: topTextId,
+          target_timerange: { start: 0, duration: totalDurationUs },
+          clip: { transform: { x: topX, y: topY }, scale: { x: 1.0, y: 1.0 } },
+        },
+      ],
+      type: 'text',
+    });
+  }
+
+  if (opts.canvasConfig?.bottomPatch?.enabled && opts.canvasConfig.bottomPatch.text?.trim()) {
+    const bottomTextId = generateId();
+    textsMaterial.push({
+      id: bottomTextId,
+      content: JSON.stringify({
+        styles: [
+          {
+            fill: { alpha: 1.0, content: { solid: { color: [0.85, 0.85, 0.85] } } },
+            size: opts.canvasConfig.bottomPatch.fontSize || 16,
+            bold: false,
+          },
+        ],
+        text: opts.canvasConfig.bottomPatch.text.trim(),
+      }),
+      type: 'text',
+    });
+    const bottomY = Number((-1.0 + (opts.canvasConfig.bottomPatch.yOffsetPercent ?? 0.05) * 2).toFixed(3));
+    tracks.push({
+      attribute: 0,
+      flag: 0,
+      id: generateId(),
+      is_default_name: true,
+      name: '底部标语轨',
+      segments: [
+        {
+          id: generateId(),
+          material_id: bottomTextId,
+          target_timerange: { start: 0, duration: totalDurationUs },
+          clip: { transform: { x: 0.0, y: bottomY }, scale: { x: 1.0, y: 1.0 } },
+        },
+      ],
+      type: 'text',
+    });
+  }
+
+  // 5. 口播台词字幕轨
+  if (opts.subtitles && opts.subtitles.length > 0) {
+    const subSegments: any[] = [];
+    const subStyle: Partial<SubtitleStyleConfig> = opts.subtitleStyle || {};
+    const subY = Number((-1.0 + (subStyle.yPercent ?? 0.18) * 2).toFixed(3));
+    const subX = Number((((subStyle.xPercent ?? 0.5) - 0.5) * 2).toFixed(3));
+
+    opts.subtitles.forEach((sub) => {
+      const subTextId = generateId();
+      textsMaterial.push({
+        id: subTextId,
+        content: JSON.stringify({
+          styles: [
+            {
+              fill: { alpha: 1.0, content: { solid: { color: [1.0, 1.0, 1.0] } } },
+              size: subStyle.fontSize || 24,
+              bold: true,
+            },
+          ],
+          text: sub.text,
+        }),
+        type: 'text',
+      });
+
+      const startUs = Math.round(sub.startTime * 1000000);
+      const durUs = Math.round(Math.max(0.1, sub.endTime - sub.startTime) * 1000000);
+      subSegments.push({
+        id: generateId(),
+        material_id: subTextId,
+        target_timerange: { start: startUs, duration: durUs },
+        clip: { transform: { x: subX, y: subY }, scale: { x: 1.0, y: 1.0 } },
+      });
+    });
+
+    if (subSegments.length > 0) {
+      tracks.push({
+        attribute: 0,
+        flag: 0,
+        id: generateId(),
+        is_default_name: true,
+        name: '口播台词字幕轨',
+        segments: subSegments,
+        type: 'text',
+      });
+    }
+  }
+
   // 构造最终 draft_content.json
   const draftContent = {
     canvas_config: {
@@ -446,7 +681,7 @@ export function buildJianyingDraftData(opts: JianyingExportOptions) {
       stickers: [],
       tail_leaders: [],
       text_templates: [],
-      texts: [],
+      texts: textsMaterial,
       time_marks: [],
       transitions: [],
       video_effects: [],

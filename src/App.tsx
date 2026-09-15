@@ -16,6 +16,10 @@ import { ScriptStudio } from './components/ScriptStudio';
 import { WorkflowStudio } from './components/WorkflowStudio';
 import { ModelHubModal } from './components/ModelHubModal';
 import { ChangelogModal } from './components/ChangelogModal';
+import { getWorkflowProjects } from './lib/workflowStorage';
+import { isCronMatch } from './lib/cronHelper';
+import { executeWorkflowProject } from './lib/workflowRunner';
+import type { WorkflowProject } from './lib/workflowTypes';
 
 const Icon = {
   script: (
@@ -420,6 +424,96 @@ export default function App() {
     return off;
   }, [setTab]);
 
+  // 全局常驻自动化工作流定时守护引擎 (无需点开页面，应用开启后台每 20 秒准时自检调度)
+  const lastRunMinuteRef = useRef<Record<string, string>>({});
+  const isWorkflowRunningRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    const checkGlobalWorkflowSchedule = async () => {
+      if (isWorkflowRunningRef.current) return;
+      const now = new Date();
+      const minuteKey = `${now.getFullYear()}_${now.getMonth()}_${now.getDate()}_${now.getHours()}_${now.getMinutes()}`;
+
+      let projects: WorkflowProject[] = [];
+      try {
+        projects = getWorkflowProjects();
+      } catch (_) {
+        return;
+      }
+
+      const enabledProjects = projects.filter((p) => p.enabled);
+      for (const proj of enabledProjects) {
+        const triggerNode = proj.nodes.find((n) => n.type === 'trigger' && n.enabled);
+        if (!triggerNode) continue;
+
+        const config = triggerNode.config as any;
+        if (config?.mode !== 'cron' || !config?.cronExpression) continue;
+
+        if (isCronMatch(config.cronExpression, now)) {
+          const runKey = `${proj.id}_${minuteKey}`;
+          if (lastRunMinuteRef.current[runKey]) continue;
+          lastRunMinuteRef.current[runKey] = new Date().toISOString();
+
+          isWorkflowRunningRef.current = true;
+          showToast(`⏱️【定时调度触发】工作流「${proj.name}」已开始后台运行！`, 'ok');
+
+          try {
+            await api?.showNotification?.({
+              title: `⏱️ 定时流水线触发`,
+              body: `工作流【${proj.name}】已准时开始执行...`,
+              tab: 'workflow',
+            });
+          } catch (_) {}
+
+          window.dispatchEvent(
+            new CustomEvent('jaygo-workflow-run-start', { detail: { projectId: proj.id } })
+          );
+
+          try {
+            const res = await executeWorkflowProject(
+              proj,
+              modelHubSettings,
+              (log) => {
+                window.dispatchEvent(
+                  new CustomEvent('jaygo-workflow-run-log', {
+                    detail: { projectId: proj.id, log },
+                  })
+                );
+              },
+              (pct, msg) => {
+                window.dispatchEvent(
+                  new CustomEvent('jaygo-workflow-run-progress', {
+                    detail: { projectId: proj.id, pct, msg },
+                  })
+                );
+              }
+            );
+
+            showToast(`定时工作流【${proj.name}】全流程执行圆满完成！`, 'ok');
+            window.dispatchEvent(
+              new CustomEvent('jaygo-workflow-run-end', {
+                detail: { projectId: proj.id, status: 'success', result: res },
+              })
+            );
+          } catch (err: any) {
+            showToast(`定时工作流【${proj.name}】执行中断: ${err.message}`, 'err');
+            window.dispatchEvent(
+              new CustomEvent('jaygo-workflow-run-end', {
+                detail: { projectId: proj.id, status: 'failed', error: err.message },
+              })
+            );
+          } finally {
+            isWorkflowRunningRef.current = false;
+          }
+          break;
+        }
+      }
+    };
+
+    const timer = setInterval(checkGlobalWorkflowSchedule, 20000);
+    return () => clearInterval(timer);
+  }, [modelHubSettings, showToast]);
+
   if (!api) {
     return (
       <div className="relative h-full w-full overflow-hidden">
@@ -647,8 +741,8 @@ export default function App() {
                   <TalkEditor
                     modelSettings={modelHubSettings}
                     onOpenModelHub={() => setModelHubOpen(true)}
-                    onPushToIllustrator={({ videoPath, scriptText, title }) => {
-                      setPendingIllustrator({ videoPath, scriptText, title });
+                    onPushToIllustrator={(data) => {
+                      setPendingIllustrator(data);
                       setTab('illustrator');
                     }}
                   />
@@ -685,6 +779,18 @@ export default function App() {
                   <WorkflowStudio
                     modelSettings={modelHubSettings}
                     onOpenModelHub={() => setModelHubOpen(true)}
+                    onPushToIllustrator={(data) => {
+                      setPendingIllustrator(data);
+                      setTab('illustrator');
+                    }}
+                    onPushToSynth={(text, voiceId) => {
+                      setPendingSynthText({ text, voiceId });
+                      setTab('synth');
+                    }}
+                    onPushToAvatar={(text) => {
+                      setPendingAvatarText(text);
+                      setTab('avatar');
+                    }}
                   />
                 </div>
               )}

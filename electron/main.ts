@@ -1492,17 +1492,23 @@ ipcMain.handle(
   ) => {
     const { mediaInfo, type, selectedResolutionId, selectedVideoUrl, selectedAudioUrl } = args;
 
-    // 匹配用户选定的清晰度规格直链
+    // 匹配用户选定的清晰度规格直链与是否需要音视频分离合并
     let chosenVideoUrl = selectedVideoUrl || mediaInfo.videoUrl;
     let chosenAudioUrl = selectedAudioUrl || mediaInfo.audioUrl;
+    const matchOpt = (selectedResolutionId && mediaInfo.resolutions)
+      ? mediaInfo.resolutions.find((r) => r.id === selectedResolutionId)
+      : (mediaInfo.resolutions?.find((r) => r.isDefault) || mediaInfo.resolutions?.[0]);
 
-    if (selectedResolutionId && mediaInfo.resolutions && mediaInfo.resolutions.length > 0) {
-      const matchOpt = mediaInfo.resolutions.find((r) => r.id === selectedResolutionId);
-      if (matchOpt) {
-        if (matchOpt.videoUrl) chosenVideoUrl = matchOpt.videoUrl;
-        if (matchOpt.audioUrl) chosenAudioUrl = matchOpt.audioUrl;
-      }
+    if (matchOpt) {
+      if (matchOpt.videoUrl) chosenVideoUrl = matchOpt.videoUrl;
+      if (matchOpt.audioUrl) chosenAudioUrl = matchOpt.audioUrl;
     }
+
+    const needsMerge = Boolean(
+      matchOpt?.needsAudioMerge ??
+      mediaInfo.needsAudioMerge ??
+      (chosenVideoUrl && (chosenVideoUrl.includes('media-video') || (chosenVideoUrl.includes('bilibili') && Boolean(chosenAudioUrl))))
+    );
 
     const safeTitle = (mediaInfo.title || 'media').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
     const defaultExt = type === 'video' ? 'mp4' : 'mp3';
@@ -1524,8 +1530,8 @@ ipcMain.handle(
     if (type === 'video') {
       if (!chosenVideoUrl) throw new Error('该作品未解析出有效视频流');
 
-      // 若包含独立音频流（如抖音 DASH 模式），分别下载后自动用 FFmpeg 快速无损合并
-      if (chosenAudioUrl && (chosenVideoUrl.includes('media-video') || mediaInfo.platform === 'douyin')) {
+      // 仅当视频流为 DASH 纯画面分离流（如 B站 DASH 或抖音 media-video）且存在独立音频流时，才用 FFmpeg 无损混流
+      if (needsMerge && chosenAudioUrl) {
         const tempVideo = path.join(app.getPath('temp'), `jaygo-v-${Date.now()}.mp4`);
         const tempAudio = path.join(app.getPath('temp'), `jaygo-a-${Date.now()}.mp4`);
         try {
@@ -1538,6 +1544,7 @@ ipcMain.handle(
           fs.unlink(tempAudio, () => {});
         }
       } else {
+        // 普通 MP4（如抖音全音画超清原片）单文件流式高速直下，零转码损耗，100% 完整保留创作者口播人声
         await downloadMediaFile(chosenVideoUrl, targetPath, mediaInfo.headers);
         return { path: targetPath, size: fs.statSync(targetPath).size };
       }

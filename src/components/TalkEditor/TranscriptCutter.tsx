@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Scissors,
   Sparkles,
@@ -13,12 +13,28 @@ import {
   Check,
   Play,
   Layers,
-  CheckSquare,
-  Square,
   X,
   Bot,
+  Settings,
+  Lightbulb,
+  Loader2,
+  MousePointerClick,
+  Info,
+  Copy,
+  LocateFixed,
+  UploadCloud,
+  FileSpreadsheet,
+  RefreshCw,
+  Eye,
+  SlidersHorizontal,
+  Edit3,
+  Link2,
+  Plus,
+  Minus,
 } from 'lucide-react';
 import type { CutSegment, NarrativePreset, NarrativeAnalysisResult, WordItem } from '../../lib/talkEditor/types';
+import type { ModelHubSettings } from '../../lib/modelHubTypes';
+import { getActiveAiEngineInfo } from '../../lib/talkEditor/semanticPruner';
 import { useStore } from '../../store';
 
 interface TranscriptCutterProps {
@@ -26,10 +42,12 @@ interface TranscriptCutterProps {
   onUpdateSegments: (newSegments: CutSegment[]) => void;
   currentTime: number;
   onSeek: (timeSec: number) => void;
-  onRunSilenceCut: () => void;
-  onRunFillerClean: () => void;
-  onRunStumbleClean: () => void;
-  onRunNarrativePruning: (preset: NarrativePreset) => Promise<void>;
+  isPlaying?: boolean;
+  onTogglePlay?: () => void;
+  onRunSilenceCut?: () => void;
+  onRunFillerClean?: () => void;
+  onRunStumbleClean?: () => void;
+  onRunNarrativePruning?: (preset: NarrativePreset) => Promise<void>;
   isAnalyzingNarrative: boolean;
   narrativeAnalysis: NarrativeAnalysisResult | null;
   onApplyFullAiCut: (options: {
@@ -39,6 +57,19 @@ interface TranscriptCutterProps {
     cutNarrative?: boolean;
     narrativePreset?: NarrativePreset;
   }) => void;
+  modelSettings?: ModelHubSettings;
+  onOpenModelHub?: () => void;
+  hasVideo?: boolean;
+  isTranscribing?: boolean;
+  transcribeStage?: string;
+  transcribeError?: string | null;
+  onTriggerTranscribe?: () => void;
+  onPickMediaFile?: () => void;
+  onLoadVideoFile?: (file: File) => void;
+  onImportSrt?: (file: File) => void;
+  hasKey?: boolean;
+  onGoSettings?: () => void;
+  onLoadDemo?: () => void;
 }
 
 export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
@@ -46,20 +77,44 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
   onUpdateSegments,
   currentTime,
   onSeek,
-  onRunSilenceCut,
-  onRunFillerClean,
-  onRunStumbleClean,
-  onRunNarrativePruning,
+  isPlaying,
+  onTogglePlay,
   isAnalyzingNarrative,
   narrativeAnalysis,
   onApplyFullAiCut,
+  modelSettings,
+  onOpenModelHub,
+  hasVideo,
+  isTranscribing,
+  transcribeStage,
+  transcribeError,
+  onTriggerTranscribe,
+  onPickMediaFile,
+  onLoadVideoFile,
+  onImportSrt,
+  hasKey,
+  onGoSettings,
+  onLoadDemo,
 }) => {
-  const { theme } = useStore();
+  const { theme, showToast } = useStore();
   const isDark = theme !== 'light';
 
   const [selectedPreset, setSelectedPreset] = useState<NarrativePreset>('balanced');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [hideSilences, setHideSilences] = useState<boolean>(false);
+
+  // 🌟 视图模式：'all' (全览剪辑模式) | 'clean' (仅看成片精炼台词)
+  const [viewMode, setViewMode] = useState<'all' | 'clean'>('all');
+
+  // 🌟 提词器式平滑滚动跟随播放头
+  const [autoScroll, setAutoScroll] = useState<boolean>(true);
+  const listContainerRef = useRef<HTMLDivElement>(null);
+
+  // 🌟 拖拽文件进入投掷区视觉提示
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
+
+  // 本地隐藏 SRT 上传 input
+  const localSrtInputRef = useRef<HTMLInputElement>(null);
 
   // AI 一键全自动精剪预览弹窗
   const [showAiCutModal, setShowAiCutModal] = useState<boolean>(false);
@@ -67,8 +122,33 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
     cutSilence: true,
     cutFillers: true,
     cutStumbles: true,
-    cutNarrative: true, // 🌟 默认勾选深度文案内容分析
+    cutNarrative: true,
   });
+
+  // 解析当前生效的语义分析引擎信息 (大模型 vs 本地启发式)
+  const activeEngine = useMemo(() => getActiveAiEngineInfo(modelSettings), [modelSettings]);
+
+  // 字词拖拽划选批量选区状态
+  const [dragSelection, setDragSelection] = useState<{
+    segId: string;
+    startIdx: number;
+    endIdx: number;
+  } | null>(null);
+  const [isMouseDownOnWord, setIsMouseDownOnWord] = useState<boolean>(false);
+  const dragAnchorIdxRef = useRef<{ segId: string; idx: number } | null>(null);
+
+  // 🌟 字幕在位改字与切分编辑
+  const [editingSegId, setEditingSegId] = useState<string | null>(null);
+  const [segEditText, setSegEditText] = useState<string>('');
+  const [splittingSegId, setSplittingSegId] = useState<string | null>(null);
+
+  // 4 步流水线当前激活步骤 (1: 音轨提取 -> 2: 云端暂存 -> 3: Seed-ASR 识别 -> 4: 毫秒停顿对齐)
+  const currentPipelineStep = useMemo(() => {
+    if (transcribeStage?.includes('对齐') || transcribeStage?.includes('停顿') || transcribeStage?.includes('字词')) return 4;
+    if (transcribeStage?.includes('识别') || transcribeStage?.includes('ASR') || transcribeStage?.includes('任务') || transcribeStage?.includes('轮询')) return 3;
+    if (transcribeStage?.includes('暂存') || transcribeStage?.includes('上传') || transcribeStage?.includes('云端')) return 2;
+    return 1;
+  }, [transcribeStage]);
 
   // 时长统计 (包含字级别删除)
   const totalDuration = useMemo(
@@ -104,11 +184,17 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
     let tangentsCount = 0;
 
     for (const s of segments) {
-      if (s.type === 'silence' || s.deleteReason === 'silence' || s.tagLabel?.includes('气口') || s.tagLabel?.includes('停顿')) {
+      if (
+        s.type === 'silence' ||
+        s.deleteReason === 'silence' ||
+        s.tagLabel?.includes('气口') ||
+        s.tagLabel?.includes('停顿') ||
+        s.id.startsWith('silence-')
+      ) {
         silencesCount++;
         silenceSec += s.endTime - s.startTime;
       }
-      if (s.deleteReason === 'filler' || s.tagLabel?.includes('语气词')) {
+      if (s.deleteReason === 'filler' || s.tagLabel?.includes('语气词') || s.tagLabel?.includes('杂音')) {
         fillersCount++;
       }
       if (s.words) {
@@ -120,7 +206,12 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
       if (s.deleteReason === 'stumble' || s.tagLabel?.includes('重录')) {
         stumblesCount++;
       }
-      if (s.deleteReason === 'narrative_tangent' || s.tagLabel?.includes('车轱辘') || s.tagLabel?.includes('冗余') || s.tagLabel?.includes('闲暄')) {
+      if (
+        s.deleteReason === 'narrative_tangent' ||
+        s.tagLabel?.includes('车轱辘') ||
+        s.tagLabel?.includes('冗余') ||
+        s.tagLabel?.includes('寒暄')
+      ) {
         tangentsCount++;
       }
     }
@@ -128,47 +219,150 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
     return { silencesCount, silenceSec, fillersCount, stumblesCount, tangentsCount };
   }, [segments]);
 
-  // 切换单条切片的删除状态
+  // 全局监听鼠标释放与按键
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      setIsMouseDownOnWord(false);
+      dragAnchorIdxRef.current = null;
+    };
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      if (dragSelection) {
+        if (e.code === 'Backspace' || e.code === 'Delete') {
+          e.preventDefault();
+          batchDeleteWords(dragSelection.segId, dragSelection.startIdx, dragSelection.endIdx, true);
+          setDragSelection(null);
+        } else if (e.code === 'Escape') {
+          setDragSelection(null);
+        }
+      }
+    };
+
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+      window.removeEventListener('keydown', handleGlobalKeyDown);
+    };
+  }, [dragSelection, segments]);
+
+  // 🌟 提词器式平滑居中滚动跟随
+  useEffect(() => {
+    if (!autoScroll || !isPlaying || !listContainerRef.current) return;
+    const activeItem = listContainerRef.current.querySelector('[data-is-active="true"]');
+    if (activeItem) {
+      activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [currentTime, autoScroll, isPlaying]);
+
+  // 批量修改指定区间的字词删除状态
+  const batchDeleteWords = (segId: string, startIdx: number, endIdx: number, isDeleted: boolean) => {
+    onUpdateSegments(
+      segments.map((seg) => {
+        if (seg.id !== segId || !seg.words) return seg;
+        const updatedWords = seg.words.map((w, idx) => {
+          if (idx >= startIdx && idx <= endIdx) {
+            return {
+              ...w,
+              isDeleted,
+              deleteReason: isDeleted ? ('manual' as const) : undefined,
+            };
+          }
+          return w;
+        });
+
+        const allWordsDeleted = updatedWords.every((w) => w.isDeleted);
+        return {
+          ...seg,
+          words: updatedWords,
+          isDeleted: allWordsDeleted ? true : seg.isDeleted && !isDeleted ? false : seg.isDeleted,
+          deleteReason: allWordsDeleted ? 'manual' : seg.deleteReason,
+          tagLabel: allWordsDeleted ? '[整句切除]' : seg.tagLabel,
+          reasonDetail: isDeleted ? '手动划选连续切除字词' : undefined,
+        };
+      })
+    );
+  };
+
+  // 单字双击切换删除状态
+  const toggleWordDeleted = (segId: string, wordIdx: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onUpdateSegments(
+      segments.map((seg) => {
+        if (seg.id !== segId || !seg.words) return seg;
+        const targetWord = seg.words[wordIdx];
+        if (!targetWord) return seg;
+
+        const nextWordDeleted = !targetWord.isDeleted;
+        const updatedWords = seg.words.map((w, i) =>
+          i === wordIdx
+            ? { ...w, isDeleted: nextWordDeleted, deleteReason: nextWordDeleted ? ('manual' as const) : undefined }
+            : w
+        );
+
+        const allWordsDeleted = updatedWords.every((w) => w.isDeleted);
+        return {
+          ...seg,
+          words: updatedWords,
+          isDeleted: allWordsDeleted ? true : seg.isDeleted && !nextWordDeleted ? false : seg.isDeleted,
+          deleteReason: allWordsDeleted ? 'manual' : seg.deleteReason,
+          tagLabel: allWordsDeleted ? '[整句切除]' : seg.tagLabel,
+          reasonDetail: nextWordDeleted ? `双击删除了单字“${targetWord.text}”` : undefined,
+        };
+      })
+    );
+  };
+
+  // 划选拖拽鼠标按下
+  const handleWordMouseDown = (segId: string, idx: number, e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    setIsMouseDownOnWord(true);
+    dragAnchorIdxRef.current = { segId, idx };
+    setDragSelection({ segId, startIdx: idx, endIdx: idx });
+  };
+
+  // 划选拖拽鼠标移入
+  const handleWordMouseEnter = (segId: string, idx: number) => {
+    if (isMouseDownOnWord && dragAnchorIdxRef.current && dragAnchorIdxRef.current.segId === segId) {
+      const anchor = dragAnchorIdxRef.current.idx;
+      setDragSelection({
+        segId,
+        startIdx: Math.min(anchor, idx),
+        endIdx: Math.max(anchor, idx),
+      });
+    }
+  };
+
+  // 切换整句删除状态
   const toggleSegmentDeleted = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     onUpdateSegments(
       segments.map((s) => {
         if (s.id !== id) return s;
-        const willDelete = !s.isDeleted;
+        const nextDeleted = !s.isDeleted;
         return {
           ...s,
-          isDeleted: willDelete,
-          deleteReason: willDelete ? (s.deleteReason || 'manual') : undefined,
-          // 同时同步字级别状态
-          words: s.words?.map((w) => ({ ...w, isDeleted: willDelete })),
+          isDeleted: nextDeleted,
+          deleteReason: nextDeleted ? ('manual' as const) : undefined,
+          tagLabel: nextDeleted ? '[整句切除]' : undefined,
+          reasonDetail: nextDeleted ? '用户手动一键切除整句' : undefined,
+          words: s.words?.map((w) => ({
+            ...w,
+            isDeleted: nextDeleted,
+            deleteReason: nextDeleted ? ('manual' as const) : undefined,
+          })),
         };
       })
     );
   };
 
-  // 切换单个字的删除状态 (🌟 字级别剪辑核心)
-  const toggleWordDeleted = (segId: string, wordId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    onUpdateSegments(
-      segments.map((seg) => {
-        if (seg.id !== segId || !seg.words) return seg;
-        const updatedWords: WordItem[] = seg.words.map((w) =>
-          w.id === wordId
-            ? { ...w, isDeleted: !w.isDeleted, deleteReason: !w.isDeleted ? ('manual' as const) : undefined }
-            : w
-        );
-        // 如果整句的所有字都被删除了，顺带把整句标为 deleted
-        const allWordsDeleted = updatedWords.every((w) => w.isDeleted);
-        return {
-          ...seg,
-          words: updatedWords,
-          isDeleted: allWordsDeleted,
-        };
-      })
-    );
-  };
-
-  // 恢复所有删除标记
+  // 全部恢复原样
   const handleResetAll = () => {
     onUpdateSegments(
       segments.map((s) => ({
@@ -176,9 +370,24 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
         isDeleted: false,
         deleteReason: undefined,
         tagLabel: undefined,
+        reasonDetail: undefined,
         words: s.words?.map((w) => ({ ...w, isDeleted: false, deleteReason: undefined })),
       }))
     );
+    showToast('已撤销所有切除，恢复原片完整台词！', 'ok');
+  };
+
+  // 用户点击主精剪按钮
+  const handleMainAiCutClick = () => {
+    const isUnTranscribed =
+      (!segments || segments.length === 0 || (segments.length === 1 && segments[0].id === 'seg-init')) &&
+      Boolean(onTriggerTranscribe);
+
+    if (isUnTranscribed && onTriggerTranscribe) {
+      onTriggerTranscribe();
+    } else {
+      setShowAiCutModal(true);
+    }
   };
 
   // 执行 AI 一键精剪确认
@@ -190,14 +399,39 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
     setShowAiCutModal(false);
   };
 
+  // 复制保留的成片文本到剪贴板
+  const handleCopyCleanText = () => {
+    const cleanText = segments
+      .filter((s) => !s.isDeleted && s.type !== 'silence')
+      .map((s) => {
+        if (s.words && s.words.length > 0) {
+          return s.words.filter((w) => !w.isDeleted).map((w) => w.text).join('');
+        }
+        return s.text;
+      })
+      .filter((t) => t.trim().length > 0)
+      .join('\n');
+
+    if (!cleanText) {
+      showToast('当前保留内容为空', 'err');
+      return;
+    }
+
+    navigator.clipboard.writeText(cleanText).then(() => {
+      showToast('已复制最终精炼成片文稿至剪贴板！', 'ok');
+    });
+  };
+
   // 过滤后的切片列表
   const filteredSegments = useMemo(() => {
     return segments.filter((s) => {
-      if (hideSilences && s.deleteReason === 'silence') return false;
+      if (viewMode === 'clean' && s.isDeleted) return false;
+      if (viewMode === 'clean' && s.type === 'silence') return false;
+      if (hideSilences && (s.deleteReason === 'silence' || s.type === 'silence')) return false;
       if (!searchQuery.trim()) return true;
       return s.text.toLowerCase().includes(searchQuery.toLowerCase().trim());
     });
-  }, [segments, hideSilences, searchQuery]);
+  }, [segments, hideSilences, searchQuery, viewMode]);
 
   // 格式化时间 00:00
   const formatTime = (sec: number) => {
@@ -207,15 +441,252 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
+  // 🌟 启动台词改字
+  const handleStartEditSegment = (seg: CutSegment, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setEditingSegId(seg.id);
+    setSegEditText(seg.text);
+    setSplittingSegId(null);
+  };
+
+  // 🌟 保存台词改字
+  const handleSaveSegmentText = (segId: string) => {
+    const trimmed = segEditText.trim();
+    if (!trimmed) {
+      setEditingSegId(null);
+      return;
+    }
+    const updated = segments.map((seg) => {
+      if (seg.id !== segId) return seg;
+      if (seg.text === trimmed) return seg;
+
+      let newWords: WordItem[] | undefined = undefined;
+      if (seg.words && seg.words.length > 0) {
+        const chars = Array.from(trimmed);
+        const totalDur = Math.max(0.1, seg.endTime - seg.startTime);
+        const charDur = totalDur / Math.max(1, chars.length);
+        newWords = chars.map((char, idx) => ({
+          id: `w-${seg.id}-${idx}-${Date.now()}`,
+          text: char,
+          startTime: Number((seg.startTime + idx * charDur).toFixed(3)),
+          endTime: Number((seg.startTime + (idx + 1) * charDur).toFixed(3)),
+          isDeleted: false,
+        }));
+      }
+
+      return {
+        ...seg,
+        text: trimmed,
+        words: newWords || seg.words,
+      };
+    });
+    onUpdateSegments(updated);
+    setEditingSegId(null);
+    showToast('已更新字幕文本', 'ok');
+  };
+
+  // 🌟 在当前播放进度处切分当前句
+  const handleSplitSegmentAtPlayhead = (seg: CutSegment, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const segIdx = segments.findIndex((s) => s.id === seg.id);
+    if (segIdx === -1) return;
+
+    let splitTime = currentTime;
+    const dur = seg.endTime - seg.startTime;
+    if (splitTime <= seg.startTime + 0.05 || splitTime >= seg.endTime - 0.05) {
+      splitTime = seg.startTime + dur / 2;
+    }
+
+    let wordsA: WordItem[] | undefined = undefined;
+    let wordsB: WordItem[] | undefined = undefined;
+    let textA = '';
+    let textB = '';
+
+    if (seg.words && seg.words.length >= 2) {
+      let bestSplitWordIdx = 0;
+      let minDiff = Infinity;
+      seg.words.forEach((w, idx) => {
+        if (idx < seg.words!.length - 1) {
+          const diff = Math.abs(w.endTime - splitTime);
+          if (diff < minDiff) {
+            minDiff = diff;
+            bestSplitWordIdx = idx;
+          }
+        }
+      });
+
+      wordsA = seg.words.slice(0, bestSplitWordIdx + 1);
+      wordsB = seg.words.slice(bestSplitWordIdx + 1);
+      splitTime = wordsA[wordsA.length - 1].endTime;
+      textA = wordsA.map((w) => w.text).join('');
+      textB = wordsB.map((w) => w.text).join('');
+    } else {
+      const ratio = (splitTime - seg.startTime) / Math.max(0.01, dur);
+      const charIdx = Math.max(1, Math.min(seg.text.length - 1, Math.round(seg.text.length * ratio)));
+      textA = seg.text.slice(0, charIdx);
+      textB = seg.text.slice(charIdx);
+    }
+
+    const segA: CutSegment = {
+      ...seg,
+      id: `${seg.id}_a_${Date.now()}`,
+      endTime: splitTime,
+      text: textA,
+      words: wordsA,
+    };
+    const segB: CutSegment = {
+      ...seg,
+      id: `${seg.id}_b_${Date.now() + 1}`,
+      startTime: splitTime,
+      text: textB,
+      words: wordsB,
+    };
+
+    const updated = [...segments];
+    updated.splice(segIdx, 1, segA, segB);
+    onUpdateSegments(updated);
+    setSplittingSegId(null);
+    showToast('已在当前播放进度处切分字幕', 'ok');
+  };
+
+  // 🌟 拆词切分 (点击词间切断)
+  const handleSplitSegmentAtWord = (segId: string, wordIdx: number, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const segIdx = segments.findIndex((s) => s.id === segId);
+    if (segIdx === -1) return;
+    const seg = segments[segIdx];
+    if (!seg.words || wordIdx < 0 || wordIdx >= seg.words.length - 1) return;
+
+    const wordsA = seg.words.slice(0, wordIdx + 1);
+    const wordsB = seg.words.slice(wordIdx + 1);
+    const splitTime = wordsA[wordsA.length - 1].endTime;
+
+    const segA: CutSegment = {
+      ...seg,
+      id: `${seg.id}_a_${Date.now()}`,
+      endTime: splitTime,
+      text: wordsA.map((w) => w.text).join(''),
+      words: wordsA,
+    };
+    const segB: CutSegment = {
+      ...seg,
+      id: `${seg.id}_b_${Date.now() + 1}`,
+      startTime: splitTime,
+      text: wordsB.map((w) => w.text).join(''),
+      words: wordsB,
+    };
+
+    const updated = [...segments];
+    updated.splice(segIdx, 1, segA, segB);
+    onUpdateSegments(updated);
+    setSplittingSegId(null);
+    showToast('已在此处拆分为两句字幕', 'ok');
+  };
+
+  // 🌟 与下一句合并
+  const handleMergeWithNext = (segId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const segIdx = segments.findIndex((s) => s.id === segId);
+    if (segIdx === -1 || segIdx >= segments.length - 1) return;
+
+    const segA = segments[segIdx];
+    const segB = segments[segIdx + 1];
+
+    const mergedSeg: CutSegment = {
+      ...segA,
+      id: `${segA.id}_m_${Date.now()}`,
+      startTime: Math.min(segA.startTime, segB.startTime),
+      endTime: Math.max(segA.endTime, segB.endTime),
+      text: `${segA.text}${segA.text && segB.text && /[a-zA-Z0-9]$/.test(segA.text) ? ' ' : ''}${segB.text}`,
+      words: segA.words && segB.words ? [...segA.words, ...segB.words] : undefined,
+      type: segA.type === 'silence' && segB.type === 'silence' ? 'silence' : 'sentence',
+      isDeleted: segA.isDeleted && segB.isDeleted,
+      tagLabel: segA.tagLabel || segB.tagLabel,
+    };
+
+    const updated = [...segments];
+    updated.splice(segIdx, 2, mergedSeg);
+    onUpdateSegments(updated);
+    showToast('已将当前句与下一句合并', 'ok');
+  };
+
+  // 🌟 起止时间微调 (±0.1s)
+  const handleAdjustSegmentTime = (segId: string, edge: 'start' | 'end', delta: number, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const updated = segments.map((seg) => {
+      if (seg.id !== segId) return seg;
+      if (edge === 'start') {
+        const newStart = Math.max(0, Number((seg.startTime + delta).toFixed(2)));
+        if (newStart >= seg.endTime - 0.05) return seg;
+        return { ...seg, startTime: newStart };
+      } else {
+        const newEnd = Number((seg.endTime + delta).toFixed(2));
+        if (newEnd <= seg.startTime + 0.05) return seg;
+        return { ...seg, endTime: newEnd };
+      }
+    });
+    onUpdateSegments(updated);
+  };
+
+  // 判断是否处于未转录就绪状态
+  const isPendingTranscribe =
+    !isTranscribing &&
+    hasVideo &&
+    (segments.length === 0 || (segments.length === 1 && segments[0].id === 'seg-init'));
+
+  // 拖拽文件投放
+  const handleContainerDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+
+    if (file.name.toLowerCase().endsWith('.srt') || file.name.toLowerCase().endsWith('.vtt')) {
+      onImportSrt?.(file);
+    } else {
+      onLoadVideoFile?.(file);
+    }
+  };
+
   return (
     <div
-      className={`h-full flex flex-col border-r select-none overflow-hidden text-xs ${
-        isDark ? 'bg-[#111218] border-zinc-800/80 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-800'
+      onDragOver={(e) => {
+        e.preventDefault();
+        setIsDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        setIsDragOver(false);
+      }}
+      onDrop={handleContainerDrop}
+      className={`h-full flex flex-col select-none overflow-hidden text-xs relative ${
+        isDark ? 'bg-[#111218] text-zinc-200' : 'bg-white text-zinc-800'
       }`}
     >
-      {/* 顶部标题与数据概览 */}
+      <input
+        ref={localSrtInputRef}
+        type="file"
+        accept=".srt,.vtt"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onImportSrt?.(file);
+          e.target.value = '';
+        }}
+      />
+
+      {/* 拖拽进入全区域光晕提示 */}
+      {isDragOver && (
+        <div className="absolute inset-0 z-50 bg-indigo-950/80 border-2 border-dashed border-indigo-400 backdrop-blur-xs flex flex-col items-center justify-center text-center p-6 pointer-events-none animate-in fade-in">
+          <UploadCloud className="w-12 h-12 text-indigo-300 animate-bounce mb-2" />
+          <div className="text-sm font-bold text-white">释放鼠标以载入文件</div>
+          <div className="text-xs text-indigo-300 mt-1">支持音视频素材 (MP4/MOV/MP3) 或外部字幕 (SRT/VTT)</div>
+        </div>
+      )}
+
+      {/* 顶部标题、数据概览与 AI 引擎状态栏 */}
       <div
-        className={`p-3.5 border-b shrink-0 space-y-3 ${
+        className={`p-3 border-b shrink-0 space-y-2.5 ${
           isDark ? 'bg-[#14151f] border-zinc-800/80' : 'bg-zinc-50 border-zinc-200'
         }`}
       >
@@ -224,22 +695,88 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
             <div className="w-6 h-6 rounded-lg bg-indigo-500/20 text-indigo-500 flex items-center justify-center border border-indigo-500/30">
               <Scissors className="w-3.5 h-3.5" />
             </div>
-            <span className="text-xs font-bold">台词与文案智能剪辑</span>
+            <span className="text-xs font-bold">文稿剪辑</span>
           </div>
 
-          <button
-            type="button"
-            onClick={handleResetAll}
-            className={`text-[10px] px-2 py-0.5 rounded-md border transition flex items-center gap-1 cursor-pointer ${
-              isDark
-                ? 'text-zinc-400 hover:text-zinc-200 bg-zinc-800/80 border-zinc-700/60 hover:bg-zinc-700'
-                : 'text-zinc-600 hover:text-zinc-900 bg-white border-zinc-300 hover:bg-zinc-100 shadow-xs'
-            }`}
-            title="撤销所有删除标记，恢复原片状态"
-          >
-            <RotateCcw className="w-2.5 h-2.5" />
-            <span>全部恢复</span>
-          </button>
+          <div className="flex items-center gap-1.5">
+            {/* 🌟 提词器自动居中跟随开关 (纯图标 + Tooltip) */}
+            <button
+              type="button"
+              onClick={() => setAutoScroll(!autoScroll)}
+              className={`p-1.5 rounded-lg border transition cursor-pointer flex items-center justify-center ${
+                autoScroll
+                  ? isDark
+                    ? 'bg-indigo-950/60 text-indigo-300 border-indigo-500/40'
+                    : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                  : isDark
+                  ? 'text-zinc-400 hover:text-zinc-200 bg-zinc-800/80 border-zinc-700/60'
+                  : 'text-zinc-600 hover:text-zinc-900 bg-white border-zinc-300'
+              }`}
+              title={autoScroll ? '自动跟随：开启中 (点击关闭)' : '锁定视窗 (点击开启自动跟随)'}
+            >
+              <LocateFixed className="w-3 h-3" />
+            </button>
+
+            {/* 全部恢复按钮 (纯图标 + Tooltip) */}
+            <button
+              type="button"
+              onClick={handleResetAll}
+              disabled={segments.length === 0}
+              className={`p-1.5 rounded-lg border transition cursor-pointer flex items-center justify-center ${
+                segments.length === 0
+                  ? 'opacity-40 cursor-not-allowed text-zinc-500 border-transparent'
+                  : isDark
+                  ? 'text-zinc-400 hover:text-zinc-200 bg-zinc-800/80 border-zinc-700/60 hover:bg-zinc-700'
+                  : 'text-zinc-600 hover:text-zinc-900 bg-white border-zinc-300 hover:bg-zinc-100 shadow-xs'
+              }`}
+              title="恢复所有被切除内容"
+            >
+              <RotateCcw className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+
+        {/* 🌟 AI 语义分析引擎透明化胶囊 */}
+        <div
+          className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl border text-[11px] ${
+            activeEngine.isCloud
+              ? isDark
+                ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300'
+                : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : isDark
+              ? 'bg-zinc-900/90 border-zinc-800 text-zinc-400'
+              : 'bg-white border-zinc-200 text-zinc-600'
+          }`}
+        >
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                activeEngine.isCloud ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'
+              }`}
+            />
+            <span className="truncate font-medium">
+              引擎: <strong className={activeEngine.isCloud ? (isDark ? 'text-emerald-200' : 'text-emerald-900 font-bold') : ''}>{activeEngine.engineName.replace(/^云端大模型 AI \((.*)\)$/, '$1')}</strong>
+            </span>
+          </div>
+
+          {onOpenModelHub && (
+            <button
+              type="button"
+              onClick={onOpenModelHub}
+              className={`shrink-0 p-1 rounded transition cursor-pointer ${
+                activeEngine.isCloud
+                  ? isDark
+                    ? 'hover:bg-emerald-500/20 text-emerald-300'
+                    : 'hover:bg-emerald-100 text-emerald-700'
+                  : isDark
+                  ? 'hover:bg-zinc-700/40 text-indigo-400 hover:text-indigo-300'
+                  : 'hover:bg-zinc-100 text-indigo-600 hover:text-indigo-800'
+              }`}
+              title="配置 AI 大模型供应商与 Key"
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
         {/* 时长精简对比胶囊 */}
@@ -249,204 +786,228 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
           }`}
         >
           <div>
-            <div className={`text-[9px] ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>原片时长</div>
+            <div className={`text-[9px] ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>原片</div>
             <div className="text-xs font-bold">{formatTime(totalDuration)}</div>
           </div>
           <div>
-            <div className={`text-[9px] ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>精剪保留</div>
+            <div className={`text-[9px] ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>保留</div>
             <div className="text-xs font-bold text-emerald-500">{formatTime(preservedDuration)}</div>
           </div>
           <div>
-            <div className={`text-[9px] ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>浓缩比</div>
+            <div className={`text-[9px] ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>浓缩</div>
             <div className="text-xs font-bold text-indigo-500">{condensedRatio}%</div>
           </div>
         </div>
 
-        {/* 🌟 核心：AI 一键全自动精剪 主按钮 (带方案预览弹窗) */}
+        {/* 🌟 核心：AI 一键精剪 主按钮 */}
         <button
           type="button"
-          onClick={() => setShowAiCutModal(true)}
-          className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-bold text-xs shadow-md transition cursor-pointer flex items-center justify-center gap-2"
+          onClick={handleMainAiCutClick}
+          disabled={isTranscribing || (!hasVideo && segments.length === 0)}
+          className={`w-full py-2 rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow cursor-pointer text-xs ${
+            isTranscribing
+              ? isDark
+                ? 'bg-zinc-800 text-zinc-400 border border-zinc-700/50 cursor-wait'
+                : 'bg-zinc-100 text-zinc-400 border border-zinc-200 cursor-wait'
+              : !hasVideo && segments.length === 0
+              ? isDark
+                ? 'bg-zinc-800/60 text-zinc-500 border border-zinc-700/30 cursor-not-allowed'
+                : 'bg-zinc-100 text-zinc-400 border border-zinc-200 cursor-not-allowed'
+              : isPendingTranscribe
+              ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:brightness-110 text-white shadow-indigo-500/20 animate-pulse'
+              : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-500/20'
+          }`}
         >
-          <Bot className="w-4 h-4 text-amber-300 animate-pulse" />
-          <span>🤖 AI 一键全自动精剪 (预览后应用)</span>
+          {isTranscribing ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+              <span>识别提取中，请稍候…</span>
+            </>
+          ) : isPendingTranscribe ? (
+            <>
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span>⚡ 提取文稿并 AI 精剪</span>
+            </>
+          ) : (
+            <>
+              <Bot className="w-4 h-4 text-amber-300" />
+              <span>⚡ AI 一键精剪</span>
+            </>
+          )}
         </button>
 
-        {/* 4 大单项细切操作组 */}
-        <div className="grid grid-cols-2 gap-1.5">
-          <button
-            type="button"
-            onClick={onRunSilenceCut}
-            className={`py-1.5 px-2 rounded-lg border text-[11px] font-medium transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs whitespace-nowrap ${
-              isDark
-                ? 'bg-zinc-800/90 hover:bg-zinc-700 border-zinc-700/60 text-zinc-200'
-                : 'bg-white hover:bg-zinc-100 border-zinc-300 text-zinc-700'
-            }`}
-            title="自动识别语音停顿并施加 120ms 自然呼吸缓冲保护"
-          >
-            <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-            <span>⚡ 一键去气口</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onRunFillerClean}
-            className={`py-1.5 px-2 rounded-lg border text-[11px] font-medium transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs whitespace-nowrap ${
-              isDark
-                ? 'bg-zinc-800/90 hover:bg-zinc-700 border-zinc-700/60 text-zinc-200'
-                : 'bg-white hover:bg-zinc-100 border-zinc-300 text-zinc-700'
-            }`}
-            title="一键标记并剔除语气词（呃、啊、然后、就是说）"
-          >
-            <Volume2 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-            <span>🧹 清语气词</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onRunStumbleClean}
-            className={`py-1.5 px-2 rounded-lg border text-[11px] font-medium transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs whitespace-nowrap ${
-              isDark
-                ? 'bg-zinc-800/90 hover:bg-zinc-700 border-zinc-700/60 text-zinc-200'
-                : 'bg-white hover:bg-zinc-100 border-zinc-300 text-zinc-700'
-            }`}
-            title="启发式识别相邻忘词嘴瓢，自动分组并保留最后一次完整录制"
-          >
-            <AlertTriangle className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-            <span>🎯 剔除嘴瓢重录</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onRunNarrativePruning(selectedPreset)}
-            disabled={isAnalyzingNarrative}
-            className="py-1.5 px-2 rounded-lg bg-gradient-to-r from-purple-900/70 to-indigo-900/70 hover:from-purple-800 hover:to-indigo-800 border border-purple-500/40 text-white text-[11px] font-bold transition cursor-pointer flex items-center justify-center gap-1 shadow-xs disabled:opacity-50 whitespace-nowrap"
-            title="深度分析篇章文案主线，剔除跑题冗余，保全主干逻辑"
-          >
-            <BrainCircuit className={`w-3.5 h-3.5 text-purple-300 shrink-0 ${isAnalyzingNarrative ? 'animate-spin' : ''}`} />
-            <span>{isAnalyzingNarrative ? '分析中…' : '🧠 AI 篇章精炼'}</span>
-          </button>
-        </div>
-
-        {/* 快速搜索与气口过滤控制条 */}
-        <div className={`flex items-center gap-2 pt-1 border-t ${isDark ? 'border-zinc-800/60' : 'border-zinc-200'}`}>
+        {/* 🌟 搜索栏与双模视图切换胶囊 */}
+        <div className="flex items-center gap-2 pt-0.5">
+          {/* 搜索框 */}
           <div className="relative flex-1">
-            <Search className={`w-3 h-3 absolute left-2.5 top-2 pointer-events-none ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`} />
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索台词文字快速定位..."
-              className={`w-full pl-7 pr-2 py-1 rounded-md border text-[11px] focus:outline-none focus:border-indigo-500 ${
+              placeholder="搜索台词或字词…"
+              className={`w-full pl-8 pr-3 py-1 rounded-lg border text-xs focus:outline-hidden transition ${
                 isDark
-                  ? 'bg-zinc-950 border-zinc-800 text-zinc-200 placeholder:text-zinc-600'
-                  : 'bg-white border-zinc-300 text-zinc-900 placeholder:text-zinc-400'
+                  ? 'bg-zinc-900/90 border-zinc-800 focus:border-indigo-500 text-zinc-200 placeholder-zinc-500'
+                  : 'bg-white border-zinc-200 focus:border-indigo-500 text-zinc-800 placeholder-zinc-400'
               }`}
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={() => setHideSilences(!hideSilences)}
-            className={`px-2 py-1 rounded-md text-[10px] font-medium border transition cursor-pointer shrink-0 whitespace-nowrap ${
-              hideSilences
-                ? 'bg-indigo-950/60 text-indigo-300 border-indigo-500/50'
-                : isDark
-                ? 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-                : 'bg-white text-zinc-600 border-zinc-300 hover:bg-zinc-100'
+
+          {/* 🌟 双模切换：全览 vs 成片 */}
+          <div
+            className={`flex items-center p-0.5 rounded-lg border text-[11px] ${
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-200'
             }`}
-            title="点击切换：在列表中隐藏或展示停顿间隙"
           >
-            {hideSilences ? '已隐藏气口' : '显示气口'}
-          </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('all')}
+              className={`px-2 py-0.5 rounded transition cursor-pointer ${
+                viewMode === 'all'
+                  ? 'bg-indigo-600 text-white font-bold shadow-xs'
+                  : isDark
+                  ? 'text-zinc-400 hover:text-zinc-200'
+                  : 'text-zinc-600 hover:text-zinc-900'
+              }`}
+              title="显示全部停顿、语气词与删除标记，支持微调"
+            >
+              全览
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('clean')}
+              className={`px-2 py-0.5 rounded transition cursor-pointer flex items-center gap-1 ${
+                viewMode === 'clean'
+                  ? 'bg-emerald-600 text-white font-bold shadow-xs'
+                  : isDark
+                  ? 'text-zinc-400 hover:text-zinc-200'
+                  : 'text-zinc-600 hover:text-zinc-900'
+              }`}
+              title="滤除已删内容，仅看最终成片台词"
+            >
+              <span>成片</span>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* AI 方案预览与确认 Modal 抽屉 */}
       {showAiCutModal && (
-        <div className="p-3.5 bg-gradient-to-br from-indigo-950/90 to-purple-950/90 border-b border-indigo-500/40 text-white shrink-0 space-y-2.5 shadow-lg animate-in fade-in">
+        <div
+          className={`p-3.5 border-b shrink-0 space-y-2.5 shadow-lg animate-in fade-in ${
+            isDark
+              ? 'bg-gradient-to-br from-indigo-950/95 to-purple-950/95 border-indigo-500/40 text-white'
+              : 'bg-gradient-to-br from-indigo-50/95 to-purple-50/95 border-indigo-200 text-zinc-800'
+          }`}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-300" />
-              <span className="font-bold text-xs text-white">AI 智能精剪诊断方案已就绪</span>
+              <Sparkles className="w-4 h-4 text-amber-500" />
+              <span className={`font-bold text-xs ${isDark ? 'text-white' : 'text-zinc-900'}`}>
+                AI 智能精剪诊断方案已就绪
+              </span>
             </div>
             <button
               type="button"
               onClick={() => setShowAiCutModal(false)}
-              className="p-1 text-zinc-400 hover:text-white rounded"
+              className={`p-1 rounded cursor-pointer transition ${
+                isDark ? 'text-zinc-400 hover:text-white' : 'text-zinc-400 hover:text-zinc-700'
+              }`}
             >
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
 
           {/* 4 大维度诊断卡片 */}
-          <div className="p-2.5 bg-black/40 rounded-xl border border-white/10 space-y-1.5 text-[11px]">
-            <div className="text-zinc-300 font-medium">智能识别诊断结果：</div>
+          <div
+            className={`p-2.5 rounded-xl border space-y-1.5 text-[11px] ${
+              isDark ? 'bg-black/40 border-white/10' : 'bg-white border-indigo-100 shadow-xs'
+            }`}
+          >
+            <div
+              className={`flex items-center justify-between font-medium ${
+                isDark ? 'text-zinc-300' : 'text-zinc-600'
+              }`}
+            >
+              <span>智能识别诊断结果：</span>
+              <span className={`text-[10px] ${isDark ? 'text-indigo-300' : 'text-indigo-600 font-medium'}`}>
+                分析引擎: {activeEngine.engineName}
+              </span>
+            </div>
             <div className="grid grid-cols-4 gap-1.5 font-mono text-[10.5px]">
-              <div className="bg-white/5 p-1.5 rounded text-center">
-                <span className="text-zinc-400 block text-[9.5px]">停顿气口</span>
-                <span className="font-bold text-amber-300">{detectedIssues.silencesCount} 处</span>
+              <div className={`p-1.5 rounded text-center border ${isDark ? 'bg-white/5 border-transparent' : 'bg-amber-50/50 border-amber-200/60'}`}>
+                <span className={`block text-[9.5px] ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>停顿气口</span>
+                <span className={`font-bold ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>{detectedIssues.silencesCount} 处</span>
               </div>
-              <div className="bg-white/5 p-1.5 rounded text-center">
-                <span className="text-zinc-400 block text-[9.5px]">口癖语气词</span>
-                <span className="font-bold text-sky-300">{detectedIssues.fillersCount} 处</span>
+              <div className={`p-1.5 rounded text-center border ${isDark ? 'bg-white/5 border-transparent' : 'bg-sky-50/50 border-sky-200/60'}`}>
+                <span className={`block text-[9.5px] ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>口癖与杂音</span>
+                <span className={`font-bold ${isDark ? 'text-sky-300' : 'text-sky-700'}`}>{detectedIssues.fillersCount} 处</span>
               </div>
-              <div className="bg-white/5 p-1.5 rounded text-center">
-                <span className="text-zinc-400 block text-[9.5px]">嘴瓢重录</span>
-                <span className="font-bold text-orange-300">{detectedIssues.stumblesCount} 组</span>
+              <div className={`p-1.5 rounded text-center border ${isDark ? 'bg-white/5 border-transparent' : 'bg-orange-50/50 border-orange-200/60'}`}>
+                <span className={`block text-[9.5px] ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>嘴瓢重录</span>
+                <span className={`font-bold ${isDark ? 'text-orange-300' : 'text-orange-700'}`}>{detectedIssues.stumblesCount} 组</span>
               </div>
-              <div className="bg-white/5 p-1.5 rounded text-center">
-                <span className="text-zinc-400 block text-[9.5px]">跑题车轱辘</span>
-                <span className="font-bold text-purple-300">{detectedIssues.tangentsCount || '待精炼'}</span>
+              <div className={`p-1.5 rounded text-center border ${isDark ? 'bg-white/5 border-transparent' : 'bg-purple-50/50 border-purple-200/60'}`}>
+                <span className={`block text-[9.5px] ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>跑题车轱辘</span>
+                <span className={`font-bold ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>{detectedIssues.tangentsCount || '待精炼'}</span>
               </div>
             </div>
           </div>
 
           {/* 可选项列表 */}
           <div className="space-y-1.5 text-[11px]">
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className={`flex items-center gap-2 cursor-pointer ${isDark ? 'text-zinc-200' : 'text-zinc-700'}`}>
               <input
                 type="checkbox"
                 checked={aiCutOptions.cutSilence}
                 onChange={(e) => setAiCutOptions({ ...aiCutOptions, cutSilence: e.target.checked })}
-                className="rounded accent-indigo-500"
+                className="rounded accent-indigo-500 cursor-pointer"
               />
               <span>切除停顿气口（保留 120ms 自然呼吸缓冲）</span>
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className={`flex items-center gap-2 cursor-pointer ${isDark ? 'text-zinc-200' : 'text-zinc-700'}`}>
               <input
                 type="checkbox"
                 checked={aiCutOptions.cutFillers}
                 onChange={(e) => setAiCutOptions({ ...aiCutOptions, cutFillers: e.target.checked })}
-                className="rounded accent-indigo-500"
+                className="rounded accent-indigo-500 cursor-pointer"
               />
-              <span>剔除语气词（呃、啊、然后、就是说）</span>
+              <span>剔除语气词与咳嗽拟声杂音（呃、啊、然后、咳咳等）</span>
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className={`flex items-center gap-2 cursor-pointer ${isDark ? 'text-zinc-200' : 'text-zinc-700'}`}>
               <input
                 type="checkbox"
                 checked={aiCutOptions.cutStumbles}
                 onChange={(e) => setAiCutOptions({ ...aiCutOptions, cutStumbles: e.target.checked })}
-                className="rounded accent-indigo-500"
+                className="rounded accent-indigo-500 cursor-pointer"
               />
-              <span>剔除多轮重录前序嘴瓢（保留最佳版本）</span>
+              <span>剔除多轮重录前序嘴瓢（自动保留最后一遍完整录制）</span>
             </label>
-
-            {/* 🌟 核心：文案内容主线深度精炼 */}
-            <div className="p-2 rounded-lg bg-white/5 border border-purple-500/20 space-y-1">
+            <div className={`pt-1 border-t space-y-1 ${isDark ? 'border-white/10' : 'border-indigo-100'}`}>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={aiCutOptions.cutNarrative}
                   onChange={(e) => setAiCutOptions({ ...aiCutOptions, cutNarrative: e.target.checked })}
-                  className="rounded accent-purple-500"
+                  className="rounded accent-purple-500 cursor-pointer"
                 />
-                <span className="font-bold text-purple-300">
+                <span className={`font-bold ${isDark ? 'text-purple-300' : 'text-purple-800'}`}>
                   🧠 深度文案内容分析（剔除冗余跑题，保留主干逻辑）
                 </span>
               </label>
               {aiCutOptions.cutNarrative && (
                 <div className="pl-5 pt-1 flex items-center gap-1.5">
-                  <span className="text-[10px] text-zinc-400">精炼强度:</span>
+                  <span className={`text-[10px] ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>精炼强度:</span>
                   {(['balanced', 'viral', 'light'] as NarrativePreset[]).map((p) => (
                     <button
                       key={p}
@@ -454,8 +1015,10 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
                       onClick={() => setSelectedPreset(p)}
                       className={`px-2 py-0.5 rounded text-[10px] transition cursor-pointer ${
                         selectedPreset === p
-                          ? 'bg-purple-600 text-white font-bold'
-                          : 'bg-white/10 text-zinc-300 hover:bg-white/20'
+                          ? 'bg-purple-600 text-white font-bold shadow-xs'
+                          : isDark
+                          ? 'bg-white/10 text-zinc-300 hover:bg-white/20'
+                          : 'bg-white border border-purple-200 text-purple-700 hover:bg-purple-50 shadow-xs'
                       }`}
                     >
                       {p === 'balanced' ? '紧凑高效 (推荐)' : p === 'viral' ? '爆款极速' : '轻度微调'}
@@ -466,18 +1029,22 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-1 border-t border-white/10">
+          <div className={`flex items-center justify-end gap-2 pt-1 border-t ${isDark ? 'border-white/10' : 'border-indigo-100'}`}>
             <button
               type="button"
               onClick={() => setShowAiCutModal(false)}
-              className="px-3 py-1 rounded-lg text-xs bg-white/10 hover:bg-white/20 text-zinc-300"
+              className={`px-3 py-1 rounded-lg text-xs transition cursor-pointer border ${
+                isDark
+                  ? 'bg-white/10 hover:bg-white/20 text-zinc-300 border-white/10'
+                  : 'bg-white hover:bg-zinc-100 text-zinc-600 border-zinc-300 shadow-xs'
+              }`}
             >
               取消
             </button>
             <button
               type="button"
               onClick={handleConfirmAiCut}
-              className="px-3.5 py-1 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow flex items-center gap-1.5"
+              className="px-3.5 py-1 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow flex items-center gap-1.5 cursor-pointer"
             >
               <Check className="w-3.5 h-3.5" />
               <span>确认应用精剪</span>
@@ -486,14 +1053,319 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
         </div>
       )}
 
-      {/* 可交互文稿列表 (Word 式字词级精确切除与高亮) */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
-        {filteredSegments.length === 0 ? (
-          <div className="h-48 flex flex-col items-center justify-center text-zinc-500 text-xs gap-2 text-center p-4">
-            <FileText className="w-8 h-8 text-zinc-400" />
-            <span>暂无文稿，请上传视频后自动提取台词</span>
+      {/* 可交互文稿列表 */}
+      <div ref={listContainerRef} className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar relative">
+        {/* 🌟 1. 正在提取台词转录状态 (4 步可视化流水线步进器) */}
+        {isTranscribing && (
+          <div
+            className={`p-5 rounded-2xl border flex flex-col items-center justify-center text-center space-y-4 m-2 shadow-sm animate-in fade-in ${
+              isDark ? 'bg-indigo-950/30 border-indigo-500/40' : 'bg-indigo-50/70 border-indigo-200'
+            }`}
+          >
+            <div
+              className={`w-12 h-12 rounded-2xl flex items-center justify-center border shadow-inner ${
+                isDark
+                  ? 'bg-indigo-600/20 text-indigo-400 border-indigo-500/40'
+                  : 'bg-indigo-100 text-indigo-600 border-indigo-200'
+              }`}
+            >
+              <Loader2 className="w-6 h-6 animate-spin" />
+            </div>
+
+            <div className="space-y-1 w-full max-w-sm">
+              <div className={`text-xs font-bold ${isDark ? 'text-indigo-200' : 'text-indigo-900'}`}>
+                正在提取音视频台词与字级时间戳…
+              </div>
+              <div className={`text-[11px] font-mono ${isDark ? 'text-indigo-400' : 'text-indigo-700'}`}>
+                {transcribeStage || '火山引擎 Seed-ASR 2.0 毫秒级识别与停顿对齐中…'}
+              </div>
+            </div>
+
+            {/* 4 步可视化流程胶囊 */}
+            <div className="w-full max-w-sm grid grid-cols-4 gap-1.5 text-[10px] font-mono">
+              <div
+                className={`p-1.5 rounded-lg border transition text-center ${
+                  currentPipelineStep >= 1
+                    ? isDark
+                      ? 'bg-indigo-900/50 border-indigo-500/60 text-indigo-200 font-bold'
+                      : 'bg-indigo-100 border-indigo-300 text-indigo-900 font-bold'
+                    : isDark
+                    ? 'bg-white/5 border-white/10 text-zinc-500'
+                    : 'bg-white border-zinc-200 text-zinc-400'
+                }`}
+              >
+                <div>🎵 音轨提取</div>
+                <div className="text-[8.5px] opacity-75">{currentPipelineStep > 1 ? '已完成' : '进行中'}</div>
+              </div>
+              <div
+                className={`p-1.5 rounded-lg border transition text-center ${
+                  currentPipelineStep >= 2
+                    ? isDark
+                      ? 'bg-indigo-900/50 border-indigo-500/60 text-indigo-200 font-bold'
+                      : 'bg-indigo-100 border-indigo-300 text-indigo-900 font-bold'
+                    : isDark
+                    ? 'bg-white/5 border-white/10 text-zinc-500'
+                    : 'bg-white border-zinc-200 text-zinc-400'
+                }`}
+              >
+                <div>☁️ 云端暂存</div>
+                <div className="text-[8.5px] opacity-75">
+                  {currentPipelineStep > 2 ? '已完成' : currentPipelineStep === 2 ? '进行中' : '等待'}
+                </div>
+              </div>
+              <div
+                className={`p-1.5 rounded-lg border transition text-center ${
+                  currentPipelineStep >= 3
+                    ? isDark
+                      ? 'bg-indigo-900/50 border-indigo-500/60 text-indigo-200 font-bold'
+                      : 'bg-indigo-100 border-indigo-300 text-indigo-900 font-bold'
+                    : isDark
+                    ? 'bg-white/5 border-white/10 text-zinc-500'
+                    : 'bg-white border-zinc-200 text-zinc-400'
+                }`}
+              >
+                <div>🤖 ASR 识别</div>
+                <div className="text-[8.5px] opacity-75">
+                  {currentPipelineStep > 3 ? '已完成' : currentPipelineStep === 3 ? '进行中' : '等待'}
+                </div>
+              </div>
+              <div
+                className={`p-1.5 rounded-lg border transition text-center ${
+                  currentPipelineStep >= 4
+                    ? isDark
+                      ? 'bg-indigo-900/50 border-indigo-500/60 text-indigo-200 font-bold'
+                      : 'bg-indigo-100 border-indigo-300 text-indigo-900 font-bold'
+                    : isDark
+                    ? 'bg-white/5 border-white/10 text-zinc-500'
+                    : 'bg-white border-zinc-200 text-zinc-400'
+                }`}
+              >
+                <div>⏱️ 停顿对齐</div>
+                <div className="text-[8.5px] opacity-75">{currentPipelineStep === 4 ? '进行中' : '等待'}</div>
+              </div>
+            </div>
+
+            <p className={`text-[10px] max-w-xs leading-relaxed ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+              转录完成后将为您直接呈现文稿卡片，右侧视频监视器保持可用。
+            </p>
           </div>
-        ) : (
+        )}
+
+        {/* 🌟 2. 转录异常报错诊断卡片 (保留现场，提供明确重试与替代方案) */}
+        {!isTranscribing && transcribeError && (
+          <div
+            className={`p-4 rounded-2xl border flex flex-col items-center justify-center text-center space-y-3 m-2 animate-in fade-in ${
+              isDark ? 'bg-rose-950/30 border-rose-500/40' : 'bg-rose-50 border-rose-200'
+            }`}
+          >
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center border shadow-inner ${
+                isDark
+                  ? 'bg-rose-600/20 text-rose-400 border-rose-500/30'
+                  : 'bg-rose-100 text-rose-600 border-rose-200'
+              }`}
+            >
+              <AlertTriangle className="w-5 h-5 text-rose-500" />
+            </div>
+            <div className="space-y-1 max-w-sm">
+              <div className={`text-xs font-bold ${isDark ? 'text-rose-200' : 'text-rose-900'}`}>
+                台词提取遇到问题
+              </div>
+              <div className={`text-[11px] leading-relaxed font-mono ${isDark ? 'text-rose-300' : 'text-rose-800'}`}>
+                {transcribeError}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-1 flex-wrap justify-center">
+              {transcribeError.includes('API Key') && onGoSettings && (
+                <button
+                  type="button"
+                  onClick={onGoSettings}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow flex items-center gap-1 cursor-pointer"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>前往「设置」配置 API Key</span>
+                </button>
+              )}
+
+              {onTriggerTranscribe && (
+                <button
+                  type="button"
+                  onClick={() => onTriggerTranscribe()}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1 cursor-pointer transition ${
+                    isDark
+                      ? 'bg-white/10 hover:bg-white/20 text-zinc-200 border-white/10'
+                      : 'bg-white hover:bg-zinc-100 text-zinc-700 border-zinc-300 shadow-xs'
+                  }`}
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>重试提取</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => localSrtInputRef.current?.click()}
+                className="px-3 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-500 text-white text-xs font-medium flex items-center gap-1 cursor-pointer shadow"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>导入本地字幕 (免跑 ASR)</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 🌟 3. 视频已导入但尚未点击转录的状态 */}
+        {!isTranscribing && !transcribeError && isPendingTranscribe && (
+          <div
+            className={`p-6 rounded-2xl border border-dashed flex flex-col items-center justify-center text-center space-y-3 m-2 ${
+              isDark ? 'border-zinc-700/60 bg-zinc-900/30' : 'border-zinc-300 bg-zinc-50'
+            }`}
+          >
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center border ${
+                isDark
+                  ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                  : 'bg-indigo-50 text-indigo-600 border-indigo-200'
+              }`}
+            >
+              <FileText className="w-5 h-5" />
+            </div>
+            <div className="space-y-1">
+              <div className={`text-xs font-bold ${isDark ? 'text-zinc-100' : 'text-zinc-800'}`}>
+                视频素材已载入，等待提取文稿
+              </div>
+              <div className={`text-[11px] max-w-xs leading-relaxed ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                点击上方「⚡ 提取文稿并 AI 精剪」即可开始语音识别与气口、语气词智能扫描。
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => localSrtInputRef.current?.click()}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition cursor-pointer flex items-center gap-1 ${
+                  isDark
+                    ? 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300'
+                    : 'bg-white hover:bg-zinc-100 border-zinc-300 text-zinc-700 shadow-xs'
+                }`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
+                <span>导入 SRT 字幕</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 🌟 4. 未导入素材时的空白初始大面积投放区 (Drop Zone Hero) */}
+        {!isTranscribing && !transcribeError && !hasVideo && segments.length === 0 && (
+          <div
+            className={`p-8 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center text-center space-y-4 m-2 transition ${
+              isDark
+                ? 'border-zinc-700/60 hover:border-indigo-500/60 bg-zinc-900/20'
+                : 'border-zinc-300 hover:border-indigo-400 bg-zinc-50/60'
+            }`}
+          >
+            <div
+              className={`w-14 h-14 rounded-2xl flex items-center justify-center border shadow-inner ${
+                isDark
+                  ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500/30'
+                  : 'bg-indigo-50 text-indigo-600 border-indigo-200'
+              }`}
+            >
+              <UploadCloud className="w-7 h-7" />
+            </div>
+
+            <div className="space-y-1 max-w-xs">
+              <div className={`text-sm font-bold ${isDark ? 'text-zinc-100' : 'text-zinc-800'}`}>
+                拖入口播视频开始智能精剪
+              </div>
+              <div className={`text-xs leading-relaxed ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                自动识别气口停顿、口癖语气词与重录废话，双击删字，鼠标划选批量切除。
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2 flex-wrap justify-center">
+              {onPickMediaFile && (
+                <button
+                  type="button"
+                  onClick={onPickMediaFile}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow flex items-center gap-1.5 cursor-pointer"
+                >
+                  <UploadCloud className="w-3.5 h-3.5" />
+                  <span>选择本地音视频文件</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => localSrtInputRef.current?.click()}
+                className={`px-3 py-2 rounded-xl border text-xs font-medium transition cursor-pointer flex items-center gap-1 ${
+                  isDark
+                    ? 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300'
+                    : 'bg-white hover:bg-zinc-100 border-zinc-300 text-zinc-700 shadow-xs'
+                }`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
+                <span>导入 SRT 字幕</span>
+              </button>
+
+              {onLoadDemo && (
+                <button
+                  type="button"
+                  onClick={onLoadDemo}
+                  className={`px-3 py-2 rounded-xl border text-xs font-medium transition cursor-pointer flex items-center gap-1 ${
+                    isDark
+                      ? 'bg-indigo-950/40 hover:bg-indigo-900/60 border-indigo-500/30 text-indigo-300'
+                      : 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 text-indigo-700 shadow-xs'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  <span>体验爆款示例</span>
+                </button>
+              )}
+            </div>
+
+            {/* 格式标签 */}
+            <div className={`flex items-center gap-1 text-[10px] font-mono pt-1 ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>
+              <span>支持格式:</span>
+              <span className={`px-1.5 py-0.5 rounded border ${isDark ? 'bg-zinc-800 border-zinc-700 text-zinc-400' : 'bg-zinc-200/80 border-zinc-300 text-zinc-600'}`}>MP4</span>
+              <span className={`px-1.5 py-0.5 rounded border ${isDark ? 'bg-zinc-800 border-zinc-700 text-zinc-400' : 'bg-zinc-200/80 border-zinc-300 text-zinc-600'}`}>MOV</span>
+              <span className={`px-1.5 py-0.5 rounded border ${isDark ? 'bg-zinc-800 border-zinc-700 text-zinc-400' : 'bg-zinc-200/80 border-zinc-300 text-zinc-600'}`}>MKV</span>
+              <span className={`px-1.5 py-0.5 rounded border ${isDark ? 'bg-zinc-800 border-zinc-700 text-zinc-400' : 'bg-zinc-200/80 border-zinc-300 text-zinc-600'}`}>MP3</span>
+              <span className={`px-1.5 py-0.5 rounded border ${isDark ? 'bg-zinc-800 border-zinc-700 text-zinc-400' : 'bg-zinc-200/80 border-zinc-300 text-zinc-600'}`}>SRT</span>
+            </div>
+          </div>
+        )}
+
+        {/* 🌟 5. 成片模式文稿顶栏 (一键复制最终成片干净文本) */}
+        {viewMode === 'clean' && filteredSegments.length > 0 && (
+          <div
+            className={`p-2 px-3 rounded-xl border flex items-center justify-between text-xs mb-2 ${
+              isDark
+                ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-200'
+                : 'bg-emerald-50 border-emerald-200 text-emerald-800 shadow-xs'
+            }`}
+          >
+            <span className="flex items-center gap-1 font-medium">
+              <Check className="w-3.5 h-3.5 text-emerald-500" />
+              <span>当前为成片台词预览模式（已隐去全部切除废片）</span>
+            </span>
+            <button
+              type="button"
+              onClick={handleCopyCleanText}
+              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10.5px] flex items-center gap-1 shadow cursor-pointer"
+            >
+              <Copy className="w-3 h-3" />
+              <span>复制成片文稿</span>
+            </button>
+          </div>
+        )}
+
+        {/* 🌟 6. 正常切片渲染列表 */}
+        {!isTranscribing &&
+          !transcribeError &&
+          !isPendingTranscribe &&
+          filteredSegments.length > 0 &&
           filteredSegments.map((seg) => {
             const isCurrent = currentTime >= seg.startTime && currentTime <= seg.endTime;
             const isSilence =
@@ -509,7 +1381,8 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
                 <div
                   key={seg.id}
                   onClick={(e) => toggleSegmentDeleted(seg.id, e)}
-                  className={`flex items-center justify-between px-3 py-1 rounded-md text-[10px] font-mono cursor-pointer transition border ${
+                  data-is-active={isCurrent ? 'true' : 'false'}
+                  className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-[10px] font-mono cursor-pointer transition border ${
                     seg.isDeleted
                       ? isDark
                         ? 'bg-zinc-900/30 border-zinc-800/50 text-zinc-500'
@@ -531,18 +1404,23 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
               );
             }
 
-            // 句子主体 (内部包含字词级切片)
+            // 句子主体 (内部包含字词级切片与划选交互)
+            const isSegSelectedByDrag = dragSelection && dragSelection.segId === seg.id;
+
             return (
               <div
                 key={seg.id}
                 onClick={() => onSeek(seg.startTime)}
+                data-is-active={isCurrent ? 'true' : 'false'}
                 className={`p-3 rounded-xl border transition-all cursor-pointer group ${
                   isCurrent
-                    ? 'border-indigo-500 ring-1 ring-indigo-500/40 shadow-sm'
+                    ? isDark
+                      ? 'border-indigo-500 ring-1 ring-indigo-500/40 shadow-sm bg-indigo-950/20'
+                      : 'border-indigo-500 ring-1 ring-indigo-500/30 shadow-xs bg-indigo-50/40'
                     : seg.isDeleted
                     ? isDark
-                      ? 'border-zinc-900 bg-zinc-950/40 opacity-55'
-                      : 'border-zinc-200 bg-zinc-100 opacity-60'
+                      ? 'border-zinc-900 bg-zinc-950/40 opacity-60'
+                      : 'border-zinc-200 bg-zinc-100 opacity-65'
                     : isDark
                     ? 'border-zinc-800/80 bg-zinc-900/50 hover:bg-zinc-800/60'
                     : 'bg-white border-zinc-200 hover:border-indigo-300 shadow-xs'
@@ -554,99 +1432,410 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
                     <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
                       {seg.tagLabel && (
                         <span
-                          className={`inline-block text-[9px] px-1.5 py-0.2 rounded font-semibold ${
-                            seg.deleteReason === 'stumble'
-                              ? 'bg-orange-500/10 text-orange-400 border border-orange-500/30'
-                              : seg.deleteReason === 'narrative_tangent'
-                              ? 'bg-purple-500/10 text-purple-400 border border-purple-500/30'
-                              : seg.deleteReason === 'filler'
-                              ? 'bg-sky-500/10 text-sky-400 border border-sky-500/30'
-                              : 'bg-zinc-500/10 text-zinc-400'
+                          className={`text-[9.5px] px-1.5 py-0.2 rounded font-mono font-medium ${
+                            seg.tagLabel.includes('保留')
+                              ? isDark
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : seg.tagLabel.includes('重录')
+                              ? isDark
+                                ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
+                                : 'bg-orange-50 text-orange-700 border border-orange-200'
+                              : seg.tagLabel.includes('车轱辘') || seg.tagLabel.includes('冗余')
+                              ? isDark
+                                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                : 'bg-purple-50 text-purple-700 border border-purple-200'
+                              : seg.tagLabel.includes('语气词') || seg.tagLabel.includes('杂音')
+                              ? isDark
+                                ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                                : 'bg-sky-50 text-sky-700 border border-sky-200'
+                              : isDark
+                              ? 'bg-zinc-700/40 text-zinc-300'
+                              : 'bg-zinc-100 text-zinc-600 border border-zinc-200'
                           }`}
                         >
                           {seg.tagLabel}
                         </span>
                       )}
-
-                      {seg.takeGroup && (
-                        <span className="text-[9px] text-zinc-400 font-mono">
-                          (重录第 {seg.takeIndex} 遍)
+                      {isCurrent && (
+                        <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-indigo-500 text-white font-bold flex items-center gap-1 animate-pulse">
+                          <Play className="w-2.5 h-2.5 fill-current" />
+                          <span>正在播放</span>
                         </span>
                       )}
                     </div>
 
-                    {/* 🌟 字词级高灵敏交互 (Word / Character Tokens) */}
-                    <div className="leading-relaxed flex flex-wrap gap-x-0.5 gap-y-1">
-                      {seg.words && seg.words.length > 0 ? (
-                        seg.words.map((word) => {
-                          const isWordActive = currentTime >= word.startTime && currentTime <= word.endTime;
-                          const isWordDel = word.isDeleted || seg.isDeleted;
-
-                          return (
-                            <span
-                              key={word.id}
-                              onClick={(e) => toggleWordDeleted(seg.id, word.id, e)}
-                              className={`px-1 py-0.2 rounded transition cursor-pointer text-xs ${
-                                isWordDel
-                                  ? 'line-through text-rose-500 bg-rose-500/10 decoration-rose-500'
-                                  : isWordActive
-                                  ? 'bg-indigo-600 text-white font-bold shadow-xs'
-                                  : isDark
-                                  ? 'hover:bg-zinc-800 text-zinc-200 hover:text-white'
-                                  : 'hover:bg-zinc-100 text-zinc-800'
-                              }`}
-                              title={`点击单独切除/保留此字词 (${word.startTime.toFixed(2)}s ~ ${word.endTime.toFixed(2)}s)`}
-                            >
-                              {word.text}
-                            </span>
-                          );
-                        })
-                      ) : (
-                        <p
-                          className={`text-xs leading-relaxed ${
-                            seg.isDeleted ? 'line-through text-zinc-400 decoration-zinc-400' : ''
+                    {/* 🌟 文本内容：支持在位改字、字词级别双击单字删除、鼠标拖拽划选连续字切除、词间切断 */}
+                    {editingSegId === seg.id ? (
+                      <div
+                        className="space-y-1.5 my-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <textarea
+                          value={segEditText}
+                          onChange={(e) => setSegEditText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleSaveSegmentText(seg.id);
+                            } else if (e.key === 'Escape') {
+                              setEditingSegId(null);
+                            }
+                          }}
+                          rows={2}
+                          className={`w-full p-2 text-xs rounded-lg border focus:outline-none transition resize-none ${
+                            isDark
+                              ? 'bg-zinc-950 border-indigo-500/80 text-white focus:ring-1 focus:ring-indigo-500'
+                              : 'bg-white border-indigo-400 text-zinc-900 focus:ring-1 focus:ring-indigo-500 shadow-inner'
                           }`}
+                          placeholder="修改字幕台词..."
+                          autoFocus
+                        />
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-zinc-500">按 Enter 保存，Esc 取消</span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setEditingSegId(null)}
+                              className="px-2 py-0.5 rounded text-zinc-400 hover:text-zinc-200 cursor-pointer shrink-0 whitespace-nowrap"
+                            >
+                              取消
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveSegmentText(seg.id)}
+                              className="px-2.5 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-bold cursor-pointer shrink-0 whitespace-nowrap"
+                            >
+                              保存
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {/* 🌟 切分模式提示栏 */}
+                        {splittingSegId === seg.id && (
+                          <div
+                            className={`my-1.5 p-1.5 px-2 rounded-lg border text-[10.5px] flex items-center justify-between gap-2 ${
+                              isDark
+                                ? 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+                                : 'bg-amber-50 border-amber-200 text-amber-800'
+                            }`}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span className="flex items-center gap-1 shrink-0 whitespace-nowrap font-medium">
+                              <Scissors className="w-3 h-3 text-amber-400 shrink-0" />
+                              <span>点击字词间剪刀拆分，或：</span>
+                            </span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={(e) => handleSplitSegmentAtPlayhead(seg, e)}
+                                className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] cursor-pointer shrink-0 whitespace-nowrap shadow-xs"
+                              >
+                                在当前播放进度处切断
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSplittingSegId(null);
+                                }}
+                                className="p-0.5 hover:text-zinc-200 cursor-pointer shrink-0"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="text-xs leading-relaxed tracking-wide select-text">
+                          {seg.words && seg.words.length > 0 ? (
+                            seg.words.map((w, wIdx) => {
+                              const isWordSelected =
+                                isSegSelectedByDrag &&
+                                wIdx >= dragSelection.startIdx &&
+                                wIdx <= dragSelection.endIdx;
+
+                              // 在成片台词模式下，过滤已被切除的字
+                              if (viewMode === 'clean' && (seg.isDeleted || w.isDeleted)) {
+                                return null;
+                              }
+
+                              return (
+                                <React.Fragment key={wIdx}>
+                                  <span
+                                    onMouseDown={(e) => handleWordMouseDown(seg.id, wIdx, e)}
+                                    onMouseEnter={() => handleWordMouseEnter(seg.id, wIdx)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onSeek(w.startTime);
+                                    }}
+                                    onDoubleClick={(e) => toggleWordDeleted(seg.id, wIdx, e)}
+                                    className={`inline-block px-0.5 rounded transition cursor-pointer ${
+                                      isWordSelected
+                                        ? 'bg-indigo-600 text-white font-bold'
+                                        : seg.isDeleted || w.isDeleted
+                                        ? isDark
+                                          ? 'line-through opacity-40 text-rose-400 bg-rose-950/20 hover:opacity-80'
+                                          : 'line-through opacity-50 text-rose-600 bg-rose-50 hover:opacity-80'
+                                        : isCurrent
+                                        ? isDark
+                                          ? 'hover:bg-indigo-500/30 text-indigo-200'
+                                          : 'hover:bg-indigo-100 text-indigo-700 font-semibold'
+                                        : isDark
+                                        ? 'hover:bg-indigo-500/20'
+                                        : 'hover:bg-indigo-50'
+                                    }`}
+                                    title="单击: 定位播放 / 双击: 切除或恢复此字"
+                                  >
+                                    {w.text}
+                                  </span>
+
+                                  {/* 切分模式下的字间切分微按钮 */}
+                                  {splittingSegId === seg.id && wIdx < seg.words!.length - 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleSplitSegmentAtWord(seg.id, wIdx, e)}
+                                      className="inline-flex items-center justify-center px-1 py-0.2 mx-0.5 rounded bg-amber-500/20 hover:bg-amber-500 text-amber-400 hover:text-white transition text-[9px] font-mono cursor-pointer shrink-0"
+                                      title={`在此处拆分为两句（切点: ${w.text} 之后）`}
+                                    >
+                                      ✂️
+                                    </button>
+                                  )}
+                                </React.Fragment>
+                              );
+                            })
+                          ) : (
+                            <span
+                              className={`${
+                                seg.isDeleted
+                                  ? isDark
+                                    ? 'line-through opacity-50 text-zinc-400'
+                                    : 'line-through opacity-50 text-zinc-500'
+                                  : ''
+                              }`}
+                            >
+                              {seg.text}
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {/* 🌟 划选后浮动快捷操作胶囊 */}
+                    {isSegSelectedByDrag && dragSelection.endIdx >= dragSelection.startIdx && (
+                      <div
+                        className={`mt-2 inline-flex items-center gap-1.5 p-1 px-2 rounded-lg border shadow-lg text-[10.5px] animate-in fade-in shrink-0 whitespace-nowrap ${
+                          isDark ? 'bg-indigo-900/95 border-indigo-400/80 text-white' : 'bg-indigo-700 border-indigo-600 text-white'
+                        }`}
+                      >
+                        <span className="font-bold text-white mr-1 shrink-0 whitespace-nowrap">
+                          已划选 {dragSelection.endIdx - dragSelection.startIdx + 1} 字:
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            batchDeleteWords(seg.id, dragSelection.startIdx, dragSelection.endIdx, true);
+                            setDragSelection(null);
+                          }}
+                          className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-500 text-white font-bold flex items-center gap-1 cursor-pointer shrink-0 whitespace-nowrap"
                         >
-                          {seg.text}
-                        </p>
-                      )}
-                    </div>
+                          <Trash2 className="w-3 h-3" />
+                          <span>切除所选</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            batchDeleteWords(seg.id, dragSelection.startIdx, dragSelection.endIdx, false);
+                            setDragSelection(null);
+                          }}
+                          className="px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 text-white flex items-center gap-1 cursor-pointer shrink-0 whitespace-nowrap"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>恢复</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDragSelection(null);
+                          }}
+                          className="p-0.5 hover:text-white/70 ml-1 text-white/60 cursor-pointer shrink-0"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* 🌟 AI 删减理由卡片 */}
+                    {seg.isDeleted && (
+                      <div
+                        className={`mt-2 p-2 rounded-lg border text-[10.5px] flex items-start gap-1.5 ${
+                          isDark
+                            ? 'bg-indigo-950/30 border-indigo-500/20 text-indigo-200'
+                            : 'bg-indigo-50/80 border-indigo-200 text-indigo-900'
+                        }`}
+                      >
+                        <Lightbulb
+                          className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
+                            isDark ? 'text-amber-400' : 'text-amber-600'
+                          }`}
+                        />
+                        <div className="leading-snug">
+                          <span
+                            className={`font-bold mr-1 ${
+                              isDark ? 'text-amber-300' : 'text-amber-700'
+                            }`}
+                          >
+                            AI 删减理由:
+                          </span>
+                          <span>
+                            {seg.reasonDetail ||
+                              (seg.deleteReason === 'silence'
+                                ? '声学空白停顿，切除后节奏更紧凑'
+                                : seg.deleteReason === 'stumble'
+                                ? '多轮录制嘴瓢忘词，系统已自动保留最后完整一遍'
+                                : seg.deleteReason === 'filler'
+                                ? '口癖语气词/杂音，剔除以增强表达'
+                                : seg.tagLabel || '智能精炼冗余文案')}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                  {/* 整句快捷切除 / 恢复按钮 */}
-                  <button
-                    type="button"
-                    onClick={(e) => toggleSegmentDeleted(seg.id, e)}
-                    className={`p-1.5 rounded-lg transition shrink-0 cursor-pointer ${
-                      seg.isDeleted
-                        ? 'text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20'
-                        : 'text-rose-500 bg-rose-500/10 hover:bg-rose-500/20'
-                    }`}
-                    title={seg.isDeleted ? '恢复整句' : '切除整句'}
-                  >
-                    {seg.isDeleted ? <RotateCcw className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
-                  </button>
+                  {/* 🌟 卡片快捷操作微工具栏 (防挤压 shrink-0 whitespace-nowrap) */}
+                  <div className="flex items-center gap-1 shrink-0 whitespace-nowrap">
+                    {/* ✏️ 改字按钮 */}
+                    <button
+                      type="button"
+                      onClick={(e) => handleStartEditSegment(seg, e)}
+                      className={`p-1.5 rounded-lg transition shrink-0 cursor-pointer ${
+                        editingSegId === seg.id
+                          ? 'text-white bg-indigo-600'
+                          : isDark
+                          ? 'text-zinc-400 hover:text-indigo-300 hover:bg-zinc-800'
+                          : 'text-zinc-500 hover:text-indigo-600 hover:bg-zinc-100'
+                      }`}
+                      title="修改当前字幕文字"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* ✂️ 切分模式按钮 */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSplittingSegId(splittingSegId === seg.id ? null : seg.id);
+                      }}
+                      className={`p-1.5 rounded-lg transition shrink-0 cursor-pointer ${
+                        splittingSegId === seg.id
+                          ? 'text-white bg-amber-600 shadow'
+                          : isDark
+                          ? 'text-zinc-400 hover:text-amber-300 hover:bg-zinc-800'
+                          : 'text-zinc-500 hover:text-amber-600 hover:bg-zinc-100'
+                      }`}
+                      title="切分字幕：拆词或在当前播放进度切断"
+                    >
+                      <Scissors className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* 🔗 与下一句合并按钮 */}
+                    {filteredSegments.findIndex((s) => s.id === seg.id) < filteredSegments.length - 1 && (
+                      <button
+                        type="button"
+                        onClick={(e) => handleMergeWithNext(seg.id, e)}
+                        className={`p-1.5 rounded-lg transition shrink-0 cursor-pointer ${
+                          isDark
+                            ? 'text-zinc-400 hover:text-sky-300 hover:bg-zinc-800'
+                            : 'text-zinc-500 hover:text-sky-600 hover:bg-zinc-100'
+                        }`}
+                        title="将本句与下一句合并为一条字幕"
+                      >
+                        <Link2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {/* 整句快捷切除 / 恢复按钮 */}
+                    <button
+                      type="button"
+                      onClick={(e) => toggleSegmentDeleted(seg.id, e)}
+                      className={`p-1.5 rounded-lg transition shrink-0 cursor-pointer ${
+                        seg.isDeleted
+                          ? 'text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20'
+                          : 'text-rose-500 bg-rose-500/10 hover:bg-rose-500/20'
+                      }`}
+                      title={seg.isDeleted ? '恢复整句' : '切除整句'}
+                    >
+                      {seg.isDeleted ? <RotateCcw className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
 
-                {/* 底部时间戳与操作提示 */}
-                <div className="flex items-center justify-between text-[9px] font-mono text-zinc-400 mt-2">
-                  <span>
-                    {formatTime(seg.startTime)}.{String(Math.floor((seg.startTime % 1) * 10)).padStart(1, '0')} ~{' '}
-                    {formatTime(seg.endTime)}.{String(Math.floor((seg.endTime % 1) * 10)).padStart(1, '0')}
-                  </span>
-                  <span>
-                    {(seg.endTime - seg.startTime).toFixed(1)}s
-                    {seg.words?.some((w) => w.isDeleted) && (
-                      <span className="text-rose-500 ml-1.5 font-bold">
-                        (含单个删字)
-                      </span>
-                    )}
-                  </span>
+                {/* 🌟 底部时间戳与起止毫秒微调栏 (绝对防挤压 shrink-0 whitespace-nowrap) */}
+                <div
+                  className={`flex items-center justify-between text-[9px] font-mono mt-2 pt-1 border-t shrink-0 whitespace-nowrap ${
+                    isDark ? 'border-zinc-800/60 text-zinc-400' : 'border-zinc-100 text-zinc-500'
+                  }`}
+                >
+                  {/* 起点微调 */}
+                  <div className="flex items-center gap-1 shrink-0 whitespace-nowrap">
+                    <span className="opacity-60">起:</span>
+                    <button
+                      type="button"
+                      onClick={(e) => handleAdjustSegmentTime(seg.id, 'start', -0.1, e)}
+                      className="px-1 py-0.2 rounded hover:bg-indigo-500/20 hover:text-indigo-300 transition cursor-pointer"
+                      title="起点提前 0.1s"
+                    >
+                      -0.1s
+                    </button>
+                    <span className="font-bold text-indigo-400">
+                      {formatTime(seg.startTime)}.{String(Math.floor((seg.startTime % 1) * 10)).padStart(1, '0')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => handleAdjustSegmentTime(seg.id, 'start', 0.1, e)}
+                      className="px-1 py-0.2 rounded hover:bg-indigo-500/20 hover:text-indigo-300 transition cursor-pointer"
+                      title="起点延后 0.1s"
+                    >
+                      +0.1s
+                    </button>
+                  </div>
+
+                  {/* 终点微调 */}
+                  <div className="flex items-center gap-1 shrink-0 whitespace-nowrap">
+                    <span className="opacity-60">止:</span>
+                    <button
+                      type="button"
+                      onClick={(e) => handleAdjustSegmentTime(seg.id, 'end', -0.1, e)}
+                      className="px-1 py-0.2 rounded hover:bg-indigo-500/20 hover:text-indigo-300 transition cursor-pointer"
+                      title="终点提前 0.1s"
+                    >
+                      -0.1s
+                    </button>
+                    <span className="font-bold text-indigo-400">
+                      {formatTime(seg.endTime)}.{String(Math.floor((seg.endTime % 1) * 10)).padStart(1, '0')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => handleAdjustSegmentTime(seg.id, 'end', 0.1, e)}
+                      className="px-1 py-0.2 rounded hover:bg-indigo-500/20 hover:text-indigo-300 transition cursor-pointer"
+                      title="终点延后 0.1s"
+                    >
+                      +0.1s
+                    </button>
+                    <span className="opacity-60 ml-1 shrink-0">
+                      ({(seg.endTime - seg.startTime).toFixed(1)}s)
+                    </span>
+                  </div>
                 </div>
               </div>
             );
-          })
-        )}
+          })}
       </div>
     </div>
   );

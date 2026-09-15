@@ -114,6 +114,7 @@ export function scanSilenceSegments(
         isDeleted: false, // 🌟 默认不切除！交给用户预览与一键精剪确认
         deleteReason: 'silence', // 明确声学空白性质
         tagLabel: isLongSilence ? `[气口 ${gap.toFixed(1)}s]` : `[停顿 ${gap.toFixed(1)}s]`,
+        reasonDetail: `自然人声停顿 ${gap.toFixed(1)} 秒，切除以紧凑表达（已预留 120ms 呼吸声学保护）`,
         confidence: isLongSilence ? 0.95 : 0.6,
       });
     }
@@ -147,7 +148,8 @@ export function scanSilenceSegments(
       text: isLongSilence ? `[结尾空白 ${gap.toFixed(1)}s]` : `[尾部缓冲 ${gap.toFixed(1)}s]`,
       isDeleted: false, // 🌟 默认不切除
       deleteReason: 'silence',
-      tagLabel: isLongSilence ? `[气口 ${gap.toFixed(1)}s]` : `[停顿 ${gap.toFixed(1)}s]`,
+      tagLabel: isLongSilence ? `[结尾气口 ${gap.toFixed(1)}s]` : `[尾部空白 ${gap.toFixed(1)}s]`,
+      reasonDetail: `视频末尾收尾空白 ${gap.toFixed(1)} 秒，切除以杜绝关镜头动作与尾部呼吸杂音`,
       confidence: 0.98,
     });
   }
@@ -156,25 +158,34 @@ export function scanSilenceSegments(
 }
 
 /**
- * 语气词快速本地启发式识别 (高频语气口头禅)
+ * 语气词与杂音拟声词智能识别库 (高频口癖、咳嗽、叹气、清嗓与笑声)
  */
-export const FILLER_WORDS = ['呃', '啊', '额', '然后', '就是说', '那个', '嗯', '实际上', '怎么说呢'];
+export const FILLER_WORDS = [
+  '呃', '啊', '额', '然后', '就是说', '那个', '嗯', '实际上', '怎么说呢',
+  '咳', '咳咳', '咳嗽', '哈哈', '哈哈哈', '嗯哼', '哎呀', '哎', '噗', '呼', '叹气'
+];
 
 export function detectFillerSegments(segments: CutSegment[]): CutSegment[] {
   return segments.map((seg) => {
     if (seg.deleteReason === 'silence') return seg;
     const trimmed = seg.text.trim();
 
-    // 1. 如果整句完全是语气词
+    // 1. 如果整句完全是语气词或咳嗽杂音
     const isPureFiller = FILLER_WORDS.some((fw) => trimmed === fw || trimmed === `${fw}，` || trimmed === `${fw}。`);
     if (isPureFiller) {
+      const isNoise = /^(咳|咳咳|咳嗽|哈哈|哈哈哈|叹气|嗯哼|噗)$/.test(trimmed.replace(/[，。！？、]/g, ''));
       return {
         ...seg,
         isDeleted: true,
         deleteReason: 'filler',
-        tagLabel: '[语气词]',
+        tagLabel: isNoise ? '[杂音/咳嗽]' : '[语气词]',
+        reasonDetail: isNoise ? '识别到咳嗽/笑声拟声杂音，自动切除以净化音轨' : '口癖语气词，剔除以增强口播节奏感',
         confidence: 0.9,
-        words: seg.words?.map((w) => ({ ...w, isDeleted: true, deleteReason: 'filler' })),
+        words: seg.words?.map((w) => ({
+          ...w,
+          isDeleted: true,
+          deleteReason: 'filler',
+        })),
       };
     }
 
@@ -195,6 +206,7 @@ export function detectFillerSegments(segments: CutSegment[]): CutSegment[] {
           ...seg,
           words: updatedWords,
           tagLabel: seg.tagLabel || '[含语气词]',
+          reasonDetail: seg.reasonDetail || '含局部发音语气口头禅，已针对性切除字词',
         };
       }
     }

@@ -383,6 +383,7 @@ export interface MediaResolutionOption {
   format?: string;        // mp4, h264, h265
   sizeEstimated?: number | string; // 预估文件大小 (bytes 或 MB 字符串)
   isDefault?: boolean;    // 是否为默认推荐项（最高画质）
+  needsAudioMerge?: boolean; // 标识该清晰度流是否为纯视频无声流，需要由 FFmpeg 合并音频
 }
 
 export interface ParsedMediaInfo {
@@ -403,6 +404,7 @@ export interface ParsedMediaInfo {
   rawImages?: string[]; // 100% 超清无损原图列表 (去除 CDN 缩放/WebP压缩后的原图)
   resolutions?: MediaResolutionOption[]; // 可选清晰度列表（按画质从高到低排序）
   selectedResolutionId?: string;        // 默认选中的清晰度 ID
+  needsAudioMerge?: boolean;            // 是否需要音视频合并
 }
 
 export interface AvatarFigure {

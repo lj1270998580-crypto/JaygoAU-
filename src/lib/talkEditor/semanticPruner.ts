@@ -5,8 +5,16 @@
  */
 
 import type { CutSegment, NarrativePreset, NarrativeAnalysisResult } from './types';
-import type { ModelHubSettings } from '../modelHubTypes';
+import type { ModelHubSettings, ModelProviderType, ConfiguredProvider } from '../modelHubTypes';
+import { PRESET_PROVIDERS } from '../modelHubTypes';
 import { chatCompletion } from '../modelHubService';
+
+export interface ActiveAiEngineInfo {
+  isCloud: boolean;
+  engineName: string;
+  providerName?: string;
+  modelName?: string;
+}
 
 /**
  * 本地启发式计算两句话文本相似度 (基于 Jaccard 字符 2-gram 算法)
@@ -111,6 +119,9 @@ export function detectRetakeAndStumbles(segments: CutSegment[]): CutSegment[] {
           isDeleted: !isLast,
           deleteReason: isLast ? undefined : 'stumble',
           tagLabel: isLast ? `[保留·第${t + 1}遍]` : `[重录·第${t + 1}遍]`,
+          reasonDetail: isLast
+            ? `多轮录制已自动保留最后完整一遍（第${t + 1}遍）`
+            : `多次重录嘴瓢忘词，系统已自动剔除前序第${t + 1}遍，仅保留最后一次完整录制`,
           confidence: 0.9,
           words: result[idx].words?.map((w) => ({ ...w, isDeleted: !isLast })),
         };
@@ -123,6 +134,52 @@ export function detectRetakeAndStumbles(segments: CutSegment[]): CutSegment[] {
   }
 
   return result;
+}
+
+/**
+ * 获取当前生效的 AI 语义分析引擎透明信息
+ */
+export function getActiveAiEngineInfo(modelSettings?: ModelHubSettings): ActiveAiEngineInfo {
+  if (!modelSettings?.providers) {
+    return {
+      isCloud: false,
+      engineName: '本地智能语义分析 (启发式 NLP 规则)',
+    };
+  }
+
+  const activeKey = (modelSettings.defaultProvider || 'deepseek') as ModelProviderType;
+  const provider = modelSettings.providers[activeKey];
+  const hasKey = Boolean(provider?.apiKey && provider.apiKey.trim().length > 5);
+
+  if (hasKey && provider) {
+    const model = provider.selectedModel || 'DeepSeek-V3';
+    return {
+      isCloud: true,
+      engineName: `云端大模型 AI (${model})`,
+      providerName: PRESET_PROVIDERS[activeKey]?.name || activeKey,
+      modelName: model,
+    };
+  }
+
+  // 遍历检查是否有配置了 API Key 的其他供应商
+  const entries = Object.entries(modelSettings.providers) as [ModelProviderType, ConfiguredProvider][];
+  const anyEntry = entries.find(([_, p]) => p?.apiKey && p.apiKey.trim().length > 5);
+
+  if (anyEntry) {
+    const [key, p] = anyEntry;
+    const model = p.selectedModel || '云端 AI';
+    return {
+      isCloud: true,
+      engineName: `云端大模型 AI (${model})`,
+      providerName: PRESET_PROVIDERS[key]?.name || key,
+      modelName: model,
+    };
+  }
+
+  return {
+    isCloud: false,
+    engineName: '本地智能语义分析 (启发式 NLP 规则)',
+  };
 }
 
 /**
@@ -162,6 +219,7 @@ export function analyzeNarrativeLocally(
 
   const toDeleteIds = new Set<string>();
   const reasonsMap: Record<string, string> = {};
+  const detailsMap: Record<string, string> = {};
 
   sentences.forEach((s, idx) => {
     // 1. 开篇非核心寒暄 (前 3 句内)
@@ -169,6 +227,7 @@ export function analyzeNarrativeLocally(
       if (openingChatPats.some((p) => p.test(s.text)) && !s.text.includes('？') && !s.text.includes('?')) {
         toDeleteIds.add(s.id);
         reasonsMap[s.id] = '开篇寒暄发散';
+        detailsMap[s.id] = '开篇寒暄闲聊，缺乏实质信息量，删减后前3秒直接切入核心痛点';
         return;
       }
     }
@@ -177,6 +236,7 @@ export function analyzeNarrativeLocally(
     if (ramblingMetaPats.some((p) => p.test(s.text))) {
       toDeleteIds.add(s.id);
       reasonsMap[s.id] = '车轱辘话铺垫';
+      detailsMap[s.id] = '与主旨无关的元认知车轱辘话/闲聊评论区，剔除以保持全片主干逻辑紧凑';
       return;
     }
 
@@ -185,6 +245,7 @@ export function analyzeNarrativeLocally(
       if (s.text.length < 8 && /^(所以说|就是这样|对吧|是不是|明白了吧)/.test(s.text)) {
         toDeleteIds.add(s.id);
         reasonsMap[s.id] = '次要过渡冗余';
+        detailsMap[s.id] = '信息量极低的口语空泛过渡词句，精简以提升完播率与信息密度';
       }
     }
   });
@@ -193,11 +254,13 @@ export function analyzeNarrativeLocally(
   const updatedSegments = segments.map((s) => {
     if (toDeleteIds.has(s.id)) {
       const reason = reasonsMap[s.id] || '冗长废话';
+      const detail = detailsMap[s.id] || `经篇章语义分析判定为冗余内容，建议切除以紧凑表达`;
       return {
         ...s,
         isDeleted: true,
         deleteReason: 'narrative_tangent' as const,
         tagLabel: `[${reason}]`,
+        reasonDetail: detail,
         confidence: 0.9,
         words: s.words?.map((w) => ({ ...w, isDeleted: true })),
       };
@@ -321,11 +384,13 @@ ${presetInstructions}
       const updatedSegments = segments.map((s) => {
         if (toDeleteSet.has(s.id)) {
           const reasonDesc = reasonsMap[s.id] || '旁枝冗余';
+          const shortTag = reasonDesc.length > 8 ? reasonDesc.slice(0, 7) + '…' : reasonDesc;
           return {
             ...s,
             isDeleted: true,
             deleteReason: 'narrative_tangent' as const,
-            tagLabel: `[${reasonDesc}]`,
+            tagLabel: `[${shortTag}]`,
+            reasonDetail: reasonDesc,
             confidence: 0.9,
             words: s.words?.map((w) => ({ ...w, isDeleted: true })),
           };

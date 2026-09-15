@@ -5,6 +5,28 @@
 export type CanvasRatio = '9:16' | '16:9' | '1:1' | '4:5' | '3:4';
 export type BackgroundType = 'blur' | 'color' | 'gradient';
 
+export type TitleStylePresetId =
+  | 'viral_yellow'    // 🔥 爆款黄底黑字 (高对比醒目招牌)
+  | 'black_gold'       // 👑 黑金商务轻奢 (黑底金字香槟边)
+  | 'red_alert'        // 🚨 高能干货警示红牌 (红底白字紧迫感)
+  | 'clean_shadow'     // ✨ 极简立体 3D 浮雕 (无底色黑立体投影)
+  | 'cyber_gradient'   // ⚡ 赛博炫彩渐变 (潮流蓝紫粉微光)
+  | 'neon_lime'        // 🎯 荧光青绿潮牌 (高亮荧光绿黑字)
+  | 'frosted_glass';   // 🎬 质感半透毛玻璃 (黑透磨砂微发光)
+
+export interface CustomStickerPatch {
+  id?: string;           // 唯一识别 ID
+  enabled: boolean;
+  imageUrl: string;      // 本地 blob / file:// 或 base64
+  localPath?: string;    // 本地磁盘真实文件路径（用于剪映草稿与插画师无损引用）
+  name?: string;         // 文件名
+  xPercent: number;      // 水平位置百分比 (0.0 ~ 1.0, 默认 0.85 挂角或 0.5 居中)
+  yPercent: number;      // 垂直位置百分比 (0.0 ~ 1.0, 默认 0.15 右上角)
+  scale: number;         // 缩放比例 (无上限，支持 0.05 ~ 10.0+，默认 1.0)
+  aspectRatio?: number;  // 贴图宽高比 (宽 / 高)
+  opacity?: number;      // 不透明度 (0.1 ~ 1.0, 默认 1.0)
+}
+
 export interface CanvasPatch {
   enabled: boolean;
   text: string;
@@ -13,7 +35,9 @@ export interface CanvasPatch {
   backgroundColor: string;
   borderRadius: number;
   fontWeight: 'normal' | 'bold' | '900';
-  yOffsetPercent: number; // 距离顶端或底端的百分比
+  yOffsetPercent: number; // 距离顶端或底端的垂直百分比 (0.02 ~ 0.5)
+  xOffsetPercent?: number; // 水平居中或偏移百分比 (0.05 ~ 0.95, 默认 0.5 居中)
+  stylePreset?: TitleStylePresetId; // 🌟 标题预设样式模版
 }
 
 export interface CanvasConfig {
@@ -25,6 +49,8 @@ export interface CanvasConfig {
   videoYPercent: number; // 居中垂直偏移
   topPatch: CanvasPatch;
   bottomPatch: CanvasPatch;
+  stickerPatch?: CustomStickerPatch; // 🌟 兼容旧版单个全片贴片
+  stickers?: CustomStickerPatch[];   // 🌟 支持多张贴片列表 (无张数限制，全片覆盖)
 }
 
 export type DeleteReason =
@@ -52,6 +78,7 @@ export interface CutSegment {
   isDeleted: boolean;
   deleteReason?: DeleteReason;
   tagLabel?: string;     // 如 "[建议精简 18s]", "[气口 0.9s]", "[语气词]", "[重录第1次]"
+  reasonDetail?: string; // 🌟 详细删减理由说明 (如 "开篇寒暄发散", "多次录制嘴瓢忘词，系统已保留最佳版本")
   takeGroup?: number;    // 属于同句多次重录的分组 ID
   takeIndex?: number;    // 重录序号 (如 1, 2, 3)
   words?: WordItem[];    // 🌟 字级别切片列表
@@ -87,10 +114,12 @@ export interface SubtitleStyleConfig {
   highlightColor: string;
   strokeColor: string;
   strokeWidth: number;
-  yPercent: number; // 垂直位置 (从底部算起 0.05 ~ 0.40)
+  yPercent: number; // 垂直位置 (从底部算起 0.05 ~ 0.65)
+  xPercent?: number; // 水平位置 (0.05 ~ 0.95, 默认 0.5 居中)
   fontFamily?: string;
   boxColor?: string;
   visible?: boolean; // 🌟 实时控制字幕是否显隐
+  bold?: boolean;
 }
 
 export type NarrativePreset =
@@ -126,3 +155,36 @@ export interface TalkEditorState {
   narrativeAnalysis: NarrativeAnalysisResult | null;
   activeTab: 'canvas' | 'subtitle';
 }
+
+export const DEFAULT_CANVAS_CONFIG: CanvasConfig = {
+  aspectRatio: '9:16',
+  backgroundType: 'blur',
+  backgroundColor: '#09090b',
+  blurIntensity: 25,
+  videoScale: 1.0,
+  videoYPercent: 0,
+  topPatch: {
+    enabled: false,
+    text: '',
+    fontSize: 26,
+    textColor: '#000000',
+    backgroundColor: '#facc15',
+    borderRadius: 10,
+    fontWeight: '900',
+    yOffsetPercent: 0.06,
+    xOffsetPercent: 0.5,
+    stylePreset: 'viral_yellow',
+  },
+  bottomPatch: {
+    enabled: false,
+    text: '',
+    fontSize: 16,
+    textColor: '#d4d4d8',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    borderRadius: 8,
+    fontWeight: 'normal',
+    yOffsetPercent: 0.05,
+    xOffsetPercent: 0.5,
+  },
+  stickers: [],
+};

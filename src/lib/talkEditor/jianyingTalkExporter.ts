@@ -115,12 +115,14 @@ export function buildJianyingTalkDraft(options: JianyingTalkDraftOptions): {
         ],
       }),
     });
+    const topY = Number((1.0 - (canvasConfig.topPatch.yOffsetPercent ?? 0.06) * 2).toFixed(3));
+    const topX = Number((((canvasConfig.topPatch.xOffsetPercent ?? 0.5) - 0.5) * 2).toFixed(3));
     subtitleSegments.push({
       id: generateUuid(),
       material_id: topTextId,
       target_timerange: { start: 0, duration: totalDurationMicrosec },
       clip: {
-        transform: { x: 0.0, y: 0.8 },
+        transform: { x: topX, y: topY },
       },
     });
   }
@@ -151,10 +153,11 @@ export function buildJianyingTalkDraft(options: JianyingTalkDraftOptions): {
     });
   }
 
-  // 3. 逐句字幕
+  // 3. 逐句字幕 (位置严格映射用户在预览框或面板调节的 yPercent 与 xPercent)
+  const subY = Number((-1.0 + (subtitleStyle.yPercent ?? 0.18) * 2).toFixed(3));
+  const subX = Number((((subtitleStyle.xPercent ?? 0.5) - 0.5) * 2).toFixed(3));
+
   subtitles.forEach((sub) => {
-    // 计算该字幕在剪辑后新时间线上的对应时刻
-    // 如果字幕落在了被删除的区间，跳过
     const subTextId = generateUuid();
     textMaterials.push({
       id: subTextId,
@@ -179,9 +182,85 @@ export function buildJianyingTalkDraft(options: JianyingTalkDraftOptions): {
         duration: Math.round(Math.max(0.5, sub.endTime - sub.startTime) * 1_000_000),
       },
       clip: {
-        transform: { x: 0.0, y: -0.5 },
+        transform: { x: subX, y: subY },
       },
     });
+  });
+
+  // 4. 自定义全片贴片 (Logo/水印) 输出为全片独立的贴图轨
+  const stickerSegments: any[] = [];
+  const extraVideoMaterials: any[] = [];
+
+  const rawStickers =
+    canvasConfig.stickers && canvasConfig.stickers.length > 0
+      ? canvasConfig.stickers
+      : canvasConfig.stickerPatch
+      ? [canvasConfig.stickerPatch]
+      : [];
+
+  rawStickers.forEach((sticker, idx) => {
+    if (!sticker.enabled || (!sticker.localPath && !sticker.imageUrl)) return;
+    const stickerPath = sticker.localPath || sticker.imageUrl || '';
+    const stickerMatId = generateUuid();
+    const stickerSpeedId = generateUuid();
+
+    extraVideoMaterials.push({
+      id: stickerMatId,
+      type: 'photo',
+      path: stickerPath,
+      media_path: stickerPath,
+      duration: totalDurationMicrosec,
+      height: 1080,
+      width: 1080,
+    });
+
+    // 坐标换算：剪映中心为 (0,0)，y: [-1, 1], x: [-1, 1]
+    const stickerScale = Number(((sticker.scale ?? 1.0) * 0.35).toFixed(3));
+    const stickerX = Number((((sticker.xPercent ?? 0.85) - 0.5) * 2).toFixed(3));
+    const stickerY = Number(((0.5 - (sticker.yPercent ?? 0.15)) * 2).toFixed(3));
+
+    stickerSegments.push({
+      id: generateUuid(),
+      material_id: stickerMatId,
+      source_timerange: { start: 0, duration: totalDurationMicrosec },
+      target_timerange: { start: 0, duration: totalDurationMicrosec },
+      speed: 1.0,
+      volume: 0.0,
+      render_index: 2 + idx,
+      clip: {
+        alpha: sticker.opacity ?? 1.0,
+        flip: { horizontal: false, vertical: false },
+        rotation: 0.0,
+        scale: { x: stickerScale, y: stickerScale },
+        transform: { x: stickerX, y: stickerY },
+      },
+      extra_material_refs: [stickerSpeedId],
+    });
+  });
+
+  const tracks: any[] = [
+    {
+      id: generateUuid(),
+      type: 'video',
+      segments: videoSegments,
+      flag: 0,
+    },
+  ];
+
+  if (stickerSegments.length > 0) {
+    tracks.push({
+      id: generateUuid(),
+      type: 'video',
+      segments: stickerSegments,
+      flag: 0,
+    });
+  }
+
+  tracks.push({
+    id: generateUuid(),
+    type: 'text',
+    segments: subtitleSegments,
+    flag: 0,
   });
 
   const draftObj = {
@@ -201,6 +280,7 @@ export function buildJianyingTalkDraft(options: JianyingTalkDraftOptions): {
           height: currentCanvas.height,
           width: currentCanvas.width,
         },
+        ...extraVideoMaterials,
       ],
       speeds: [
         {
@@ -212,20 +292,7 @@ export function buildJianyingTalkDraft(options: JianyingTalkDraftOptions): {
       ],
       texts: textMaterials,
     },
-    tracks: [
-      {
-        id: generateUuid(),
-        type: 'video',
-        segments: videoSegments,
-        flag: 0,
-      },
-      {
-        id: generateUuid(),
-        type: 'text',
-        segments: subtitleSegments,
-        flag: 0,
-      },
-    ],
+    tracks,
   };
 
   return {

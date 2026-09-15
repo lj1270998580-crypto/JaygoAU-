@@ -55,6 +55,20 @@ export type Tab = 'settings' | 'clone' | 'voices' | 'synth' | 'library' | 'trans
 export type { LibraryItem } from './types';
 import type { ModelHubSettings } from './lib/modelHubTypes';
 import { DEFAULT_MODEL_HUB_SETTINGS, PRESET_PROVIDERS } from './lib/modelHubTypes';
+import type { CanvasConfig, CustomStickerPatch, SubtitleItem, SubtitleStyleConfig } from './lib/talkEditor/types';
+
+export interface PendingIllustratorData {
+  videoUrl?: string;
+  videoPath?: string;
+  scriptText?: string;
+  title?: string;
+  stickerPatch?: any;
+  stickers?: CustomStickerPatch[];
+  subtitles?: SubtitleItem[];
+  canvasConfig?: CanvasConfig;
+  subtitleConfig?: SubtitleStyleConfig;
+  asrUtterances?: Array<{ text: string; startTime: number; endTime: number }>;
+}
 
 export interface BalanceInfo {
   available: number;
@@ -116,8 +130,8 @@ interface AppState {
   setPendingSynthText: (p: { text: string; voiceId?: string } | null) => void;
   pendingAvatarText: string | null;
   setPendingAvatarText: (t: string | null) => void;
-  pendingIllustrator: { videoUrl?: string; videoPath?: string; scriptText?: string; title?: string } | null;
-  setPendingIllustrator: (p: { videoUrl?: string; videoPath?: string; scriptText?: string; title?: string } | null) => void;
+  pendingIllustrator: PendingIllustratorData | null;
+  setPendingIllustrator: (p: PendingIllustratorData | null) => void;
   changelogOpen: boolean;
   setChangelogOpen: (open: boolean) => void;
 }

@@ -8,6 +8,8 @@ import { runIllustrationPipeline, type PipelineProgress, type PipelineDiagnostic
 import { enforceStrictSequentialTimeline, MAX_ILLUSTRATION_DURATION, MIN_ILLUSTRATION_DURATION } from '../lib/illustrator/timelineAligner';
 import { useAdaptiveColumns } from '../lib/useAdaptiveColumns';
 import type { VideoIllustrationItem, IllustrationLayout, IllustrationDensity, IllustrationHistoryRecord, CharacterConsistencyMode } from '../types';
+import type { CanvasConfig, CustomStickerPatch, SubtitleItem, SubtitleStyleConfig } from '../lib/talkEditor/types';
+import { DEFAULT_CANVAS_CONFIG } from '../lib/talkEditor/types';
 import { AdvancedTimelineModal } from './AdvancedTimelineModal';
 import { buildJianyingDraftData, createJianyingZipBlob } from '../lib/illustrator/jianyingExporter';
 import {
@@ -456,6 +458,11 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   const [isAsrExtracting, setIsAsrExtracting] = useState<boolean>(false);
   const [illustrations, setIllustrations] = useState<VideoIllustrationItem[]>([]);
   const [selectedIllustrationId, setSelectedIllustrationId] = useState<string | null>(null);
+
+  // 🌟 从口播精剪全量保留的贴片、标语与字幕配置
+  const [canvasConfig, setCanvasConfig] = useState<CanvasConfig | null>(null);
+  const [subtitles, setSubtitles] = useState<SubtitleItem[]>([]);
+  const [subtitleConfig, setSubtitleConfig] = useState<SubtitleStyleConfig | null>(null);
   // 规划诊断：让「大模型是否真的参与」可见（v0.7.5 起不再静默降级）
   const [planDiagnostics, setPlanDiagnostics] = useState<PipelineDiagnostics | null>(null);
   // v0.7.12：诊断横幅默认收成一行，避免长期占据右栏大量纵向空间
@@ -622,20 +629,53 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     isResizing: boolean;
   } | null>(null);
 
-  // 响应来自数字人等模块的一键推送视频与文案
+  // 响应来自口播精剪、数字人等模块的一键推送视频、文案、字幕、贴片与画幅包装
   useEffect(() => {
     if (pendingIllustrator) {
       if (pendingIllustrator.videoUrl || pendingIllustrator.videoPath) {
         loadFromUrl(
           pendingIllustrator.videoUrl || pendingIllustrator.videoPath!,
-          pendingIllustrator.title || '数字人成片'
+          pendingIllustrator.title || '口播精剪/数字人成片'
         );
       }
       if (pendingIllustrator.scriptText) {
         setScriptText(pendingIllustrator.scriptText);
       }
+
+      // 🌟 1. 毫秒级时间轴字幕与 ASR 对齐全量保留
+      if (pendingIllustrator.subtitles && pendingIllustrator.subtitles.length > 0) {
+        setSubtitles(pendingIllustrator.subtitles);
+      }
+      if (pendingIllustrator.subtitleConfig) {
+        setSubtitleConfig(pendingIllustrator.subtitleConfig);
+      }
+      if (pendingIllustrator.asrUtterances && pendingIllustrator.asrUtterances.length > 0) {
+        setAsrUtterances(pendingIllustrator.asrUtterances);
+      } else if (pendingIllustrator.subtitles && pendingIllustrator.subtitles.length > 0) {
+        setAsrUtterances(
+          pendingIllustrator.subtitles.map((s) => ({
+            text: s.text,
+            startTime: s.startTime,
+            endTime: s.endTime,
+          }))
+        );
+      }
+
+      // 🌟 2. 画布配置与多张贴片（Logo/水印/图片）全量保留
+      if (pendingIllustrator.canvasConfig) {
+        setCanvasConfig(pendingIllustrator.canvasConfig);
+      } else if (pendingIllustrator.stickers || pendingIllustrator.stickerPatch) {
+        const initialStickers =
+          pendingIllustrator.stickers ||
+          (pendingIllustrator.stickerPatch ? [pendingIllustrator.stickerPatch] : []);
+        setCanvasConfig({
+          ...DEFAULT_CANVAS_CONFIG,
+          stickers: initialStickers,
+        });
+      }
+
       setPendingIllustrator(null);
-      showToast('已从数字人工坊载入视频与文案！', 'ok');
+      showToast('已从口播剪辑全量载入视频、文案、毫秒级时间轴字幕与贴片！', 'ok');
     }
   }, [pendingIllustrator]);
 
@@ -720,6 +760,16 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
       (item) => currentTime >= item.startTime && currentTime <= item.endTime
     );
   }, [illustrations, currentTime]);
+
+  // 🌟 当前播放时间命中的口播精剪台词字幕
+  const activeSubtitle = useMemo(() => {
+    if (!subtitles || subtitles.length === 0) return null;
+    return (
+      subtitles.find(
+        (sub) => currentTime >= sub.startTime && currentTime <= sub.endTime
+      ) || null
+    );
+  }, [subtitles, currentTime]);
 
   // 当前选定插图的画幅比例对象
   // v0.7.8：用户上传的图片优先使用其**原始宽高比**（customAspect），
@@ -1106,7 +1156,8 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         0.1
       );
 
-      setIllustrations(formatted);
+      const preservedStickers = illustrations.filter((it) => it.id.startsWith('sticker-patch-'));
+      setIllustrations([...preservedStickers, ...formatted]);
       if (formatted.length > 0) {
         setSelectedIllustrationId(formatted[0].id);
       }
@@ -1365,6 +1416,10 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
         transitionEffect,
         borderStyle,
         framedImagePaths,
+        stickers: canvasConfig?.stickers,
+        canvasConfig: canvasConfig || undefined,
+        subtitles: subtitles.length > 0 ? subtitles : undefined,
+        subtitleStyle: subtitleConfig || undefined,
       };
 
       if (mode === 'direct') {
@@ -2321,11 +2376,21 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
             />
 
             {asrUtterances.length > 0 && (
-              <div className="mt-1.5 flex items-center justify-between text-[10.5px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-1 rounded border border-emerald-200/50 dark:border-emerald-900/30">
+              <div className="mt-1.5 flex flex-wrap items-center justify-between gap-1 text-[10.5px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-1 rounded border border-emerald-200/50 dark:border-emerald-900/30">
                 <span className="flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" />
-                  <span>已加载 ASR 毫秒级时间轴 ({asrUtterances.length} 句)</span>
+                  <CheckCircle2 className="w-3 h-3 shrink-0" />
+                  <span>已载入时间轴台词 ({asrUtterances.length} 句)</span>
                 </span>
+                {canvasConfig?.stickers && canvasConfig.stickers.length > 0 && (
+                  <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-950 text-purple-600 dark:text-purple-300 font-medium">
+                    含贴片 {canvasConfig.stickers.length} 张
+                  </span>
+                )}
+                {canvasConfig?.topPatch?.enabled && (
+                  <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-300 font-medium">
+                    含大标题
+                  </span>
+                )}
                 <span className="font-mono text-[9.5px]">高精度对齐</span>
               </div>
             )}
@@ -2672,8 +2737,125 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                     </div>
                   )}
 
+                  {/* 🌟 1. 来自口播精剪的全量贴片渲染 (层级 z-25，在插图与视频之上，低于标语和字幕) */}
+                  {canvasConfig?.stickers?.map((st) => {
+                    if (!st.enabled || (!st.imageUrl && !st.localPath)) return null;
+                    const baseW = Math.max(36, (stageSize?.width || 360) * 0.30);
+                    const stickerW = Math.round(baseW * (st.scale ?? 1.0));
+                    const src = st.imageUrl || (st.localPath ? (window.location.protocol.startsWith('http') ? st.imageUrl : `file://${st.localPath}`) : '');
+                    return (
+                      <div
+                        key={st.id}
+                        style={{
+                          left: `${(st.xPercent ?? 0.5) * 100}%`,
+                          top: `${(st.yPercent ?? 0.3) * 100}%`,
+                          transform: 'translate(-50%, -50%)',
+                          opacity: st.opacity ?? 1.0,
+                          width: `${stickerW}px`,
+                          zIndex: 25,
+                        }}
+                        className="absolute pointer-events-none select-none"
+                      >
+                        <img
+                          src={src}
+                          alt={st.name || '贴片'}
+                          className="w-full h-auto object-contain drop-shadow-md rounded"
+                          draggable={false}
+                        />
+                      </div>
+                    );
+                  })}
+
+                  {/* 🌟 2. 顶部爆款大标题贴片 (层级 z-35) */}
+                  {canvasConfig?.topPatch?.enabled && canvasConfig.topPatch.text && (
+                    <div
+                      style={{
+                        top: `${(canvasConfig.topPatch.yOffsetPercent ?? 0.06) * 100}%`,
+                        left: `${(canvasConfig.topPatch.xOffsetPercent ?? 0.5) * 100}%`,
+                        transform: 'translate(-50%, 0)',
+                        zIndex: 35,
+                      }}
+                      className="absolute flex flex-col items-center pointer-events-none select-none"
+                    >
+                      <div
+                        style={{
+                          background: canvasConfig.topPatch.backgroundColor || 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                          color: canvasConfig.topPatch.textColor || '#000000',
+                          fontSize: `${Math.max(11, Math.min(26, Math.round((canvasConfig.topPatch.fontSize || 26) * 0.8)))}px`,
+                          borderRadius: `${canvasConfig.topPatch.borderRadius ?? 12}px`,
+                          fontWeight: canvasConfig.topPatch.fontWeight || 'bold',
+                          padding: '3px 10px',
+                          maxWidth: '90%',
+                          whiteSpace: canvasConfig.topPatch.text.length <= 16 ? 'nowrap' : 'normal',
+                          wordBreak: 'break-word',
+                        }}
+                        className="text-center truncate shadow-lg"
+                      >
+                        {canvasConfig.topPatch.text}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 🌟 3. 底部副标语贴片 (层级 z-32) */}
+                  {canvasConfig?.bottomPatch?.enabled && canvasConfig.bottomPatch.text && (
+                    <div
+                      style={{
+                        bottom: `${(canvasConfig.bottomPatch.yOffsetPercent ?? 0.05) * 100}%`,
+                        zIndex: 32,
+                      }}
+                      className="absolute inset-x-4 flex justify-center pointer-events-none select-none"
+                    >
+                      <div
+                        style={{
+                          backgroundColor: canvasConfig.bottomPatch.backgroundColor || 'rgba(0,0,0,0.65)',
+                          color: canvasConfig.bottomPatch.textColor || '#d4d4d8',
+                          fontSize: `${Math.max(9, Math.min(16, Math.round((canvasConfig.bottomPatch.fontSize || 16) * 0.8)))}px`,
+                          borderRadius: `${canvasConfig.bottomPatch.borderRadius || 8}px`,
+                          padding: '2px 8px',
+                          maxWidth: '90%',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                        className="shadow-lg text-center truncate border border-white/5"
+                      >
+                        {canvasConfig.bottomPatch.text}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 🌟 4. 实时口播台词字幕 (最顶层显示 z-40，不被任何贴片遮挡) */}
+                  {activeSubtitle && subtitleConfig?.visible !== false && (
+                    <div
+                      style={{
+                        bottom: `${(subtitleConfig?.yPercent ?? 0.18) * 100}%`,
+                        left: `${(subtitleConfig?.xPercent ?? 0.5) * 100}%`,
+                        transform: 'translate(-50%, 0)',
+                        zIndex: 40,
+                        maxWidth: '90%',
+                      }}
+                      className="absolute pointer-events-none select-none flex justify-center text-center"
+                    >
+                      <div
+                        style={{
+                          color: subtitleConfig?.textColor || '#ffffff',
+                          fontSize: `${Math.max(11, Math.min(24, Math.round((subtitleConfig?.fontSize || 24) * 0.8)))}px`,
+                          fontWeight: subtitleConfig?.bold ? 'bold' : 'normal',
+                          textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 2px #000',
+                          backgroundColor: 'rgba(0,0,0,0.5)',
+                          backdropFilter: 'blur(2px)',
+                          borderRadius: '6px',
+                          padding: '2px 8px',
+                        }}
+                        className="leading-tight break-words"
+                      >
+                        {activeSubtitle.text}
+                      </div>
+                    </div>
+                  )}
+
                   {/* 播放器内置双行自适应控制条：彻底杜绝 9:16 窄屏下的横向溢出，并提供纯图标按钮 */}
-                  <div className="absolute bottom-0 inset-x-0 p-2.5 bg-gradient-to-t from-black/90 via-black/45 to-transparent flex flex-col gap-1.5 text-white">
+                  <div className="absolute bottom-0 inset-x-0 p-2.5 bg-gradient-to-t from-black/90 via-black/45 to-transparent flex flex-col gap-1.5 text-white z-45">
                     {/* 第一行：全宽独立的播放进度滑动条（彻底防挤压溢出） */}
                     <div className="w-full flex items-center min-w-0">
                       <input
@@ -3816,6 +3998,122 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                         </span>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* 🌟 全屏模式下同步渲染贴片 */}
+                {canvasConfig?.stickers?.map((st) => {
+                  if (!st.enabled || (!st.imageUrl && !st.localPath)) return null;
+                  const stickerW = Math.round(180 * (st.scale ?? 1.0));
+                  const src = st.imageUrl || (st.localPath ? (window.location.protocol.startsWith('http') ? st.imageUrl : `file://${st.localPath}`) : '');
+                  return (
+                    <div
+                      key={st.id}
+                      style={{
+                        left: `${(st.xPercent ?? 0.5) * 100}%`,
+                        top: `${(st.yPercent ?? 0.3) * 100}%`,
+                        transform: 'translate(-50%, -50%)',
+                        opacity: st.opacity ?? 1.0,
+                        width: `${stickerW}px`,
+                        zIndex: 25,
+                      }}
+                      className="absolute pointer-events-none select-none"
+                    >
+                      <img
+                        src={src}
+                        alt={st.name || '贴片'}
+                        className="w-full h-auto object-contain drop-shadow-md rounded"
+                        draggable={false}
+                      />
+                    </div>
+                  );
+                })}
+
+                {/* 🌟 全屏模式下同步渲染顶部大标题 */}
+                {canvasConfig?.topPatch?.enabled && canvasConfig.topPatch.text && (
+                  <div
+                    style={{
+                      top: `${(canvasConfig.topPatch.yOffsetPercent ?? 0.06) * 100}%`,
+                      left: `${(canvasConfig.topPatch.xOffsetPercent ?? 0.5) * 100}%`,
+                      transform: 'translate(-50%, 0)',
+                      zIndex: 35,
+                    }}
+                    className="absolute flex flex-col items-center pointer-events-none select-none"
+                  >
+                    <div
+                      style={{
+                        background: canvasConfig.topPatch.backgroundColor || 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                        color: canvasConfig.topPatch.textColor || '#000000',
+                        fontSize: `${canvasConfig.topPatch.fontSize || 26}px`,
+                        borderRadius: `${canvasConfig.topPatch.borderRadius ?? 12}px`,
+                        fontWeight: canvasConfig.topPatch.fontWeight || 'bold',
+                        padding: '4px 14px',
+                        maxWidth: '90%',
+                        whiteSpace: canvasConfig.topPatch.text.length <= 16 ? 'nowrap' : 'normal',
+                        wordBreak: 'break-word',
+                      }}
+                      className="text-center truncate shadow-lg"
+                    >
+                      {canvasConfig.topPatch.text}
+                    </div>
+                  </div>
+                )}
+
+                {/* 🌟 全屏模式下同步渲染底部副标语 */}
+                {canvasConfig?.bottomPatch?.enabled && canvasConfig.bottomPatch.text && (
+                  <div
+                    style={{
+                      bottom: `${(canvasConfig.bottomPatch.yOffsetPercent ?? 0.05) * 100}%`,
+                      zIndex: 32,
+                    }}
+                    className="absolute inset-x-4 flex justify-center pointer-events-none select-none"
+                  >
+                    <div
+                      style={{
+                        backgroundColor: canvasConfig.bottomPatch.backgroundColor || 'rgba(0,0,0,0.65)',
+                        color: canvasConfig.bottomPatch.textColor || '#d4d4d8',
+                        fontSize: `${canvasConfig.bottomPatch.fontSize || 16}px`,
+                        borderRadius: `${canvasConfig.bottomPatch.borderRadius || 8}px`,
+                        padding: '3px 10px',
+                        maxWidth: '90%',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      className="shadow-lg text-center truncate border border-white/5"
+                    >
+                      {canvasConfig.bottomPatch.text}
+                    </div>
+                  </div>
+                )}
+
+                {/* 🌟 全屏模式下同步渲染口播字幕 */}
+                {activeSubtitle && subtitleConfig?.visible !== false && (
+                  <div
+                    style={{
+                      bottom: `${(subtitleConfig?.yPercent ?? 0.18) * 100}%`,
+                      left: `${(subtitleConfig?.xPercent ?? 0.5) * 100}%`,
+                      transform: 'translate(-50%, 0)',
+                      zIndex: 40,
+                      maxWidth: '90%',
+                    }}
+                    className="absolute pointer-events-none select-none flex justify-center text-center"
+                  >
+                    <div
+                      style={{
+                        color: subtitleConfig?.textColor || '#ffffff',
+                        fontSize: `${subtitleConfig?.fontSize || 24}px`,
+                        fontWeight: subtitleConfig?.bold ? 'bold' : 'normal',
+                        textShadow: '0 2px 4px rgba(0,0,0,0.9), 0 0 2px #000',
+                        backgroundColor: 'rgba(0,0,0,0.5)',
+                        backdropFilter: 'blur(2px)',
+                        borderRadius: '6px',
+                        padding: '3px 10px',
+                      }}
+                      className="leading-tight break-words"
+                    >
+                      {activeSubtitle.text}
+                    </div>
                   </div>
                 )}
               </div>
