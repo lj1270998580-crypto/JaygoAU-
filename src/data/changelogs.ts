@@ -10,10 +10,29 @@ export interface ChangelogItem {
 
 export const CHANGELOGS: ChangelogItem[] = [
   {
+    version: '0.7.44',
+    date: '2026-09-16',
+    title: 'Jaygo AU 原生专属 MCP (Model Context Protocol) Server 落地 · 多智能体全生态开放互联',
+    isLatest: true,
+    features: [
+      '支持外部 AI Agent 无缝接入：遵循官方 Model Context Protocol (MCP) 标准协议，支持 Claude Desktop、Cursor、Windsurf、Cline / Roo Code、Antigravity 等任意 AI 客户端一键连接',
+      '开放 6 大原子级核心音视频工具：包含无水印超清原画提取 (jaygo_extract_media)、高速流式下载与无损混流 (jaygo_download_media)、剪映 Pro 本地草稿直接成片 (jaygo_export_jianying)、AI 视频分镜与提示词规划 (jaygo_plan_illustrations)、FFmpeg 声学静音气口分析 (jaygo_detect_silence) 与宿主环境自检 (jaygo_system_status)',
+      '剪映 Pro 自动化一键成片：外部 Agent 完成文案与配音后，可直接调用 MCP 生成标准草稿工程（draft_content.json），打开剪映软件直接进入成片时间轴',
+      '声学停顿分析与分镜生成：外部 Agent 可毫秒级获取视频气口与有效人声切片做自动粗剪，或直接获取国潮、写实、黏土等多风格的高精度中英文绘画 Prompt',
+    ],
+    improvements: [
+      '标准 Stdio 通信架构，严格隔离 JSON-RPC 消息与调试日志输出，确保各类 MCP Client 握手 100% 稳定可靠',
+      '内置提供完整的 Claude Desktop / Cursor / Windsurf 一键配置接入文档 (mcp/README.md)',
+    ],
+    fixes: [
+      '优化本地多进程管道流控，完善跨平台剪映 Pro 本地工程路径探测机制',
+    ],
+  },
+  {
     version: '0.7.43',
     date: '2026-09-15',
     title: '短视频无水印超清原画母带直连 · 彻底告别压缩小文件 · 杜绝误杀人声 · B站快手1080P全链路升级',
-    isLatest: true,
+    isLatest: false,
     features: [
       '抖音 100% 真实原画母带直连提取：深度修复 Chrome DevTools Protocol 拦截时序，在 Network.loadingFinished 时精准抓取官方全规格数据字典，配合 RENDER_DATA / SSR 状态穿透与 xgplayer 清晰度主动切换，彻底告别旧版详情拦截为空的问题',
       '多维画质评分严选模型：综合实际像素分辨率、play_addr 原画母带、真实文件字节数（data_size）、高码率与 60 帧优先评级，对 adapt_lowest 自适应流施加重度负向惩罚，消灭 2~4MB 虚假压缩流，稳固输出 20~40MB+ 真实最高清母带视频',

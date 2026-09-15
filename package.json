@@ -1,6 +1,6 @@
 {
   "name": "jaygo-au",
-  "version": "0.7.43",
+  "version": "0.7.44",
   "description": "Jaygo AU — 全能 AI 自媒体创作工作台 (语音合成 · 声音复刻 · 蝉镜数字人 · 媒体提取 · 智能转录)",
   "private": true,
   "author": "Jaygo",
@@ -11,9 +11,11 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dist": "npm run build && electron-builder --win --dir --publish=never",
     "release": "npm run build && electron-builder --win --publish=never",
-    "deploy:update": "bash scripts/deploy-update.sh"
+    "deploy:update": "bash scripts/deploy-update.sh",
+    "mcp": "tsx mcp/server.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "ali-oss": "^6.21.0",
     "electron-updater": "^6.8.9",
     "ffmpeg-static": "^5.2.0",
