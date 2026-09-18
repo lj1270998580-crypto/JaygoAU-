@@ -12,7 +12,7 @@ import { detectSilenceWithFfmpeg } from './silenceAdapter';
 import { planScriptIllustrations } from './illustratorAdapter';
 import ffmpegStatic from 'ffmpeg-static';
 
-const APP_VERSION = '0.7.44';
+const APP_VERSION = '0.7.45';
 
 // 创建标准 MCP 服务端实例
 const server = new Server(

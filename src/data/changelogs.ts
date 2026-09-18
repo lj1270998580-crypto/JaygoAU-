@@ -10,10 +10,30 @@ export interface ChangelogItem {
 
 export const CHANGELOGS: ChangelogItem[] = [
   {
+    version: '0.7.45',
+    date: '2026-09-18',
+    title: '设置中心现代化 4-Tab 架构重构 · 告别漫长滑动 · 交互视觉全维升级',
+    isLatest: true,
+    features: [
+      '设置中心 4 大场景化 Tab 胶囊导航：全面告别旧版 14 个板块垂直单页漫长滑动，重构为「AI 模型与凭据」、「创作与生成偏好」、「通用与系统设置」、「关于与费用说明」4 大清晰维度，页面垂直高度大幅收敛 75%',
+      'AI 服务与凭据一站式管理：整合统一大模型中心 (Model Hub)、火山 X-Api-Key / AK-SK、商汤 TokenPlan、蝉镜数字人凭证与云端免密托管提示，每个服务均配备连通性诊断与状态指示',
+      '创作生产偏好独立专区：集中调控语音合成（默认音色、采样率、语速音量实时倍率滑块、降噪）、商汤视频插图（默认模型、画幅比例联动）与音视频转录（识别模型、说话人分离）',
+      '系统与底层偏好专区：集中管理音频存储路径（一键修改与自动迁移）、关闭最小化到系统托盘、长任务桌面弹窗通知与 Windows 桌面图标缓存深度自愈',
+    ],
+    improvements: [
+      '顶栏新增「👁️ 显示敏感密匙 / 🔒 隐藏敏感密匙」全局快捷切换按钮，录屏与演示更安全',
+      '全新 SettingCard 毛玻璃卡片设计，圆角、边框与徽标在暗色和亮色模式下均获得更优秀的对比度与精致质感',
+      '低频查阅的火山官方计费参考表格收纳至关于 Tab，不再喧宾夺主挤占操作视野',
+    ],
+    fixes: [
+      '修复设置表单中部分输入框样式在不同屏幕尺寸下的排版拉伸问题',
+    ],
+  },
+  {
     version: '0.7.44',
     date: '2026-09-16',
     title: 'Jaygo AU 原生专属 MCP (Model Context Protocol) Server 落地 · 多智能体全生态开放互联',
-    isLatest: true,
+    isLatest: false,
     features: [
       '支持外部 AI Agent 无缝接入：遵循官方 Model Context Protocol (MCP) 标准协议，支持 Claude Desktop、Cursor、Windsurf、Cline / Roo Code、Antigravity 等任意 AI 客户端一键连接',
       '开放 6 大原子级核心音视频工具：包含无水印超清原画提取 (jaygo_extract_media)、高速流式下载与无损混流 (jaygo_download_media)、剪映 Pro 本地草稿直接成片 (jaygo_export_jianying)、AI 视频分镜与提示词规划 (jaygo_plan_illustrations)、FFmpeg 声学静音气口分析 (jaygo_detect_silence) 与宿主环境自检 (jaygo_system_status)',
