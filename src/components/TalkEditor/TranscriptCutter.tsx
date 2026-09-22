@@ -31,6 +31,7 @@ import {
   Link2,
   Plus,
   Minus,
+  Undo2,
 } from 'lucide-react';
 import type { CutSegment, NarrativePreset, NarrativeAnalysisResult, WordItem } from '../../lib/talkEditor/types';
 import type { ModelHubSettings } from '../../lib/modelHubTypes';
@@ -219,7 +220,31 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
     return { silencesCount, silenceSec, fillersCount, stumblesCount, tangentsCount };
   }, [segments]);
 
-  // 全局监听鼠标释放与按键
+  // 🌟 撤销历史快照栈（容量 25 层，支持 Ctrl+Z / Cmd+Z 撤销）
+  const undoStackRef = useRef<CutSegment[][]>([]);
+  const [canUndo, setCanUndo] = useState<boolean>(false);
+
+  const pushUndoSnapshot = () => {
+    try {
+      undoStackRef.current.push(JSON.parse(JSON.stringify(segments)));
+      if (undoStackRef.current.length > 25) {
+        undoStackRef.current.shift();
+      }
+      setCanUndo(true);
+    } catch (_) {}
+  };
+
+  const handleUndo = () => {
+    if (undoStackRef.current.length === 0) return;
+    const prev = undoStackRef.current.pop();
+    setCanUndo(undoStackRef.current.length > 0);
+    if (prev) {
+      onUpdateSegments(prev);
+      showToast('已撤销上一步操作 (Ctrl+Z)', 'info');
+    }
+  };
+
+  // 全局监听鼠标释放与按键 (空格启停、Ctrl+Z 撤销、划选删除)
   useEffect(() => {
     const handleGlobalMouseUp = () => {
       setIsMouseDownOnWord(false);
@@ -229,6 +254,20 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      // 🌟 撤销快捷键：Ctrl+Z / Cmd+Z
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      // 🌟 空格键 Space：快速切换音视频播放与暂停
+      if (e.code === 'Space') {
+        e.preventDefault();
+        onTogglePlay?.();
         return;
       }
 
@@ -249,7 +288,7 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
       window.removeEventListener('mouseup', handleGlobalMouseUp);
       window.removeEventListener('keydown', handleGlobalKeyDown);
     };
-  }, [dragSelection, segments]);
+  }, [dragSelection, segments, onTogglePlay]);
 
   // 🌟 提词器式平滑居中滚动跟随
   useEffect(() => {
@@ -262,6 +301,7 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
 
   // 批量修改指定区间的字词删除状态
   const batchDeleteWords = (segId: string, startIdx: number, endIdx: number, isDeleted: boolean) => {
+    pushUndoSnapshot();
     onUpdateSegments(
       segments.map((seg) => {
         if (seg.id !== segId || !seg.words) return seg;
@@ -293,6 +333,7 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
   const toggleWordDeleted = (segId: string, wordIdx: number, e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
+    pushUndoSnapshot();
     onUpdateSegments(
       segments.map((seg) => {
         if (seg.id !== segId || !seg.words) return seg;
@@ -342,6 +383,7 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
   // 切换整句删除状态
   const toggleSegmentDeleted = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    pushUndoSnapshot();
     onUpdateSegments(
       segments.map((s) => {
         if (s.id !== id) return s;
@@ -364,6 +406,7 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
 
   // 全部恢复原样
   const handleResetAll = () => {
+    pushUndoSnapshot();
     onUpdateSegments(
       segments.map((s) => ({
         ...s,
@@ -392,6 +435,7 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
 
   // 执行 AI 一键精剪确认
   const handleConfirmAiCut = () => {
+    pushUndoSnapshot();
     onApplyFullAiCut({
       ...aiCutOptions,
       narrativePreset: selectedPreset,
@@ -480,6 +524,7 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
         words: newWords || seg.words,
       };
     });
+    pushUndoSnapshot();
     onUpdateSegments(updated);
     setEditingSegId(null);
     showToast('已更新字幕文本', 'ok');
@@ -544,6 +589,7 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
 
     const updated = [...segments];
     updated.splice(segIdx, 1, segA, segB);
+    pushUndoSnapshot();
     onUpdateSegments(updated);
     setSplittingSegId(null);
     showToast('已在当前播放进度处切分字幕', 'ok');
@@ -578,6 +624,7 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
 
     const updated = [...segments];
     updated.splice(segIdx, 1, segA, segB);
+    pushUndoSnapshot();
     onUpdateSegments(updated);
     setSplittingSegId(null);
     showToast('已在此处拆分为两句字幕', 'ok');
@@ -606,6 +653,7 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
 
     const updated = [...segments];
     updated.splice(segIdx, 2, mergedSeg);
+    pushUndoSnapshot();
     onUpdateSegments(updated);
     showToast('已将当前句与下一句合并', 'ok');
   };
@@ -625,6 +673,7 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
         return { ...seg, endTime: newEnd };
       }
     });
+    pushUndoSnapshot();
     onUpdateSegments(updated);
   };
 
@@ -715,6 +764,23 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
               title={autoScroll ? '自动跟随：开启中 (点击关闭)' : '锁定视窗 (点击开启自动跟随)'}
             >
               <LocateFixed className="w-3 h-3" />
+            </button>
+
+            {/* 🌟 撤销上一步操作 (Ctrl+Z) 按钮 */}
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={!canUndo}
+              className={`p-1.5 rounded-lg border transition cursor-pointer flex items-center justify-center ${
+                !canUndo
+                  ? 'opacity-30 cursor-not-allowed text-zinc-500 border-transparent'
+                  : isDark
+                  ? 'text-zinc-400 hover:text-zinc-200 bg-zinc-800/80 border-zinc-700/60 hover:bg-zinc-700'
+                  : 'text-zinc-600 hover:text-zinc-900 bg-white border-zinc-300 hover:bg-zinc-100 shadow-xs'
+              }`}
+              title={canUndo ? '撤销上一步操作 (Ctrl+Z)' : '无可撤销的操作'}
+            >
+              <Undo2 className="w-3 h-3" />
             </button>
 
             {/* 全部恢复按钮 (纯图标 + Tooltip) */}

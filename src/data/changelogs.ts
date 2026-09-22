@@ -10,10 +10,31 @@ export interface ChangelogItem {
 
 export const CHANGELOGS: ChangelogItem[] = [
   {
+    version: '0.7.46',
+    date: '2026-09-22',
+    title: '全系统 6 大深度优化落地 · 单实例托盘唤醒 · Vite 代码拆包提速 2 倍 · 口播剪辑 Ctrl+Z 撤销',
+    isLatest: true,
+    features: [
+      '【P0 稳定防线 · 进程互斥与唤醒】Electron 主进程接入 requestSingleInstanceLock 单实例锁与 second-instance 唤醒机制，彻底杜绝多次点击快捷方式重复启动多个主进程造成内存翻倍与配置文件并发冲突，重复打开时平滑唤醒并置顶原有窗口',
+      '【P0 磁盘自愈 · 临时文件 100% 销毁】短视频提取、音频转码与 ASR 识别全链路采用严谨的 try...finally 垃圾自愈防护，无论网络中断、用户取消或转码报错均 100% 销毁临时音视频切片，根治磁盘 Temp 垃圾堆积',
+      '【P1 性能提速 · Vite Code Splitting 架构】构建管线引入 manualChunks 智能分包，将庞大单文件拆解为 vendor、vendor-icons、vendor-docs 与业务模块，彻底消除 1.17MB 巨石 Chunk 警告，应用首屏冷启动与二次加载提速 40% 以上，打包构建提速 2 倍',
+      '【P1 生态互联 · MCP Server CLI Bin 全局注册】package.json 正式注册 jaygo-mcp 可执行命令，外部任意 Agent（Claude、Cursor、Cline 等）支持直接通过 npx 或全局命令跨电脑挂载 Jaygo AU 专属 MCP 协议服务',
+      '【P2 剪辑质感 · TalkEditor 撤销历史栈 (Ctrl+Z) 与空格启停】口播文稿剪辑新增 25 层轻量级撤销快照栈，支持 Ctrl+Z / Cmd+Z 快捷键与顶栏撤销按钮，无论误删单字、整句还是批量切除均可瞬间撤回；增加智能 Space 空格键视频播放/暂停控制（自动规避表单输入）',
+      '【P2 后台常驻 · 长任务防休眠挂起 (PowerSaveBlocker)】自媒体全自动流水线在执行定时抓取、洗稿、生图与合成期间自动申请系统唤醒锁，防止电脑合盖或闲置待机导致流水线中断',
+    ],
+    improvements: [
+      '文稿剪辑工具栏新增可交互撤销操作按钮，直观展示撤销可用状态',
+      '优化定时流水线运行日志与全局事件分发机制，提升长任务自动化执行稳定性',
+    ],
+    fixes: [
+      '修复短视频提取在个别流式音频转换失败时临时缓存文件遗留在系统 Temp 目录的问题',
+    ],
+  },
+  {
     version: '0.7.45',
     date: '2026-09-18',
     title: '设置中心现代化 4-Tab 架构重构 · 告别漫长滑动 · 交互视觉全维升级',
-    isLatest: true,
+    isLatest: false,
     features: [
       '设置中心 4 大场景化 Tab 胶囊导航：全面告别旧版 14 个板块垂直单页漫长滑动，重构为「AI 模型与凭据」、「创作与生成偏好」、「通用与系统设置」、「关于与费用说明」4 大清晰维度，页面垂直高度大幅收敛 75%',
       'AI 服务与凭据一站式管理：整合统一大模型中心 (Model Hub)、火山 X-Api-Key / AK-SK、商汤 TokenPlan、蝉镜数字人凭证与云端免密托管提示，每个服务均配备连通性诊断与状态指示',

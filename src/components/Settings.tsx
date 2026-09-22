@@ -885,7 +885,7 @@ export default function Settings() {
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-mono font-bold text-sm shadow-md shadow-blue-500/20">
-                  v{appVersion || '0.7.45'}
+                  v{appVersion || '0.7.46'}
                 </div>
                 <div>
                   <div className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">

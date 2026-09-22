@@ -470,6 +470,7 @@ export default function App() {
           );
 
           try {
+            await api?.preventAppSuspension?.(true);
             const res = await executeWorkflowProject(
               proj,
               modelHubSettings,
@@ -503,6 +504,7 @@ export default function App() {
               })
             );
           } finally {
+            try { await api?.preventAppSuspension?.(false); } catch (_) {}
             isWorkflowRunningRef.current = false;
           }
           break;

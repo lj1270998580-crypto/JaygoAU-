@@ -122,6 +122,7 @@ export async function executeWorkflowProject(
   let isAborted = false;
 
   try {
+    try { await api?.preventAppSuspension?.(true); } catch (_) {}
     for (let i = 0; i < activeNodes.length; i++) {
       if (abortSignal?.aborted) {
         isAborted = true;
@@ -426,6 +427,8 @@ export async function executeWorkflowProject(
     } else {
       addLog(`❌ 工作流执行异常终止: ${err.message}`);
     }
+  } finally {
+    try { await api?.preventAppSuspension?.(false); } catch (_) {}
   }
 
   // 终态持久化记录

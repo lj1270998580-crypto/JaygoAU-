@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, net, Tray, Menu, Notification } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, net, Tray, Menu, Notification, powerSaveBlocker } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -8,6 +8,12 @@ import * as child_process from 'node:child_process';
 import ffmpegStatic from 'ffmpeg-static';
 import { spawn } from 'node:child_process';
 import { extractMedia, downloadMediaFile, extractAudioWithFfmpeg, mergeVideoAndAudioWithFfmpeg, PC_UA, type ParsedMediaInfo } from './mediaExtractor';
+
+// 单实例互斥锁：防止用户重复多次点击快捷方式启动多个进程导致内存泄漏或配置冲突
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+}
 
 // 主进程出站请求统一走 Chromium 网络栈（net.fetch），自动尊重系统代理（v2rayN/Clash 等）。
 // Node.js 原生 fetch(undici) 默认不读取系统代理，导致中国大陆用户即便开了代理，
@@ -619,10 +625,48 @@ app.whenReady().then(() => {
       mainWindow?.focus();
     }
   });
+
+  // 当用户在已有实例运行中再次点击桌面快捷方式时唤起已有窗口
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+});
+
+let powerSaveBlockerId: number | null = null;
+
+// ---- IPC: 后台长任务防系统休眠挂起 ----
+ipcMain.handle('prevent-app-suspension', (_e, { enable }: { enable: boolean }) => {
+  try {
+    if (enable) {
+      if (powerSaveBlockerId === null || !powerSaveBlocker.isStarted(powerSaveBlockerId)) {
+        powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+        dbg(`[PowerSaveBlocker] Started with id: ${powerSaveBlockerId}`);
+      }
+      return { ok: true, active: true };
+    } else {
+      if (powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)) {
+        powerSaveBlocker.stop(powerSaveBlockerId);
+        dbg(`[PowerSaveBlocker] Stopped id: ${powerSaveBlockerId}`);
+        powerSaveBlockerId = null;
+      }
+      return { ok: true, active: false };
+    }
+  } catch (err: any) {
+    dbg(`[PowerSaveBlocker] Error: ${err?.message || err}`);
+    return { ok: false, error: err?.message || String(err) };
+  }
 });
 
 app.on('before-quit', () => {
   isQuitting = true;
+  if (powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)) {
+    powerSaveBlocker.stop(powerSaveBlockerId);
+    powerSaveBlockerId = null;
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -1549,19 +1593,25 @@ ipcMain.handle(
         return { path: targetPath, size: fs.statSync(targetPath).size };
       }
     } else {
-      // 提取音频
+      // 提取音频（全部包裹在 try...finally 中，确保异常或网络中断时临时文件 100% 销毁）
       if (mediaInfo.audioUrl) {
         const tempAudio = path.join(app.getPath('temp'), `jaygo-extract-audio-${Date.now()}`);
-        await downloadMediaFile(mediaInfo.audioUrl, tempAudio, mediaInfo.headers);
-        await extractAudioWithFfmpeg(FFMPEG_PATH, tempAudio, targetPath, 'mp3');
-        fs.unlink(tempAudio, () => {});
-        return { path: targetPath, size: fs.statSync(targetPath).size };
+        try {
+          await downloadMediaFile(mediaInfo.audioUrl, tempAudio, mediaInfo.headers);
+          await extractAudioWithFfmpeg(FFMPEG_PATH, tempAudio, targetPath, 'mp3');
+          return { path: targetPath, size: fs.statSync(targetPath).size };
+        } finally {
+          fs.unlink(tempAudio, () => {});
+        }
       } else if (mediaInfo.videoUrl) {
         const tempVideo = path.join(app.getPath('temp'), `jaygo-extract-vid-${Date.now()}.mp4`);
-        await downloadMediaFile(mediaInfo.videoUrl, tempVideo, mediaInfo.headers);
-        await extractAudioWithFfmpeg(FFMPEG_PATH, tempVideo, targetPath, 'mp3');
-        fs.unlink(tempVideo, () => {});
-        return { path: targetPath, size: fs.statSync(targetPath).size };
+        try {
+          await downloadMediaFile(mediaInfo.videoUrl, tempVideo, mediaInfo.headers);
+          await extractAudioWithFfmpeg(FFMPEG_PATH, tempVideo, targetPath, 'mp3');
+          return { path: targetPath, size: fs.statSync(targetPath).size };
+        } finally {
+          fs.unlink(tempVideo, () => {});
+        }
       } else {
         throw new Error('未解析出可用的音频或视频流');
       }
@@ -1583,10 +1633,12 @@ ipcMain.handle('download-extracted-image', async (e, args: { imageUrl: string; d
   if (saveRes.canceled || !saveRes.filePath) return null;
 
   const isXhs = imageUrl.includes('xiaohongshu.com') || imageUrl.includes('xhscdn.com');
-  const headers = {
-    'User-Agent': PC_UA,
-    'Referer': isXhs ? 'https://www.xiaohongshu.com/' : 'https://www.douyin.com/',
-  };
+  const headers = isXhs
+    ? {
+        Referer: 'https://www.xiaohongshu.com/',
+        'User-Agent': PC_UA,
+      }
+    : undefined;
 
   await downloadMediaFile(imageUrl, saveRes.filePath, headers);
   return { path: saveRes.filePath, size: fs.statSync(saveRes.filePath).size };
@@ -1594,30 +1646,31 @@ ipcMain.handle('download-extracted-image', async (e, args: { imageUrl: string; d
 
 ipcMain.handle('download-all-extracted-images', async (e, args: { images: string[]; title: string }) => {
   const { images, title } = args;
-  if (!images || images.length === 0) throw new Error('没有可下载的图片');
+  if (!images || images.length === 0) return null;
 
   const win = winOf(e) || mainWindow;
-  const openRes = await dialog.showOpenDialog(win!, {
-    title: '选择保存全部图片的文件夹',
+  const folderRes = await dialog.showOpenDialog(win!, {
+    title: '选择保存图集的文件夹',
     defaultPath: settings.outputDir || app.getPath('downloads'),
     properties: ['openDirectory', 'createDirectory'],
   });
-  if (openRes.canceled || !openRes.filePaths?.[0]) return null;
+  if (folderRes.canceled || !folderRes.filePaths?.[0]) return null;
 
-  const baseDir = openRes.filePaths[0];
-  const safeFolder = (title || `images_${Date.now()}`).replace(/[\\/:*?"<>|]/g, '_').slice(0, 40);
-  const targetFolder = path.join(baseDir, safeFolder);
+  const safeTitle = (title || `images_${Date.now()}`).replace(/[\\/:*?"<>|]/g, '_').slice(0, 40);
+  const targetFolder = path.join(folderRes.filePaths[0], safeTitle);
   fs.mkdirSync(targetFolder, { recursive: true });
 
   for (let i = 0; i < images.length; i++) {
     const imgUrl = images[i];
-    const pad = String(i + 1).padStart(2, '0');
-    const outPath = path.join(targetFolder, `${pad}.jpg`);
+    const padIdx = String(i + 1).padStart(2, '0');
+    const outPath = path.join(targetFolder, `${padIdx}.jpg`);
     const isXhs = imgUrl.includes('xiaohongshu.com') || imgUrl.includes('xhscdn.com');
-    const headers = {
-      'User-Agent': PC_UA,
-      'Referer': isXhs ? 'https://www.xiaohongshu.com/' : 'https://www.douyin.com/',
-    };
+    const headers = isXhs
+      ? {
+          Referer: 'https://www.xiaohongshu.com/',
+          'User-Agent': PC_UA,
+        }
+      : undefined;
     await downloadMediaFile(imgUrl, outPath, headers);
   }
 
@@ -1633,16 +1686,22 @@ ipcMain.handle('extract-media-for-transcribe', async (e, args: { mediaInfo: Pars
 
   if (mediaInfo.audioUrl) {
     const tempRaw = path.join(app.getPath('temp'), `jaygo-asr-raw-${Date.now()}`);
-    await downloadMediaFile(mediaInfo.audioUrl, tempRaw, mediaInfo.headers);
-    await extractAudioWithFfmpeg(FFMPEG_PATH, tempRaw, tempWav, 'wav');
-    fs.unlink(tempRaw, () => {});
-    return { filePath: tempWav, fileName: `${safeTitle}.wav` };
+    try {
+      await downloadMediaFile(mediaInfo.audioUrl, tempRaw, mediaInfo.headers);
+      await extractAudioWithFfmpeg(FFMPEG_PATH, tempRaw, tempWav, 'wav');
+      return { filePath: tempWav, fileName: `${safeTitle}.wav` };
+    } finally {
+      fs.unlink(tempRaw, () => {});
+    }
   } else if (mediaInfo.videoUrl) {
     const tempVideo = path.join(app.getPath('temp'), `jaygo-asr-vid-${Date.now()}.mp4`);
-    await downloadMediaFile(mediaInfo.videoUrl, tempVideo, mediaInfo.headers);
-    await extractAudioWithFfmpeg(FFMPEG_PATH, tempVideo, tempWav, 'wav');
-    fs.unlink(tempVideo, () => {});
-    return { filePath: tempWav, fileName: `${safeTitle}.wav` };
+    try {
+      await downloadMediaFile(mediaInfo.videoUrl, tempVideo, mediaInfo.headers);
+      await extractAudioWithFfmpeg(FFMPEG_PATH, tempVideo, tempWav, 'wav');
+      return { filePath: tempWav, fileName: `${safeTitle}.wav` };
+    } finally {
+      fs.unlink(tempVideo, () => {});
+    }
   } else {
     throw new Error('该链接未解析出可用的音视频媒体流');
   }

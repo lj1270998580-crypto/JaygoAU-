@@ -282,6 +282,8 @@ export interface JaygoAPI {
     records: IllustrationHistoryRecord[];
     removedPaths: string[];
   }): Promise<{ ok: boolean; error?: string }>;
+  /** 后台常驻 / 定时工作流防系统休眠挂起 */
+  preventAppSuspension(enable: boolean): Promise<{ ok: boolean; active?: boolean; error?: string }>;
 }
 
 /**

@@ -1,10 +1,13 @@
 {
   "name": "jaygo-au",
-  "version": "0.7.45",
+  "version": "0.7.46",
   "description": "Jaygo AU — 全能 AI 自媒体创作工作台 (语音合成 · 声音复刻 · 蝉镜数字人 · 媒体提取 · 智能转录)",
   "private": true,
   "author": "Jaygo",
   "main": "dist-electron/main.js",
+  "bin": {
+    "jaygo-mcp": "./mcp/server.ts"
+  },
   "scripts": {
     "dev": "concurrently -n vite,electron -k \"vite\" \"cross-env DEV=1 tsc -p tsconfig.electron.json && tsx electron/main.ts\"",
     "build": "npm run typecheck && vite build --emptyOutDir=false && tsc -p tsconfig.electron.json && node -e \"require('fs').copyFileSync('build/icon.ico', 'dist-electron/icon.ico')\"",

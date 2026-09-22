@@ -271,6 +271,9 @@ const api = {
     borderStyle: string;
   }): Promise<{ ok: boolean; framedPaths: Record<string, string>; error?: string }> =>
     ipcRenderer.invoke('illustrator-render-framed-images', args),
+  // ---- 后台保活 / 防休眠 (PowerSaveBlocker) ----
+  preventAppSuspension: (enable: boolean): Promise<{ ok: boolean; active?: boolean; error?: string }> =>
+    ipcRenderer.invoke('prevent-app-suspension', { enable }),
 };
 
 contextBridge.exposeInMainWorld('JaygoAPI', api);
