@@ -258,7 +258,7 @@ export default function Settings() {
           {/* 统一大模型中心 */}
           <SettingCard
             title="统一大模型中心 (Model Hub)"
-            desc="集中管理火山豆包、DeepSeek、阿里通义千问、智谱清言、Kimi 及自定义大模型，统一驱动「AI 文案工坊」与「定时工作流」。"
+            desc="集中管理火山豆包、DeepSeek、阿里通义千问、智谱清言、Kimi 及自定义大模型，支持默认从服务商 API 实时拉取最新模型。"
             badge={
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/80 text-blue-600 dark:text-blue-300 font-mono font-bold">
                 {modelHubSettings.defaultProvider.toUpperCase()} 默认驱动
@@ -268,16 +268,33 @@ export default function Settings() {
               <button
                 type="button"
                 onClick={() => setModelModalOpen(true)}
-                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-xs shadow-blue-500/20 transition flex items-center gap-1.5"
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-500/20 transition flex items-center gap-2 cursor-pointer"
               >
-                <span>⚙️</span> 打开统一模型设置中心
+                <span>⚡</span> 打开统一大模型中心
               </button>
             }
           >
-            <div className="p-3.5 rounded-xl border border-blue-500/20 bg-blue-50/40 dark:bg-blue-950/20 text-xs text-zinc-600 dark:text-zinc-300 flex items-center justify-between">
-              <div>
-                <span className="font-medium text-blue-700 dark:text-blue-300">多模型路由就绪：</span>
-                支持一键切换默认大模型、自定义 API Base URL 与连通性延时测速，无需在各个功能面板重复配置密钥。
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-3 rounded-xl border border-zinc-200/60 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
+                <div className="text-[11px] text-zinc-400">当前默认引擎</div>
+                <div className="text-xs font-bold text-zinc-800 dark:text-zinc-200 mt-0.5">
+                  {modelHubSettings.defaultProvider.toUpperCase()}
+                </div>
+              </div>
+              <div className="p-3 rounded-xl border border-zinc-200/60 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
+                <div className="text-[11px] text-zinc-400">当前激活模型</div>
+                <div className="text-xs font-bold font-mono text-blue-600 dark:text-blue-400 truncate mt-0.5">
+                  {modelHubSettings.providers[modelHubSettings.defaultProvider]?.customModelName ||
+                    modelHubSettings.providers[modelHubSettings.defaultProvider]?.selectedModel ||
+                    modelHubSettings.providers[modelHubSettings.defaultProvider]?.availableModels?.[0] ||
+                    '尚未获取'}
+                </div>
+              </div>
+              <div className="p-3 rounded-xl border border-zinc-200/60 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
+                <div className="text-[11px] text-zinc-400">已就绪服务商</div>
+                <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                  {Object.values(modelHubSettings.providers).filter((p) => p.apiKey?.trim()).length} / {Object.keys(modelHubSettings.providers).length} 个
+                </div>
               </div>
             </div>
           </SettingCard>
@@ -885,7 +902,7 @@ export default function Settings() {
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-mono font-bold text-sm shadow-md shadow-blue-500/20">
-                  v{appVersion || '0.7.47'}
+                  v{appVersion || '0.7.48'}
                 </div>
                 <div>
                   <div className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">

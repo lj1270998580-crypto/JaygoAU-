@@ -446,6 +446,10 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
 
+app.on('before-quit', () => {
+  isQuitting = true;
+});
+
 function getAppIconPath(): string | undefined {
   const candidates = [
     path.join(path.dirname(process.execPath), 'icon.ico'),
@@ -2009,8 +2013,29 @@ ipcMain.handle('download-update', async () => {
 });
 
 ipcMain.handle('quit-install-update', () => {
+  dbg('用户触发 quit-install-update，准备退出并执行安装包更新');
+  isQuitting = true;
+
+  if (tray) {
+    try { tray.destroy(); } catch {}
+    tray = null;
+  }
+
+  for (const win of BrowserWindow.getAllWindows()) {
+    try {
+      win.removeAllListeners('close');
+      win.destroy();
+    } catch {}
+  }
+
   // 静默安装并重新打开（NSIS /S + 自动重启）
   autoUpdater.quitAndInstall(true, true);
+
+  // 兜底保护：防止某些 Windows 系统下 Node/Electron 主进程未及时释放句柄导致文件占用冲突
+  setTimeout(() => {
+    app.exit(0);
+  }, 1000);
+
   return { ok: true };
 });
 

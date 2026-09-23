@@ -407,7 +407,7 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
     const provName = (providerType === 'custom' && target?.customProviderName?.trim())
       ? target.customProviderName.trim()
       : (preset?.name?.split(' ')[0] || providerType);
-    const modelObj = preset?.models.find((m) => m.id === modelId);
+    const modelObj = preset?.models?.find((m) => m.id === modelId);
     const label = `${provName} · ${modelObj?.name || modelId}`;
     if (!hasKey) {
       showToast(`已切换至【${label}】，尚未配置 API Key，正在开启配置…`);
@@ -2036,13 +2036,19 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
                   const provTitle = (ptype === 'custom' && conf?.customProviderName?.trim())
                     ? conf.customProviderName.trim()
                     : preset.name;
+
+                  // 优先使用从服务商动态获取到的最新可用模型
+                  const dynamicList = conf?.availableModels && conf.availableModels.length > 0
+                    ? conf.availableModels.map((id) => ({ id, name: id }))
+                    : (conf?.selectedModel ? [{ id: conf.selectedModel, name: conf.selectedModel }] : (preset.models || []));
+
                   const models = (ptype === 'custom'
                     ? (conf?.customModelName?.trim()
                         ? [{ id: conf.customModelName.trim(), name: conf.customModelName.trim() }]
-                        : preset.models)
+                        : dynamicList)
                     : (conf?.customModelName?.trim()
-                        ? [{ id: conf.customModelName.trim(), name: `${conf.customModelName.trim()} (自定义覆盖)` }, ...preset.models]
-                        : preset.models)).slice(0, 6);
+                        ? [{ id: conf.customModelName.trim(), name: `${conf.customModelName.trim()} (自定义覆盖)` }, ...dynamicList]
+                        : dynamicList)).slice(0, 8);
 
                   return (
                     <div key={ptype} className="mb-1">

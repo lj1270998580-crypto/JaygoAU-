@@ -735,7 +735,7 @@ export function ScriptStudio({
     const provName = (providerType === 'custom' && targetProvider?.customProviderName?.trim())
       ? targetProvider.customProviderName.trim()
       : (preset?.name?.split(' ')[0] || providerType);
-    const modelObj = preset?.models.find(m => m.id === modelId);
+    const modelObj = preset?.models?.find(m => m.id === modelId);
     const mName = modelObj?.name || modelId;
 
     if (!hasKey) {
@@ -1713,10 +1713,10 @@ export function ScriptStudio({
                               return `${cName}: ${mName}`;
                             }
                             const found = Object.values(PRESET_PROVIDERS)
-                              .flatMap(p => p.models)
+                              .flatMap(p => p.models || [])
                               .find(m => m.id === currentModelName);
                             const raw = found ? found.name : currentModelName;
-                            return raw.replace(/DeepSeek/i, 'DS').replace(/豆包/i, '豆包').slice(0, 10);
+                            return raw.replace(/DeepSeek/i, 'DS').replace(/豆包/i, '豆包').slice(0, 12);
                           })()}
                         </span>
                         <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
@@ -1741,7 +1741,7 @@ export function ScriptStudio({
                               }}
                               className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5 cursor-pointer"
                             >
-                              <span>配置 Key</span>
+                              <span>配置模型/Key</span>
                               <SlidersHorizontal className="w-2.5 h-2.5" />
                             </button>
                           </div>
@@ -1753,13 +1753,19 @@ export function ScriptStudio({
                               const provTitle = (pType === 'custom' && provConfig?.customProviderName?.trim())
                                 ? provConfig.customProviderName.trim()
                                 : preset.name;
+                              
+                              // 优先使用从服务商动态获取到的最新可用模型
+                              const dynamicList = provConfig?.availableModels && provConfig.availableModels.length > 0
+                                ? provConfig.availableModels.map(id => ({ id, name: id }))
+                                : (provConfig?.selectedModel ? [{ id: provConfig.selectedModel, name: provConfig.selectedModel }] : (preset.models || []));
+
                               const models = (pType === 'custom'
                                 ? (provConfig?.customModelName?.trim()
                                     ? [{ id: provConfig.customModelName.trim(), name: provConfig.customModelName.trim() }]
-                                    : preset.models)
+                                    : dynamicList)
                                 : (provConfig?.customModelName?.trim()
-                                    ? [{ id: provConfig.customModelName.trim(), name: `${provConfig.customModelName.trim()} (自定义)` }, ...preset.models]
-                                    : preset.models)).slice(0, 6);
+                                    ? [{ id: provConfig.customModelName.trim(), name: `${provConfig.customModelName.trim()} (自定义)` }, ...dynamicList]
+                                    : dynamicList)).slice(0, 8);
 
                               return (
                                 <div key={pType} className="space-y-0.5">

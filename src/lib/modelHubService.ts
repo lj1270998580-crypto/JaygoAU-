@@ -133,7 +133,7 @@ export async function fetchProviderModels(
   provider: ConfiguredProvider
 ): Promise<{ ok: boolean; models: string[]; error?: string }> {
   if (!provider.apiKey) {
-    return { ok: false, models: [], error: '请先填写 API Key' };
+    return { ok: false, models: [], error: '请先填写 API Key 密钥' };
   }
   const baseUrl = normalizeBaseUrl(provider);
   if (!baseUrl) {
@@ -142,12 +142,27 @@ export async function fetchProviderModels(
 
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30000);
+    const timer = setTimeout(() => controller.abort(), 20000);
     let res: Response;
+
+    const cleanBase = baseUrl.trim().replace(/\/+$/, '');
+    const url = cleanBase.endsWith('/models') ? cleanBase : `${cleanBase}/models`;
+
+    // 针对不同厂商协议自动适配请求头（如 Anthropic 专属头）
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (provider.type === 'claude') {
+      headers['x-api-key'] = provider.apiKey.trim();
+      headers['anthropic-version'] = '2023-06-01';
+    } else {
+      headers['Authorization'] = `Bearer ${provider.apiKey.trim()}`;
+    }
+
     try {
-      res = await fetch(`${baseUrl}/models`, {
+      res = await fetch(url, {
         method: 'GET',
-        headers: { Authorization: `Bearer ${provider.apiKey.trim()}` },
+        headers,
         signal: controller.signal,
       });
     } finally {
@@ -155,7 +170,14 @@ export async function fetchProviderModels(
     }
 
     if (!res.ok) {
-      return { ok: false, models: [], error: `服务商返回 HTTP ${res.status}` };
+      let detail = '';
+      try {
+        const j = await res.json();
+        detail = j.error?.message || j.message || JSON.stringify(j);
+      } catch {
+        try { detail = await res.text(); } catch {}
+      }
+      return { ok: false, models: [], error: `服务商返回 HTTP ${res.status}${detail ? `: ${detail}` : ''}` };
     }
 
     const json: any = await res.json();
@@ -165,13 +187,25 @@ export async function fetchProviderModels(
       .map((s: any) => String(s).trim())
       .filter(Boolean);
 
-    const unique = Array.from(new Set(ids)).sort();
+    const unique = Array.from(new Set(ids));
     if (unique.length === 0) {
-      return { ok: false, models: [], error: '服务商返回的列表为空（该服务可能不支持 /models 接口）' };
+      return { ok: false, models: [], error: '服务商返回的模型列表为空（该接口可能未公开 /models 列表，可直接手动输入模型 ID）' };
     }
-    return { ok: true, models: unique };
+
+    // 智能排序：优先将文本创作、推理思考与旗舰大模型排在前列，将 Embedding、Whisper、TTS、Moderation 靠后
+    const isAuxiliary = (id: string) => /embed|tts|asr|whisper|moderation|realtime|audio/i.test(id);
+    const sorted = unique.sort((a, b) => {
+      const aAux = isAuxiliary(a);
+      const bAux = isAuxiliary(b);
+      if (aAux && !bAux) return 1;
+      if (!aAux && bAux) return -1;
+      return a.localeCompare(b);
+    });
+
+    return { ok: true, models: sorted };
   } catch (err: any) {
-    return { ok: false, models: [], error: err?.message || String(err) };
+    const msg = err.name === 'AbortError' ? '请求超时 (20秒)，请检查网络连接或接口地址' : err?.message || String(err);
+    return { ok: false, models: [], error: msg };
   }
 }
 
@@ -190,7 +224,7 @@ function resolveProviderAndModel(
     options?.modelId ||
     (provider.type === 'custom' && provider.customModelName
       ? provider.customModelName
-      : provider.selectedModel);
+      : (provider.customModelName || provider.selectedModel || provider.availableModels?.[0] || ''));
 
   return { provider, model };
 }
@@ -705,7 +739,7 @@ export async function testConnection(provider: ConfiguredProvider): Promise<Conn
   const model =
     provider.type === 'custom' && provider.customModelName
       ? provider.customModelName
-      : provider.selectedModel;
+      : (provider.customModelName || provider.selectedModel || provider.availableModels?.[0] || 'default');
 
   const url = `${baseUrl}/chat/completions`;
 

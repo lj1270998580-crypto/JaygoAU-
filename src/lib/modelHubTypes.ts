@@ -18,14 +18,17 @@ export interface ModelOption {
   badge?: string;
 }
 
+export type ProviderCategory = 'domestic' | 'global' | 'custom';
+
 export interface ProviderPreset {
   type: ModelProviderType;
   name: string;
   icon: string;
+  category: ProviderCategory;
   defaultBaseUrl: string;
   keyPlaceholder: string;
   docUrl: string;
-  models: ModelOption[];
+  models?: ModelOption[];
 }
 
 export const PRESET_PROVIDERS: Record<ModelProviderType, ProviderPreset> = {
@@ -33,156 +36,114 @@ export const PRESET_PROVIDERS: Record<ModelProviderType, ProviderPreset> = {
     type: 'doubao',
     name: '火山引擎 · 豆包大模型',
     icon: '⚡',
+    category: 'domestic',
     defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
     keyPlaceholder: '请输入火山方舟 API Key (ARK_API_KEY)',
     docUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/model',
-    models: [
-      { id: 'doubao-seed-2.1-pro', name: 'Doubao-Seed-2.1-Pro (最新 Seed 2.1 旗舰)', description: '对齐 Claude Opus，全网最新 MoE 旗舰，自媒体文学质感与逻辑巅峰', badge: '2026最新旗舰' },
-      { id: 'doubao-seed-2.1-turbo', name: 'Doubao-Seed-2.1-Turbo (新一代极速版)', description: '极速响应、极低资费，批量洗稿与高并发生产首选', badge: '2.1极速' },
-      { id: 'doubao-seed-1.6-thinking', name: 'Doubao-Seed-1.6-thinking (深度思考推理)', description: '支持慢思考与长思维链推演，复杂商业认知与反常识破局极强', badge: '深度思考' },
-    ],
+    models: [],
   },
   sensenova: {
     type: 'sensenova',
     name: '商汤日日新 (SenseNova · Token Plan)',
     icon: '☀️',
+    category: 'domestic',
     defaultBaseUrl: 'https://token.sensenova.cn/v1',
     keyPlaceholder: '请输入商汤 Token Plan API Key (sk-...)',
     docUrl: 'https://platform.sensenova.cn/token-plan',
-    models: [
-      { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro (默认首选)', description: '商汤托管 DeepSeek 旗舰大模型，逻辑、文学质感与自媒体口播首选', badge: '默认首选' },
-      { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash (极速推理)', description: '商汤托管 DeepSeek 极速推理，高吞吐与秒级响应', badge: '极速推理' },
-      { id: 'sensenova-6.8-flash-lite', name: 'SenseNova 6.8 Flash Lite (自研轻量免费)', description: '商汤自研轻量低耗模型，Token Plan 免费公测首选', badge: '轻量低耗' },
-      { id: 'sensenova-u1.5-lite', name: 'SenseNova U1.5 Lite (统一图文多模态)', description: 'NEO-unify 架构升级，图文统一理解与多模态创作', badge: '图文多模态' },
-      { id: 'sensenova-u1-fast', name: 'SenseNova U1 Fast (统一架构极速版)', description: 'NEO 极速多模态生成，超低时延', badge: '极速多模态' },
-      { id: 'glm-5.2', name: 'GLM-5.2 (智谱MoE)', description: '商汤托管智谱 MoE 架构，强指令遵循与长程逻辑', badge: '智谱MoE' },
-      { id: 'kimi-k3', name: 'Kimi K3 (月之暗面长文本)', description: '商汤托管 Kimi-K3 2.8T MoE，长文本与深度思考', badge: 'Kimi长文' },
-    ],
+    models: [],
   },
   deepseek: {
     type: 'deepseek',
     name: 'DeepSeek (深度求索)',
     icon: '🐋',
+    category: 'domestic',
     defaultBaseUrl: 'https://api.deepseek.com/v1',
     keyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
     docUrl: 'https://platform.deepseek.com/',
-    models: [
-      { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro (全新一代超大规模旗舰)', description: '2026 最新官方旗舰，对齐国际顶尖水平，全场景通用与口播巅峰', badge: '2026顶级旗舰' },
-      { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash (新一代高并发轻量版)', description: '极速响应与低资费，批量洗稿与多轮对话高性价比首选', badge: '极速轻量' },
-      { id: 'deepseek-v4-flash-vision-exp', name: 'DeepSeek-V4-Flash-Vision-Exp (多模态视觉理解)', description: '支持视觉图片与文档多模态理解', badge: '多模态' },
-      { id: 'deepseek-chat', name: 'DeepSeek-V3 (671B MoE 经典通用旗舰)', description: '中文自然度标杆，极高性价比与出色文字感染力', badge: 'V3经典' },
-      { id: 'deepseek-reasoner', name: 'DeepSeek-R1 (深度长思维链推理)', description: '开源逻辑推理与深度思考巅峰，适合复杂观点破局', badge: '深度思考' },
-    ],
+    models: [],
   },
   qwen: {
     type: 'qwen',
     name: '阿里 · 通义千问 (DashScope)',
     icon: '☁️',
+    category: 'domestic',
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     keyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
     docUrl: 'https://bailian.console.aliyun.com/',
-    models: [
-      { id: 'qwen3.8-max', name: 'Qwen3.8-Max (2026最新 2.4万亿 MoE 顶级旗舰)', description: '阿里千问家族迄今最强能力底座，通用智能与长篇创作跃升', badge: '2026顶级旗舰' },
-      { id: 'qwen3.7-plus', name: 'Qwen3.7-Plus (新一代全能多模态主力)', description: '速度质量兼备，自媒体批量口播高性价比首选', badge: '3.7主力' },
-      { id: 'qwen-max-latest', name: 'Qwen-Max-Latest (动态滚动更新旗舰)', description: '阿里最强能力底座，百炼自动滚动升级至最新版本', badge: '滚动最新' },
-      { id: 'qwq-32b-preview', name: 'QwQ-32B-Preview (阿里强化学习推理)', description: '对标 o1 / R1 的深度思考模型，擅长批判性拆解', badge: '深度思考' },
-    ],
+    models: [],
   },
   zhipu: {
     type: 'zhipu',
     name: '智谱 AI (GLM)',
     icon: '🧠',
+    category: 'domestic',
     defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     keyPlaceholder: '请输入智谱 API Key',
     docUrl: 'https://open.bigmodel.cn/',
-    models: [
-      { id: 'glm-5.3', name: 'GLM-5.3 (2026智谱新一代旗舰)', description: '2026智谱全模态底座旗舰，高质量文字创作与复杂长程逻辑', badge: '2026旗舰' },
-      { id: 'glm-5.3-flash', name: 'GLM-5.3-Flash (超高速普惠免费模型)', description: '秒级响应、极低延迟，日常对话与短文改写首选', badge: '极速免费' },
-      { id: 'glm-zero-preview', name: 'GLM-Zero (智谱沉思深度推理)', description: '深度思考与逻辑推演', badge: '深度思考' },
-    ],
+    models: [],
   },
   moonshot: {
     type: 'moonshot',
     name: '月之暗面 (Kimi)',
     icon: '🌙',
+    category: 'domestic',
     defaultBaseUrl: 'https://api.moonshot.cn/v1',
     keyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
     docUrl: 'https://platform.moonshot.cn/',
-    models: [
-      { id: 'kimi-k3', name: 'Kimi-K3 (2.8T MoE 2026最新思考旗舰)', description: '月之暗面 2026 全新 2.8T MoE 思考模型，深度逻辑与拟人文学质感', badge: '2026最新旗舰' },
-      { id: 'kimi-k2.7-code', name: 'Kimi-K2.7-Code (256K 超长上下文)', description: '支持 256K 超长文本素材理解与结构化提炼', badge: '256K长文' },
-      { id: 'kimi-latest', name: 'Kimi-Latest (月之暗面最新动态旗舰)', description: 'Kimi 官方滚动最新模型，文字细腻自然、极具拟人感', badge: '最新旗舰' },
-    ],
-  },
-  openai: {
-    type: 'openai',
-    name: 'OpenAI (官方国际版)',
-    icon: '🌐',
-    defaultBaseUrl: 'https://api.openai.com/v1',
-    keyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-    docUrl: 'https://platform.openai.com/',
-    models: [
-      { id: 'gpt-4.5-preview', name: 'GPT-4.5-Preview (最新多模态知识旗舰)', description: 'OpenAI 全新一代旗舰，世界知识深度与细微语感顶级', badge: '4.5最新' },
-      { id: 'o3-mini', name: 'o3-mini (全新极速深度推理模型)', description: '最新强推理旗舰，数学与逻辑飞跃，支持调整思考强度', badge: '最新强推' },
-      { id: 'o1', name: 'o1 (通用深度长思维链推理)', description: 'OpenAI 官方最强深度推理模型', badge: '推理旗舰' },
-      { id: 'gpt-4o', name: 'GPT-4o (全能多模态旗舰)', description: '国际综合能力标杆，指令遵循与创意生成极强', badge: '全能旗舰' },
-      { id: 'chatgpt-4o-latest', name: 'ChatGPT-4o-Latest (官方动态版)', description: '始终同步 ChatGPT 网页版最新权重' },
-    ],
-  },
-  claude: {
-    type: 'claude',
-    name: 'Anthropic · Claude (官方/兼容接口)',
-    icon: '🎭',
-    defaultBaseUrl: 'https://api.anthropic.com/v1',
-    keyPlaceholder: 'sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-    docUrl: 'https://docs.anthropic.com/',
-    models: [
-      { id: 'claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet (最新混合思考旗舰)', description: '全球首款混合深度思考旗舰，文学修辞与长逻辑地表最强', badge: '2025最新' },
-      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (经典高表现力主力)', description: '文采斐然、口语表达自然，自媒体创作者最爱', badge: '爆款主力' },
-      { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku (轻量极速响应)', description: '极速生成短句与前3秒钩子', badge: '极速轻量' },
-    ],
+    models: [],
   },
   minimax: {
     type: 'minimax',
     name: 'MiniMax (海螺 AI · 稀宇科技)',
     icon: '🐚',
+    category: 'domestic',
     defaultBaseUrl: 'https://api.minimax.chat/v1',
     keyPlaceholder: '请输入 MiniMax API Key',
     docUrl: 'https://platform.minimaxi.com/',
-    models: [
-      { id: 'MiniMax-M3', name: 'MiniMax-M3 (2026自主进化新一代旗舰)', description: 'MiniMax 最新一代基座旗舰，全模态原生理解，自媒体文学质感极强', badge: '2026最新旗舰' },
-      { id: 'MiniMax-Text-01', name: 'MiniMax-Text-01 (400万字超长上下文)', description: '原生超拟人中文大模型，语气自然，极具真人感', badge: '超长长文' },
-    ],
+    models: [],
   },
   mimo: {
     type: 'mimo',
     name: '小米 · MiMo (大模型开放平台)',
     icon: '📱',
-    // v0.7.15：MiMo 的 Token Plan 套餐与按量付费是**不同域名**，Key 也互不通用
-    // （tp- / sk-）。填好 Key 后由 normalizeBaseUrl 自动切到正确域名，
-    // 这里保持按量付费地址作为默认展示值。
+    category: 'domestic',
     defaultBaseUrl: 'https://api.xiaomimimo.com/v1',
     keyPlaceholder: '按量付费填 sk-… ；Token Plan 套餐填 tp-…（域名自动切换）',
     docUrl: 'https://platform.xiaomimimo.com/',
-    models: [
-      // v0.7.16：以下名单来自官方 GET /v1/models 实测返回。
-      // 此前内置的 `mimo-v2.5-flash` 经核实**并不存在**，已移除。
-      { id: 'mimo-v2.5-pro', name: 'MiMo-V2.5-Pro (小米旗舰多模态大模型)', description: '小米多模态推理与创作旗舰，综合指令遵循与口播创作拔尖', badge: '2026旗舰' },
-      { id: 'mimo-v2.5', name: 'MiMo-V2.5 (标准版)', description: '标准推理能力，速度与质量均衡', badge: '标准' },
-    ],
+    models: [],
+  },
+  openai: {
+    type: 'openai',
+    name: 'OpenAI (官方国际版)',
+    icon: '🌐',
+    category: 'global',
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    keyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+    docUrl: 'https://platform.openai.com/',
+    models: [],
+  },
+  claude: {
+    type: 'claude',
+    name: 'Anthropic · Claude (官方/兼容接口)',
+    icon: '🎭',
+    category: 'global',
+    defaultBaseUrl: 'https://api.anthropic.com/v1',
+    keyPlaceholder: 'sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+    docUrl: 'https://docs.anthropic.com/',
+    models: [],
   },
   custom: {
     type: 'custom',
     name: '自定义 OpenAI 兼容接口',
     icon: '⚙️',
+    category: 'custom',
     defaultBaseUrl: 'https://your-custom-domain.com/v1',
     keyPlaceholder: '请输入对应服务的 API Key',
     docUrl: '',
-    models: [
-      { id: 'custom-model', name: '自定义模型 ID (手动填写)', description: '兼容任意 OneAPI / NewAPI / 本地 Ollama' },
-    ],
+    models: [],
   },
 };
+
 
 export interface ConfiguredProvider {
   type: ModelProviderType;
@@ -190,6 +151,8 @@ export interface ConfiguredProvider {
   apiKey: string;
   baseUrl: string;
   selectedModel: string;
+  availableModels?: string[]; // 从供应商 API 实时拉取的最新可用模型列表
+  modelsFetchedAt?: number;   // 上次成功拉取的时间戳
   customModelName?: string; // 手动填写的特定 Model ID 或火山 Endpoint ID
   customProviderName?: string; // 手动填写的自定义供应商显示名称（如 OpenRouter、硅基流动、本地 Ollama）
   lastPingMs?: number;
@@ -214,77 +177,77 @@ export const DEFAULT_MODEL_HUB_SETTINGS: ModelHubSettings = {
       enabled: true,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.doubao.defaultBaseUrl,
-      selectedModel: 'doubao-seed-2.1-pro', // 默认升级为最新 2.1-pro 旗舰
+      selectedModel: '',
     },
     sensenova: {
       type: 'sensenova',
       enabled: false,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.sensenova.defaultBaseUrl,
-      selectedModel: 'deepseek-v4-pro', // 用户明确指定以 deepseek-v4-pro 为默认首选
+      selectedModel: '',
     },
     deepseek: {
       type: 'deepseek',
       enabled: false,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.deepseek.defaultBaseUrl,
-      selectedModel: 'deepseek-v4-pro', // 2026最新旗舰
+      selectedModel: '',
     },
     qwen: {
       type: 'qwen',
       enabled: false,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.qwen.defaultBaseUrl,
-      selectedModel: 'qwen3.8-max', // 默认升级为 3.8-max
+      selectedModel: '',
     },
     zhipu: {
       type: 'zhipu',
       enabled: false,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.zhipu.defaultBaseUrl,
-      selectedModel: 'glm-5.3', // 2026智谱新一代旗舰
+      selectedModel: '',
     },
     moonshot: {
       type: 'moonshot',
       enabled: false,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.moonshot.defaultBaseUrl,
-      selectedModel: 'kimi-k3', // 2026最新思考旗舰
+      selectedModel: '',
     },
     openai: {
       type: 'openai',
       enabled: false,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.openai.defaultBaseUrl,
-      selectedModel: 'o3-mini', // 默认升级为最新 o3-mini
+      selectedModel: '',
     },
     claude: {
       type: 'claude',
       enabled: false,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.claude.defaultBaseUrl,
-      selectedModel: 'claude-3-7-sonnet-20250219', // 最新 3.7 Sonnet
+      selectedModel: '',
     },
     minimax: {
       type: 'minimax',
       enabled: false,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.minimax.defaultBaseUrl,
-      selectedModel: 'MiniMax-M3', // 用户指定最新 M3
+      selectedModel: '',
     },
     mimo: {
       type: 'mimo',
       enabled: false,
       apiKey: '',
       baseUrl: PRESET_PROVIDERS.mimo.defaultBaseUrl,
-      selectedModel: 'mimo-v2.5-pro', // 小米旗舰多模态
+      selectedModel: '',
     },
     custom: {
       type: 'custom',
       enabled: false,
       apiKey: '',
       baseUrl: '',
-      selectedModel: 'custom-model',
+      selectedModel: '',
       customModelName: '',
       customProviderName: '',
     },

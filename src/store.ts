@@ -54,7 +54,7 @@ function mergeLibrary(existing: LibraryItem[], scanned: ScannedAudio[]): Library
 export type Tab = 'settings' | 'clone' | 'voices' | 'synth' | 'library' | 'transcribe' | 'avatar' | 'extractor' | 'script' | 'workflow' | 'illustrator' | 'talkEditor';
 export type { LibraryItem } from './types';
 import type { ModelHubSettings } from './lib/modelHubTypes';
-import { DEFAULT_MODEL_HUB_SETTINGS, PRESET_PROVIDERS } from './lib/modelHubTypes';
+import { DEFAULT_MODEL_HUB_SETTINGS } from './lib/modelHubTypes';
 import type { CanvasConfig, CustomStickerPatch, SubtitleItem, SubtitleStyleConfig } from './lib/talkEditor/types';
 
 export interface PendingIllustratorData {
@@ -142,25 +142,6 @@ function sanitizeModelHubSettings(parsed: any): ModelHubSettings {
     ...DEFAULT_MODEL_HUB_SETTINGS.providers,
     ...(parsed.providers || {}),
   };
-
-  // 防御性校验商汤模型（若旧缓存为已下线的 sensenova-6.8-pro 或不在7个支持列表中，纠偏至 deepseek-v4-pro）
-  if (mergedProviders.sensenova) {
-    const validSenseNovaIds = PRESET_PROVIDERS.sensenova.models.map(m => m.id);
-    const curModel = String(mergedProviders.sensenova.selectedModel || '').toLowerCase();
-    if (validSenseNovaIds.includes(curModel)) {
-      mergedProviders.sensenova.selectedModel = curModel;
-    } else {
-      mergedProviders.sensenova.selectedModel = 'deepseek-v4-pro';
-    }
-  }
-
-  // 防御性校验 MiniMax 模型（若旧缓存仍为老旧版本，自动升级至 MiniMax-M3）
-  if (mergedProviders.minimax) {
-    const validMiniMaxIds = PRESET_PROVIDERS.minimax.models.map(m => m.id);
-    if (!validMiniMaxIds.includes(mergedProviders.minimax.selectedModel)) {
-      mergedProviders.minimax.selectedModel = 'MiniMax-M3';
-    }
-  }
 
   return {
     ...DEFAULT_MODEL_HUB_SETTINGS,
