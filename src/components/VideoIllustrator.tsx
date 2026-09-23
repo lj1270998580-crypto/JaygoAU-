@@ -742,7 +742,9 @@ export const VideoIllustrator: React.FC<VideoIllustratorProps> = ({
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const localPath = (file as any).path;
+      const localPath = (window as any).JaygoAPI?.getPathForFile
+        ? (window as any).JaygoAPI.getPathForFile(file)
+        : (file as any).path || '';
       if (localPath) {
         loadFromUrl(localPath, file.name);
         showToast(`已载入本地视频：${file.name}`, 'ok');

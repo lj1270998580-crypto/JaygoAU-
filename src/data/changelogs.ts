@@ -10,10 +10,30 @@ export interface ChangelogItem {
 
 export const CHANGELOGS: ChangelogItem[] = [
   {
+    version: '0.7.47',
+    date: '2026-09-23',
+    title: 'Electron 44 现代化核心架构飞跃升级 · 内核横跨 14 代迭代 · 性能与图形硬件加速全维提升',
+    isLatest: true,
+    features: [
+      '【核心内核大版本跃迁】底层运行时正式升级至最新稳定版 Electron 44 (v44.4.5)，Chromium 引擎从 124 跨越升级至 140+，Node.js 引擎跃升至现代 LTS 版本，彻底摆脱旧版引擎技术包袱',
+      '【V8 引擎与渲染性能倍增】Chromium 140+ 带来全新一代 V8 垃圾回收机制与 Canvas 2D/WebGL 硬件加速管线，数字人高清视频预览、长音频波形图渲染更流畅，内存常驻占用显著降低',
+      '【打包构建工具链同步升阶】打包构建工具同步升级至 electron-builder 26.x 系列（26.15.3），全面支持现代 64 位构建规范与最新 NSIS 打包特性',
+      '【现代 Web API 破坏性适配】全面消除 Chromium 32+ 废弃的非标准 File.path，底层统一重构为基于 Preload 的安全路径解析器，保障本地视音频素材导入稳定顺畅',
+      '【安全与系统现代化】对齐最新的 W3C Clipboard 异步安全规范，全面优化进程间隔离与系统资源调度',
+    ],
+    improvements: [
+      '全面优化 VideoIllustrator 本地视频拖拽与选择事件解析逻辑，杜绝任何路径解析异常',
+      '优化构建器产物元数据校验机制，确保在线增量热更新向下兼容',
+    ],
+    fixes: [
+      '修复在较新 Chromium 规范下部分本地视频选择解析为 undefined 的潜在隐患',
+    ],
+  },
+  {
     version: '0.7.46',
     date: '2026-09-22',
     title: '全系统 6 大深度优化落地 · 单实例托盘唤醒 · Vite 代码拆包提速 2 倍 · 口播剪辑 Ctrl+Z 撤销',
-    isLatest: true,
+    isLatest: false,
     features: [
       '【P0 稳定防线 · 进程互斥与唤醒】Electron 主进程接入 requestSingleInstanceLock 单实例锁与 second-instance 唤醒机制，彻底杜绝多次点击快捷方式重复启动多个主进程造成内存翻倍与配置文件并发冲突，重复打开时平滑唤醒并置顶原有窗口',
       '【P0 磁盘自愈 · 临时文件 100% 销毁】短视频提取、音频转码与 ASR 识别全链路采用严谨的 try...finally 垃圾自愈防护，无论网络中断、用户取消或转码报错均 100% 销毁临时音视频切片，根治磁盘 Temp 垃圾堆积',
