@@ -807,12 +807,14 @@ export default function App() {
       </div>
 
       {/* 统一模型设置中心 Modal */}
-      <ModelHubModal
-        open={modelHubOpen}
-        onClose={() => setModelHubOpen(false)}
-        settings={modelHubSettings}
-        onSave={(s) => setModelHubSettings(s)}
-      />
+      {modelHubOpen && (
+        <ModelHubModal
+          open={modelHubOpen}
+          onClose={() => setModelHubOpen(false)}
+          settings={modelHubSettings}
+          onSave={(s) => setModelHubSettings(s)}
+        />
+      )}
 
       {/* 版本更新日志与时间线 Modal */}
       <ChangelogModal

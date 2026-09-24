@@ -121,6 +121,22 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
     };
   }, [activeTab]);
 
+  // 动态过滤展示的模型列表（保证安全只渲染纯字符串，无条件置于顶层调用）
+  const displayedModels = useMemo(() => {
+    const list = Array.isArray(currentProvider?.availableModels) ? currentProvider.availableModels : [];
+    const stringList: string[] = list
+      .map((m: any) => (typeof m === 'string' ? m : (m?.id || m?.name || '')))
+      .filter((m: string) => Boolean(m && typeof m === 'string' && m.trim()));
+    if (!modelSearchQuery.trim()) return stringList;
+    const q = modelSearchQuery.trim().toLowerCase();
+    return stringList.filter((m: string) => m.toLowerCase().includes(q));
+  }, [currentProvider?.availableModels, modelSearchQuery]);
+
+  const effectiveModel =
+    currentProvider.type === 'custom' && currentProvider.customModelName
+      ? currentProvider.customModelName
+      : (currentProvider.customModelName || currentProvider.selectedModel || (Array.isArray(currentProvider.availableModels) && currentProvider.availableModels[0]) || '');
+
   const updateFormData = (updater: (prev: ModelHubSettings) => ModelHubSettings) => {
     setFormData((prev) => {
       const sanitizedPrev = sanitizeModelHubSettings(prev);
@@ -143,8 +159,6 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
       handleFetchModels(activeTab, false);
     }
   }, [activeTab, open]);
-
-  if (!open) return null;
 
   const handleKeyChange = (val: string) => {
     updateFormData((prev) => ({
@@ -338,21 +352,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
     onClose();
   };
 
-  // 动态过滤展示的模型列表（保证安全只渲染纯字符串）
-  const displayedModels = useMemo(() => {
-    const list = Array.isArray(currentProvider?.availableModels) ? currentProvider.availableModels : [];
-    const stringList: string[] = list
-      .map((m: any) => (typeof m === 'string' ? m : (m?.id || m?.name || '')))
-      .filter((m: string) => Boolean(m && typeof m === 'string' && m.trim()));
-    if (!modelSearchQuery.trim()) return stringList;
-    const q = modelSearchQuery.trim().toLowerCase();
-    return stringList.filter((m: string) => m.toLowerCase().includes(q));
-  }, [currentProvider?.availableModels, modelSearchQuery]);
-
-  const effectiveModel =
-    currentProvider.type === 'custom' && currentProvider.customModelName
-      ? currentProvider.customModelName
-      : (currentProvider.customModelName || currentProvider.selectedModel || (Array.isArray(currentProvider.availableModels) && currentProvider.availableModels[0]) || '');
+  if (!open) return null;
 
   return (
     <ErrorBoundary fallbackTitle="统一大模型中心加载异常" onReset={() => setFormData(DEFAULT_MODEL_HUB_SETTINGS)}>

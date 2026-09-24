@@ -225,6 +225,18 @@ export default function Transcribe() {
     }
   }, [pendingTranscribe]);
 
+  const effectiveUtterances = useMemo(() => {
+    return getEffectiveUtterances(result);
+  }, [result]);
+
+  const hasUtterances = effectiveUtterances.length > 0;
+  const fallbackText = effectiveUtterances.length ? effectiveUtterances.map((u) => u.text).join('') : '';
+  const pureText = result ? (result.text || fallbackText) : '';
+  const speakerFormattedText = hasUtterances ? buildSpeakerText(effectiveUtterances) : pureText;
+  const paragraphs = useMemo(() => {
+    return clusterParagraphs(effectiveUtterances);
+  }, [effectiveUtterances]);
+
   if (!settings) return null;
 
   const pick = async () => {
@@ -308,17 +320,7 @@ export default function Transcribe() {
     }
   };
 
-  const effectiveUtterances = useMemo(() => {
-    return getEffectiveUtterances(result);
-  }, [result]);
 
-  const hasUtterances = effectiveUtterances.length > 0;
-  const fallbackText = effectiveUtterances.length ? effectiveUtterances.map((u) => u.text).join('') : '';
-  const pureText = result ? (result.text || fallbackText) : '';
-  const speakerFormattedText = hasUtterances ? buildSpeakerText(effectiveUtterances) : pureText;
-  const paragraphs = useMemo(() => {
-    return clusterParagraphs(effectiveUtterances);
-  }, [effectiveUtterances]);
 
   const copy = async (text: string) => {
     try {

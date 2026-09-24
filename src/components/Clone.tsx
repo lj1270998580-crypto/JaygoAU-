@@ -15,13 +15,13 @@ export default function Clone() {
   const [drag, setDrag] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  if (!settings) return null;
-
   useEffect(() => {
     if (!preview) return;
     const a = new Audio(preview.src);
     a.onloadedmetadata = () => setDuration(a.duration || 0);
   }, [preview]);
+
+  if (!settings) return null;
 
   const pick = async () => {
     const p = await api.pickAudioFile();

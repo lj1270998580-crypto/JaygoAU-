@@ -10,10 +10,29 @@ export interface ChangelogItem {
 
 export const CHANGELOGS: ChangelogItem[] = [
   {
+    version: '0.7.50',
+    date: '2026-09-24',
+    title: '彻底修复 React Hook 顺序执行违规 · 根除 Minified Error #310 · 全量弹窗挂载防御',
+    isLatest: true,
+    features: [
+      '【彻底根除 React Error #310 崩溃】深度排查并彻底解决大模型中心弹窗中在条件返回分支后调用 `useMemo` 触发的 React Hook 执行顺序违规问题，严格遵循 React 顶层无条件执行规范，无论弹窗开合状态如何切换均保持 Hook 顺序绝对一致',
+      '【弹窗生命周期与条件渲染优化】在主应用与设置中心全面采用按需条件挂载机制（`{modelHubOpen && <ModelHubModal />}`），彻底隔离未打开时的多余计算与生命周期撕裂',
+      '【全量组件 Hook 规范化排查】基于 AST 静态分析全面清查并修复了 Clone、Transcribe、Voices 多个核心组件中存在的早期条件返回后调用 Hook 隐患，全工程 100% 消除 Hook 顺序违规风险',
+    ],
+    improvements: [
+      '模型搜索与过滤逻辑前置至组件顶层状态链，确保响应瞬时无卡顿',
+      '完善声音克隆与音色库轮询机制，解耦 settings 依赖以确保安全空值回退',
+    ],
+    fixes: [
+      '修复用户点击“模型设置”按钮时因 Hook 顺序变动抛出 Minified React Error #310 的深层缺陷',
+      '修复短视频智能转录与声音克隆在初始化阶段可能偶发的 Hook 乱序告警',
+    ],
+  },
+  {
     version: '0.7.49',
     date: '2026-09-24',
     title: '模型设置全链路防崩溃自愈 · 彻底根除点击白屏 · 全局与局部 ErrorBoundary 护航',
-    isLatest: true,
+    isLatest: false,
     features: [
       '【彻底杜绝模型设置点击白屏崩溃】针对本地历史缓存或磁盘配置文件中部分供应商配置缺失、脏数据或包含异常类型的情况，进行全链路无死角防御自愈，确保所有 11 个大模型供应商结构 100% 完整合法',
       '【多层级 ErrorBoundary 容灾防御体系】在 React 应用顶层与大模型中心弹窗中接入全新的现代 ErrorBoundary 容灾组件，杜绝任何未捕获渲染错误导致整屏纯白，遇到异常自动呈现优雅的故障恢复卡片与一键重载功能',

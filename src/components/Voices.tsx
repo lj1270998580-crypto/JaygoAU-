@@ -129,6 +129,40 @@ export default function Voices() {
     }
   };
 
+  const voicesRef = useRef(settings?.voices || []);
+  voicesRef.current = settings?.voices || [];
+
+  const hasTraining = Boolean(settings?.voices?.some((v) => v.status === 1));
+
+  // 自动轮询「训练中」的音色，直到就绪或失败
+  useEffect(() => {
+    if (!hasTraining) return;
+
+    let stopped = false;
+    const timer = setInterval(async () => {
+      if (stopped) return;
+      const trainingList = (voicesRef.current || []).filter((v) => v.status === 1);
+      if (trainingList.length === 0) {
+        clearInterval(timer);
+        return;
+      }
+      for (const v of trainingList) {
+        if (stopped) break;
+        try {
+          await api.queryVoice(v.id);
+        } catch {
+          /* ignore */
+        }
+      }
+      if (!stopped) await refreshSettings();
+    }, 5000);
+
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [hasTraining]);
+
   if (!settings) return null;
   const voices = settings.voices || [];
 
@@ -217,38 +251,7 @@ export default function Voices() {
     setTab('synth');
   };
 
-  const voicesRef = useRef(settings.voices);
-  voicesRef.current = settings.voices;
 
-  // 自动轮询「训练中」的音色，直到就绪或失败
-  useEffect(() => {
-    const hasTraining = settings.voices.some((v) => v.status === 1);
-    if (!hasTraining) return;
-
-    let stopped = false;
-    const timer = setInterval(async () => {
-      if (stopped) return;
-      const trainingList = voicesRef.current.filter((v) => v.status === 1);
-      if (trainingList.length === 0) {
-        clearInterval(timer);
-        return;
-      }
-      for (const v of trainingList) {
-        if (stopped) break;
-        try {
-          await api.queryVoice(v.id);
-        } catch {
-          /* ignore */
-        }
-      }
-      if (!stopped) await refreshSettings();
-    }, 5000);
-
-    return () => {
-      stopped = true;
-      clearInterval(timer);
-    };
-  }, [settings.voices.some((v) => v.status === 1)]);
 
   const copyId = (id: string) => {
     navigator.clipboard.writeText(id);
