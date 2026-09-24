@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import type { ModelHubSettings, ModelProviderType, ProviderCategory } from '../lib/modelHubTypes';
+import type { ModelHubSettings, ModelProviderType, ProviderCategory, ConfiguredProvider, ProviderPreset } from '../lib/modelHubTypes';
 import { PRESET_PROVIDERS, DEFAULT_MODEL_HUB_SETTINGS } from '../lib/modelHubTypes';
 import { testConnection, fetchProviderModels } from '../lib/modelHubService';
-import { useStore } from '../store';
+import { useStore, sanitizeModelHubSettings } from '../store';
+import { ErrorBoundary } from './ErrorBoundary';
 import {
   Search,
   RefreshCw,
@@ -65,8 +66,15 @@ const PROVIDER_NAMES: Record<ModelProviderType, string> = {
 };
 
 export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
-  const [activeTab, setActiveTab] = useState<ModelProviderType>('doubao');
-  const [formData, setFormData] = useState<ModelHubSettings>(settings || DEFAULT_MODEL_HUB_SETTINGS);
+  const safeInitialSettings = useMemo(() => sanitizeModelHubSettings(settings), [settings]);
+  const [formData, setFormData] = useState<ModelHubSettings>(safeInitialSettings);
+
+  const [activeTab, setActiveTab] = useState<ModelProviderType>(() => {
+    return (safeInitialSettings?.defaultProvider && PRESET_PROVIDERS[safeInitialSettings.defaultProvider])
+      ? safeInitialSettings.defaultProvider
+      : 'doubao';
+  });
+
   const [testing, setTesting] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; pingMs: number; error?: string } | null>(null);
@@ -76,7 +84,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
 
   useEffect(() => {
     if (settings) {
-      setFormData(settings);
+      setFormData(sanitizeModelHubSettings(settings));
     }
   }, [settings, open]);
 
@@ -87,12 +95,36 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
     setCopiedModel(false);
   }, [activeTab]);
 
-  const currentProvider = formData.providers[activeTab];
-  const preset = PRESET_PROVIDERS[activeTab];
+  const currentProvider: ConfiguredProvider = useMemo(() => {
+    const prov = formData.providers?.[activeTab];
+    if (prov && typeof prov === 'object') return prov;
+    return DEFAULT_MODEL_HUB_SETTINGS.providers[activeTab] || {
+      type: activeTab,
+      enabled: true,
+      apiKey: '',
+      baseUrl: PRESET_PROVIDERS[activeTab]?.defaultBaseUrl || '',
+      selectedModel: '',
+      availableModels: [],
+    };
+  }, [formData.providers, activeTab]);
+
+  const preset: ProviderPreset = useMemo(() => {
+    return PRESET_PROVIDERS[activeTab] || {
+      type: activeTab,
+      name: activeTab,
+      icon: '⚡',
+      category: 'custom',
+      defaultBaseUrl: '',
+      keyPlaceholder: '请输入 API Key',
+      docUrl: '',
+      models: [],
+    };
+  }, [activeTab]);
 
   const updateFormData = (updater: (prev: ModelHubSettings) => ModelHubSettings) => {
     setFormData((prev) => {
-      const next = updater(prev);
+      const sanitizedPrev = sanitizeModelHubSettings(prev);
+      const next = sanitizeModelHubSettings(updater(sanitizedPrev));
       onSave(next);
       return next;
     });
@@ -101,7 +133,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
   // 自动从服务商获取最新模型列表（当用户已配置 API Key 但本地尚未获取过模型时）
   useEffect(() => {
     if (!open) return;
-    const prov = formData.providers[activeTab];
+    const prov = formData.providers?.[activeTab];
     if (
       prov?.apiKey?.trim() &&
       activeTab !== 'custom' &&
@@ -208,7 +240,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
    * 核心：直接向服务商获取当前真实可用的最新模型列表
    */
   const handleFetchModels = async (targetType = activeTab, notifyOnSuccess = true) => {
-    const prov = formData.providers[targetType];
+    const prov = formData.providers?.[targetType] || DEFAULT_MODEL_HUB_SETTINGS.providers[targetType];
     if (!prov?.apiKey?.trim()) {
       useStore.getState().showToast('请先输入该供应商的 API Key，再获取模型', 'err');
       return;
@@ -217,10 +249,10 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
     setFetchingModels(true);
     try {
       const res = await fetchProviderModels(prov);
-      if (res.ok && res.models.length > 0) {
+      if (res.ok && Array.isArray(res.models) && res.models.length > 0) {
         updateFormData((prev) => {
-          const prevProv = prev.providers[targetType];
-          let nextSelected = prevProv.selectedModel;
+          const prevProv = prev.providers?.[targetType] || DEFAULT_MODEL_HUB_SETTINGS.providers[targetType];
+          let nextSelected = prevProv?.selectedModel;
           // 若当前未选中模型，或者当前选中的模型不在返回的列表中，则自动首选第一个推荐模型
           if (!nextSelected || !res.models.includes(nextSelected)) {
             nextSelected = res.models[0];
@@ -263,7 +295,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
           providers: {
             ...prev.providers,
             [activeTab]: {
-              ...prev.providers[activeTab],
+              ...(prev.providers?.[activeTab] || DEFAULT_MODEL_HUB_SETTINGS.providers[activeTab]),
               lastPingMs: res.pingMs,
               lastTestOk: true,
             },
@@ -279,14 +311,14 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
           providers: {
             ...prev.providers,
             [activeTab]: {
-              ...prev.providers[activeTab],
+              ...(prev.providers?.[activeTab] || DEFAULT_MODEL_HUB_SETTINGS.providers[activeTab]),
               lastTestOk: false,
             },
           },
         }));
       }
     } catch (e: any) {
-      setTestResult({ ok: false, pingMs: 0, error: e.message });
+      setTestResult({ ok: false, pingMs: 0, error: e?.message || '测试异常' });
     } finally {
       setTesting(false);
     }
@@ -306,21 +338,25 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
     onClose();
   };
 
-  // 动态过滤展示的模型列表
+  // 动态过滤展示的模型列表（保证安全只渲染纯字符串）
   const displayedModels = useMemo(() => {
-    const list = currentProvider.availableModels || [];
-    if (!modelSearchQuery.trim()) return list;
+    const list = Array.isArray(currentProvider?.availableModels) ? currentProvider.availableModels : [];
+    const stringList: string[] = list
+      .map((m: any) => (typeof m === 'string' ? m : (m?.id || m?.name || '')))
+      .filter((m: string) => Boolean(m && typeof m === 'string' && m.trim()));
+    if (!modelSearchQuery.trim()) return stringList;
     const q = modelSearchQuery.trim().toLowerCase();
-    return list.filter((m) => m.toLowerCase().includes(q));
-  }, [currentProvider.availableModels, modelSearchQuery]);
+    return stringList.filter((m: string) => m.toLowerCase().includes(q));
+  }, [currentProvider?.availableModels, modelSearchQuery]);
 
   const effectiveModel =
     currentProvider.type === 'custom' && currentProvider.customModelName
       ? currentProvider.customModelName
-      : (currentProvider.customModelName || currentProvider.selectedModel || currentProvider.availableModels?.[0] || '');
+      : (currentProvider.customModelName || currentProvider.selectedModel || (Array.isArray(currentProvider.availableModels) && currentProvider.availableModels[0]) || '');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+    <ErrorBoundary fallbackTitle="统一大模型中心加载异常" onReset={() => setFormData(DEFAULT_MODEL_HUB_SETTINGS)}>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
       <div className="w-full max-w-4xl bg-white dark:bg-[#121318] border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col max-h-[88vh] overflow-hidden">
         {/* 顶部 Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/70 dark:bg-zinc-900/40">
@@ -368,11 +404,11 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
                   </div>
 
                   {group.types.map((type) => {
-                    const p = PRESET_PROVIDERS[type];
-                    const cfg = formData.providers[type];
+                    const p = PRESET_PROVIDERS[type] || { name: type, icon: '⚡' };
+                    const cfg = formData.providers?.[type] || DEFAULT_MODEL_HUB_SETTINGS.providers[type];
                     const isDefault = formData.defaultProvider === type;
-                    const hasKey = Boolean(cfg.apiKey?.trim());
-                    const modelCount = cfg.availableModels?.length || 0;
+                    const hasKey = Boolean(cfg?.apiKey && String(cfg.apiKey).trim());
+                    const modelCount = Array.isArray(cfg?.availableModels) ? cfg.availableModels.length : 0;
                     const isCurrent = activeTab === type;
 
                     return (
@@ -389,9 +425,9 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
                         <div className="flex items-center gap-2.5 truncate">
                           <span className="text-base shrink-0">{p.icon}</span>
                           <span className="truncate">
-                            {type === 'custom' && cfg.customProviderName?.trim()
+                            {type === 'custom' && cfg?.customProviderName?.trim()
                               ? cfg.customProviderName.trim()
-                              : (PROVIDER_NAMES[type] || p.name)}
+                              : (PROVIDER_NAMES[type] || p.name || type)}
                           </span>
                         </div>
 
@@ -714,7 +750,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
                           <option value="" disabled>
                             {displayedModels.length === 0 ? '未匹配到包含该关键词的模型' : '请选择目标模型'}
                           </option>
-                          {displayedModels.map((id) => (
+                          {displayedModels.map((id: string) => (
                             <option key={id} value={id}>
                               {id}
                             </option>
@@ -797,7 +833,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
           <div className="text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5">
             <span>当前全局默认引擎：</span>
             <strong className="text-blue-600 dark:text-blue-400 font-semibold">
-              {PROVIDER_NAMES[formData.defaultProvider] || PRESET_PROVIDERS[formData.defaultProvider]?.name}
+              {PROVIDER_NAMES[formData.defaultProvider] || PRESET_PROVIDERS[formData.defaultProvider]?.name || formData.defaultProvider}
             </strong>
           </div>
           <div className="flex items-center gap-2.5">
@@ -821,5 +857,6 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
         </div>
       </div>
     </div>
+    </ErrorBoundary>
   );
 }

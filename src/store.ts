@@ -53,7 +53,7 @@ function mergeLibrary(existing: LibraryItem[], scanned: ScannedAudio[]): Library
 
 export type Tab = 'settings' | 'clone' | 'voices' | 'synth' | 'library' | 'transcribe' | 'avatar' | 'extractor' | 'script' | 'workflow' | 'illustrator' | 'talkEditor';
 export type { LibraryItem } from './types';
-import type { ModelHubSettings } from './lib/modelHubTypes';
+import type { ModelHubSettings, ModelProviderType, ConfiguredProvider } from './lib/modelHubTypes';
 import { DEFAULT_MODEL_HUB_SETTINGS } from './lib/modelHubTypes';
 import type { CanvasConfig, CustomStickerPatch, SubtitleItem, SubtitleStyleConfig } from './lib/talkEditor/types';
 
@@ -136,16 +136,36 @@ interface AppState {
   setChangelogOpen: (open: boolean) => void;
 }
 
-function sanitizeModelHubSettings(parsed: any): ModelHubSettings {
+export function sanitizeModelHubSettings(parsed: any): ModelHubSettings {
   if (!parsed || typeof parsed !== 'object') return DEFAULT_MODEL_HUB_SETTINGS;
-  const mergedProviders = {
-    ...DEFAULT_MODEL_HUB_SETTINGS.providers,
-    ...(parsed.providers || {}),
-  };
+  const mergedProviders: Record<ModelProviderType, ConfiguredProvider> = {} as any;
+  for (const type of Object.keys(DEFAULT_MODEL_HUB_SETTINGS.providers) as ModelProviderType[]) {
+    const defaultConf = DEFAULT_MODEL_HUB_SETTINGS.providers[type];
+    const userConf = (parsed.providers && typeof parsed.providers === 'object') ? parsed.providers[type] : null;
+    mergedProviders[type] = {
+      ...defaultConf,
+      ...(userConf && typeof userConf === 'object' ? userConf : {}),
+      type,
+      enabled: userConf?.enabled ?? defaultConf.enabled,
+      apiKey: typeof userConf?.apiKey === 'string' ? userConf.apiKey : (defaultConf.apiKey || ''),
+      baseUrl: typeof userConf?.baseUrl === 'string' && userConf.baseUrl ? userConf.baseUrl : (defaultConf.baseUrl || ''),
+      selectedModel: typeof userConf?.selectedModel === 'string' ? userConf.selectedModel : (defaultConf.selectedModel || ''),
+      customModelName: typeof userConf?.customModelName === 'string' ? userConf.customModelName : '',
+      customProviderName: typeof userConf?.customProviderName === 'string' ? userConf.customProviderName : '',
+      availableModels: Array.isArray(userConf?.availableModels)
+        ? userConf.availableModels.map((m: any) => typeof m === 'string' ? m : (m?.id || m?.name || String(m))).filter(Boolean)
+        : [],
+    };
+  }
+
+  const validDefault = (parsed.defaultProvider && mergedProviders[parsed.defaultProvider as ModelProviderType])
+    ? (parsed.defaultProvider as ModelProviderType)
+    : DEFAULT_MODEL_HUB_SETTINGS.defaultProvider;
 
   return {
     ...DEFAULT_MODEL_HUB_SETTINGS,
     ...parsed,
+    defaultProvider: validDefault,
     providers: mergedProviders,
   };
 }
@@ -263,7 +283,7 @@ export const useStore = create<AppState>((set, get) => ({
       } catch {}
     }
     let finalModelHub = get().modelHubSettings;
-    if (loadedModelHub && loadedModelHub.providers) {
+    if (loadedModelHub) {
       finalModelHub = sanitizeModelHubSettings(loadedModelHub);
       set({ modelHubSettings: finalModelHub });
       try {
