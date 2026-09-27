@@ -11,13 +11,16 @@ interface ExtractHistoryItem {
 const STORAGE_KEY = 'jaygo_media_extract_history';
 
 export default function MediaExtractor() {
-  const { showToast, setTab, setPendingTranscribe } = useStore();
+  const { settings, patchSettings, showToast, setTab, setPendingTranscribe } = useStore();
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
   const [currentMedia, setCurrentMedia] = useState<ParsedMediaInfo | null>(null);
   const [activeImageIndex, setActiveImageIndex] = useState<number>(0);
   const [downloadingType, setDownloadingType] = useState<'video' | 'audio' | 'image' | 'all-images' | 'transcribe' | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
+  const [downloadProgressInfo, setDownloadProgressInfo] = useState<{ pct: number; detail?: string } | null>(null);
+  const [biliCookieModalOpen, setBiliCookieModalOpen] = useState(false);
+  const [biliCookieInput, setBiliCookieInput] = useState(settings?.bilibiliCookie || '');
   const [lastSavedPath, setLastSavedPath] = useState<string | null>(null);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [history, setHistory] = useState<ExtractHistoryItem[]>([]);
@@ -27,6 +30,19 @@ export default function MediaExtractor() {
 
   const [selectedResolutionId, setSelectedResolutionId] = useState<string | null>(null);
   const [useRawOriginal, setUseRawOriginal] = useState<boolean>(true);
+
+  // 监听后端流式下载与 FFmpeg 混流实时进度
+  useEffect(() => {
+    if ((window as any).JaygoAPI?.onDownloadMediaProgress) {
+      const unsub = (window as any).JaygoAPI.onDownloadMediaProgress(
+        (data: { stage: string; pct: number; detail?: string }) => {
+          setDownloadProgress(data.pct);
+          setDownloadProgressInfo(data);
+        }
+      );
+      return unsub;
+    }
+  }, []);
 
   // 从本地存储加载历史解析记录
   useEffect(() => {
@@ -261,7 +277,7 @@ export default function MediaExtractor() {
           </p>
         </div>
 
-        {/* 平台徽标集合 */}
+        {/* 平台徽标集合与画质配置 */}
         <div className="flex flex-wrap items-center gap-1.5 shrink-0 text-[11px] font-medium">
           <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700/80">
             🎵 抖音 (去水印)
@@ -278,6 +294,18 @@ export default function MediaExtractor() {
           <span className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60">
             🌐 网络直链
           </span>
+          <button
+            type="button"
+            onClick={() => {
+              setBiliCookieInput(settings?.bilibiliCookie || '');
+              setBiliCookieModalOpen(true);
+            }}
+            className="px-2.5 py-0.5 rounded-md bg-pink-100/70 hover:bg-pink-100 dark:bg-pink-900/40 dark:hover:bg-pink-900/60 text-pink-700 dark:text-pink-300 border border-pink-300/80 dark:border-pink-700/80 transition flex items-center gap-1 cursor-pointer font-medium ml-1"
+            title="点击配置 B 站 Cookie / SESSDATA 解锁 1080P60 / 4K / 8K"
+          >
+            <span>⚙️</span>
+            <span>B站画质设置 {settings?.bilibiliCookie ? '(已激活会员)' : '(免登录1080P)'}</span>
+          </button>
         </div>
       </div>
 
@@ -826,6 +854,25 @@ export default function MediaExtractor() {
                     </button>
                   )}
                 </div>
+
+                {/* 实时流式下载与混流合成进度条 */}
+                {downloadingType && (
+                  <div className="mt-4 p-3.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/50 border border-blue-200/80 dark:border-blue-900/70 animate-fade-in shadow-xs">
+                    <div className="flex items-center justify-between text-xs text-blue-900 dark:text-blue-200 mb-2 font-medium">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-blue-600 dark:border-blue-400 border-t-transparent animate-spin" />
+                        <span>{downloadProgressInfo?.detail || (downloadingType === 'video' ? '正在高速下载并混流超清视频流...' : '正在提取高质量音频...')}</span>
+                      </div>
+                      <span className="font-bold text-sm text-blue-600 dark:text-blue-400">{downloadProgressInfo?.pct ?? downloadProgress}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-blue-200/60 dark:bg-blue-900/50 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.max(5, downloadProgressInfo?.pct ?? downloadProgress)}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -921,6 +968,97 @@ export default function MediaExtractor() {
           </div>
         )}
       </div>
+
+      {/* 哔哩哔哩画质增强设置弹窗 */}
+      {biliCookieModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-[#18181c] border border-zinc-200 dark:border-zinc-800 p-6 shadow-2xl animate-scale-in">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">📺</span>
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">
+                  哔哩哔哩 (B站) 画质增强设置
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBiliCookieModalOpen(false)}
+                className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 text-sm p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3.5">
+              <div className="p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/70 dark:border-blue-900/50 text-xs text-blue-800 dark:text-blue-300 leading-relaxed">
+                <div className="font-semibold mb-1 flex items-center gap-1.5">
+                  <span>✨</span>
+                  <span>原生 1080P 超清已全局免登录开启</span>
+                </div>
+                <p>
+                  Jaygo AU 当前已集成无损 DASH 智能流注入，<strong>无需登录即可直接提取 1080P 超清与 720P 高清原画</strong>（单视频达数十兆至数百兆）。
+                </p>
+                <p className="mt-1 text-[11px] text-blue-600 dark:text-blue-400">
+                  若您拥有 B 站大会员或认证账号，可在下方填入您的 Cookie（或 SESSDATA），将进一步解锁 <strong>1080P 60帧、4K 超清乃至 8K 极清</strong> 流提取！
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                  B站 Cookie 或 SESSDATA（可选）
+                </label>
+                <textarea
+                  rows={3}
+                  value={biliCookieInput}
+                  onChange={(e) => setBiliCookieInput(e.target.value)}
+                  placeholder="例如：SESSDATA=xxxxxx; 或浏览器中复制的完整 Cookie 字符串..."
+                  className="w-full rounded-xl bg-zinc-50 dark:bg-[#101014] border border-zinc-200 dark:border-zinc-800 p-3 text-xs font-mono text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition resize-none"
+                />
+                <p className="text-[11px] text-zinc-400 mt-1">
+                  获取方法：在浏览器登录 bilibili.com，按 F12 打开开发者工具 →「应用/存储」→「Cookies」复制 SESSDATA 的值或整个 Cookie。
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+              {settings?.bilibiliCookie ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await patchSettings({ bilibiliCookie: '' });
+                    setBiliCookieInput('');
+                    showToast('已清除 B 站 Cookie，恢复默认免登录 1080P', 'info');
+                  }}
+                  className="text-xs text-rose-500 hover:text-rose-600 px-2 py-1 rounded transition"
+                >
+                  清除已存 Cookie
+                </button>
+              ) : <div />}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBiliCookieModalOpen(false)}
+                  className="px-3.5 py-1.5 rounded-xl text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await patchSettings({ bilibiliCookie: biliCookieInput.trim() });
+                    setBiliCookieModalOpen(false);
+                    showToast('B 站画质凭证保存成功！后续提取将自动应用', 'ok');
+                  }}
+                  className="px-4 py-1.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 transition shadow-xs"
+                >
+                  保存设置
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

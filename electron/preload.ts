@@ -63,6 +63,8 @@ export type Settings = {
   sensenovaDefaultStyle?: string;
   sensenovaDefaultRatio?: string;
   sensenovaRoutingMode?: 'smart' | 'standard' | 'infographic';
+  // ---- 哔哩哔哩画质增强配置 (SESSDATA Cookie) ----
+  bilibiliCookie?: string;
 };
 
 export type SynthProgress = { stage: 'streaming' | 'done'; pct: number; bytes: number };
@@ -226,6 +228,11 @@ const api = {
     selectedVideoUrl?: string;
     selectedAudioUrl?: string;
   }) => ipcRenderer.invoke('download-extracted-media', args),
+  onDownloadMediaProgress: (cb: (data: { stage: string; pct: number; detail?: string }) => void) => {
+    const listener = (_e: any, data: any) => cb(data);
+    ipcRenderer.on('download-media-progress', listener);
+    return () => ipcRenderer.removeListener('download-media-progress', listener);
+  },
   downloadExtractedImage: (args: { imageUrl: string; defaultName?: string }) =>
     ipcRenderer.invoke('download-extracted-image', args),
   downloadAllExtractedImages: (args: { images: string[]; title: string }) =>

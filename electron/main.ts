@@ -114,9 +114,12 @@ type Settings = {
   // ---- 系统托盘与任务通知偏好 ----
   closeToTray?: boolean;
   notifyOnTaskComplete?: boolean;
+  // ---- 统一大模型中心与自媒体工作流持久化 ----
   modelHubSettings?: any;
   customSkills?: any[];
   workflowProjects?: any[];
+  // ---- 哔哩哔哩画质增强配置 (SESSDATA Cookie) ----
+  bilibiliCookie?: string;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -141,6 +144,7 @@ const DEFAULT_SETTINGS: Settings = {
   lastOfficialVoiceId: 'zh_female_vv_uranus_bigtts',
   closeToTray: true,
   notifyOnTaskComplete: true,
+  bilibiliCookie: '',
 };
 
 const settingsPath = () => path.join(app.getPath('userData'), 'jaygo-settings.json');
@@ -1508,7 +1512,7 @@ ipcMain.handle('pickMediaFile', async () => {
 // ---- 多平台媒体/短视频无水印提取 ----
 ipcMain.handle('extract-media', async (_e, input: string) => {
   dbg('[MediaExtractor] 开始解析: ' + (input || '').slice(0, 100));
-  return await extractMedia(input);
+  return await extractMedia(input, { bilibiliCookie: settings.bilibiliCookie });
 });
 
 /**
@@ -1583,17 +1587,44 @@ ipcMain.handle(
         const tempVideo = path.join(app.getPath('temp'), `jaygo-v-${Date.now()}.mp4`);
         const tempAudio = path.join(app.getPath('temp'), `jaygo-a-${Date.now()}.mp4`);
         try {
-          await downloadMediaFile(chosenVideoUrl, tempVideo, mediaInfo.headers);
-          await downloadMediaFile(chosenAudioUrl, tempAudio, mediaInfo.headers);
+          win?.webContents.send('download-media-progress', { stage: 'video', pct: 0, detail: '正在高速下载超清画面流...' });
+          await downloadMediaFile(chosenVideoUrl, tempVideo, mediaInfo.headers, (pct) => {
+            win?.webContents.send('download-media-progress', {
+              stage: 'video',
+              pct: Math.round(pct * 0.75),
+              detail: `正在下载超清画面流 (${pct}%)...`,
+            });
+          });
+
+          win?.webContents.send('download-media-progress', { stage: 'audio', pct: 75, detail: '正在下载高品质音频轨...' });
+          await downloadMediaFile(chosenAudioUrl, tempAudio, mediaInfo.headers, (pct) => {
+            win?.webContents.send('download-media-progress', {
+              stage: 'audio',
+              pct: 75 + Math.round(pct * 0.15),
+              detail: `正在下载音频轨 (${pct}%)...`,
+            });
+          });
+
+          win?.webContents.send('download-media-progress', { stage: 'merge', pct: 92, detail: '正在调用 FFmpeg 无损混流音视频...' });
           await mergeVideoAndAudioWithFfmpeg(FFMPEG_PATH, tempVideo, tempAudio, targetPath);
+
+          win?.webContents.send('download-media-progress', { stage: 'done', pct: 100, detail: '超清视频混流完成！' });
           return { path: targetPath, size: fs.statSync(targetPath).size };
         } finally {
           fs.unlink(tempVideo, () => {});
           fs.unlink(tempAudio, () => {});
         }
       } else {
-        // 普通 MP4（如抖音全音画超清原片）单文件流式高速直下，零转码损耗，100% 完整保留创作者口播人声
-        await downloadMediaFile(chosenVideoUrl, targetPath, mediaInfo.headers);
+        // 普通 MP4 单文件流式高速直下
+        win?.webContents.send('download-media-progress', { stage: 'video', pct: 0, detail: '正在下载超清视频...' });
+        await downloadMediaFile(chosenVideoUrl, targetPath, mediaInfo.headers, (pct) => {
+          win?.webContents.send('download-media-progress', {
+            stage: 'video',
+            pct,
+            detail: `正在下载超清视频 (${pct}%)...`,
+          });
+        });
+        win?.webContents.send('download-media-progress', { stage: 'done', pct: 100, detail: '下载完成！' });
         return { path: targetPath, size: fs.statSync(targetPath).size };
       }
     } else {
@@ -1601,8 +1632,13 @@ ipcMain.handle(
       if (mediaInfo.audioUrl) {
         const tempAudio = path.join(app.getPath('temp'), `jaygo-extract-audio-${Date.now()}`);
         try {
-          await downloadMediaFile(mediaInfo.audioUrl, tempAudio, mediaInfo.headers);
+          win?.webContents.send('download-media-progress', { stage: 'audio', pct: 10, detail: '正在下载音频流...' });
+          await downloadMediaFile(mediaInfo.audioUrl, tempAudio, mediaInfo.headers, (pct) => {
+            win?.webContents.send('download-media-progress', { stage: 'audio', pct: Math.round(pct * 0.8), detail: `正在下载音频 (${pct}%)...` });
+          });
+          win?.webContents.send('download-media-progress', { stage: 'convert', pct: 85, detail: '正在转码为 MP3...' });
           await extractAudioWithFfmpeg(FFMPEG_PATH, tempAudio, targetPath, 'mp3');
+          win?.webContents.send('download-media-progress', { stage: 'done', pct: 100, detail: '音频保存完成！' });
           return { path: targetPath, size: fs.statSync(targetPath).size };
         } finally {
           fs.unlink(tempAudio, () => {});
@@ -1610,8 +1646,13 @@ ipcMain.handle(
       } else if (mediaInfo.videoUrl) {
         const tempVideo = path.join(app.getPath('temp'), `jaygo-extract-vid-${Date.now()}.mp4`);
         try {
-          await downloadMediaFile(mediaInfo.videoUrl, tempVideo, mediaInfo.headers);
+          win?.webContents.send('download-media-progress', { stage: 'video', pct: 10, detail: '正在下载源视频...' });
+          await downloadMediaFile(mediaInfo.videoUrl, tempVideo, mediaInfo.headers, (pct) => {
+            win?.webContents.send('download-media-progress', { stage: 'video', pct: Math.round(pct * 0.8), detail: `正在下载源视频 (${pct}%)...` });
+          });
+          win?.webContents.send('download-media-progress', { stage: 'convert', pct: 85, detail: '正在提取高质量 MP3 音频...' });
           await extractAudioWithFfmpeg(FFMPEG_PATH, tempVideo, targetPath, 'mp3');
+          win?.webContents.send('download-media-progress', { stage: 'done', pct: 100, detail: '音频保存完成！' });
           return { path: targetPath, size: fs.statSync(targetPath).size };
         } finally {
           fs.unlink(tempVideo, () => {});

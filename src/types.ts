@@ -46,6 +46,8 @@ export interface Settings {
   sensenovaDefaultStyle?: string;
   sensenovaDefaultRatio?: string; // '16:9' | '9:16' | '1:1' | '4:3' | '3:4'
   sensenovaRoutingMode?: 'smart' | 'standard' | 'infographic';
+  // ---- 哔哩哔哩画质增强配置 (SESSDATA Cookie) ----
+  bilibiliCookie?: string;
 }
 
 export interface SynthProgress {

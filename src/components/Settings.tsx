@@ -544,6 +544,40 @@ export default function Settings() {
             )}
           </SettingCard>
 
+          {/* 哔哩哔哩 (B站) 画质增强配置 */}
+          <SettingCard
+            title="哔哩哔哩 (B站) 画质增强凭证"
+            desc="Jaygo AU 默认免登录已支持 1080P 超清与 720P 高清原画提取；填入 B 站 Cookie（含 SESSDATA）可进一步解锁 1080P60 帧、4K 超清乃至 8K 极清画质。"
+          >
+            <div>
+              <label className="label !text-[11px]">B站 SESSDATA Cookie（可选）</label>
+              <div className="flex gap-2">
+                <input
+                  type={showSecrets ? 'text' : 'password'}
+                  className="glass-input flex-1 font-mono text-xs"
+                  placeholder="例如：SESSDATA=xxxxxx; 或完整 Cookie"
+                  value={settings.bilibiliCookie || ''}
+                  onChange={(e) => patchSettings({ bilibiliCookie: e.target.value })}
+                />
+                {settings.bilibiliCookie && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      patchSettings({ bilibiliCookie: '' });
+                      showToast('已清除 B 站 Cookie', 'info');
+                    }}
+                    className="btn-ghost text-xs px-3 text-rose-500 hover:text-rose-600"
+                  >
+                    清除
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-zinc-400 mt-1.5">
+                在浏览器中登录 bilibili.com，按 F12 打开开发者工具 →「应用」→「Cookies」复制 SESSDATA 的值或完整 Cookie 字符串。
+              </p>
+            </div>
+          </SettingCard>
+
           {/* 转录存储托管状态提示 */}
           <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/50 rounded-xl px-4 py-3">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -902,7 +936,7 @@ export default function Settings() {
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-mono font-bold text-sm shadow-md shadow-blue-500/20">
-                  v{appVersion || '0.7.50'}
+                  v{appVersion || '0.7.51'}
                 </div>
                 <div>
                   <div className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">

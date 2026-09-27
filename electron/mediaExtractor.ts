@@ -502,12 +502,14 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
         // 1. 抖音创作者原生上传的母带流 (play_addr，通常为最高码率高保真原片，无二次压缩)
         if (item.video?.play_addr?.url_list?.[0]) {
           const pa = item.video.play_addr;
+          const rawU = pa.url_list[0] || '';
+          const cleanU = rawU.replace('/playwm/', '/play/');
           const w = pa.width || 0;
           const h = pa.height || 0;
           const dataSize = pa.data_size || 0;
           const estBitrate = dataSize > 0 && durationSec ? Math.round((dataSize * 8) / durationSec) : 8000000;
           const c: StreamCandidate = {
-            url: pa.url_list[0],
+            url: cleanU,
             width: w,
             height: h,
             bitrate: estBitrate,
@@ -520,13 +522,71 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
           };
           c.score = computeDouyinQualityScore(c);
           candidates.push(c);
+
+          if (cleanU.includes('ratio=720p')) {
+            const c1080 = { ...c, url: cleanU.replace('ratio=720p', 'ratio=1080p'), gearName: 'origin_master_1080' };
+            c1080.score = computeDouyinQualityScore(c1080) + 1000000;
+            candidates.push(c1080);
+          }
         }
 
-        // 2. 遍历 bit_rate 各规格流
+        // 2. 抖音官方下载无水印母带流 (download_addr)
+        if (item.video?.download_addr?.url_list?.[0]) {
+          const da = item.video.download_addr;
+          const rawU = da.url_list[0] || '';
+          const cleanU = rawU.replace('/playwm/', '/play/');
+          const w = da.width || 0;
+          const h = da.height || 0;
+          const dataSize = da.data_size || 0;
+          const estBitrate = dataSize > 0 && durationSec ? Math.round((dataSize * 8) / durationSec) : 9000000;
+          const c: StreamCandidate = {
+            url: cleanU,
+            width: w,
+            height: h,
+            bitrate: estBitrate,
+            dataSize,
+            gearName: 'download_addr_master',
+            fps: 30,
+            isH265: false,
+            isMaster: true,
+            score: 0,
+          };
+          c.score = computeDouyinQualityScore(c) + 2000000;
+          candidates.push(c);
+        }
+
+        // 3. 抖音 H.264 最佳兼容母带 (play_addr_h264)
+        if (item.video?.play_addr_h264?.url_list?.[0]) {
+          const pah = item.video.play_addr_h264;
+          const rawU = pah.url_list[0] || '';
+          const cleanU = rawU.replace('/playwm/', '/play/');
+          const w = pah.width || 0;
+          const h = pah.height || 0;
+          const dataSize = pah.data_size || 0;
+          const estBitrate = dataSize > 0 && durationSec ? Math.round((dataSize * 8) / durationSec) : 8500000;
+          const c: StreamCandidate = {
+            url: cleanU,
+            width: w,
+            height: h,
+            bitrate: estBitrate,
+            dataSize,
+            gearName: 'play_addr_h264',
+            fps: 30,
+            isH265: false,
+            isMaster: true,
+            score: 0,
+          };
+          c.score = computeDouyinQualityScore(c) + 1500000;
+          candidates.push(c);
+        }
+
+        // 4. 遍历 bit_rate 各规格流
         const bitrates: any[] = item.video?.bit_rate || [];
         for (const b of bitrates) {
           const pa = b.play_addr;
           if (!pa?.url_list?.[0]) continue;
+          const rawU = pa.url_list[0] || '';
+          const cleanU = rawU.replace('/playwm/', '/play/');
           const w = pa.width || 0;
           const h = pa.height || 0;
           const dataSize = pa.data_size || 0;
@@ -535,7 +595,7 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
           const fps = b.FPS || 30;
           const isH265 = Boolean(b.is_h265 || gearName.includes('bytevc1') || gearName.includes('h265'));
           const c: StreamCandidate = {
-            url: pa.url_list[0],
+            url: cleanU,
             width: w,
             height: h,
             bitrate,
@@ -548,6 +608,12 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
           };
           c.score = computeDouyinQualityScore(c);
           candidates.push(c);
+
+          if (cleanU.includes('ratio=720p')) {
+            const c1080 = { ...c, url: cleanU.replace('ratio=720p', 'ratio=1080p'), gearName: `${gearName}_1080` };
+            c1080.score = computeDouyinQualityScore(c1080) + 1000000;
+            candidates.push(c1080);
+          }
         }
 
         // 3. 去重与精简：相同直链去重；相同分辨率只保留得分最高的最佳流（防低码压缩流混入）
@@ -728,7 +794,7 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
 }
 
 // ---- 2. 哔哩哔哩解析器（解除 720P 限制，全面接入 DASH 模式支持 1080P/1080P60 原画与独立高品质音频） ----
-async function parseBilibili(targetUrl: string): Promise<ParsedMediaInfo> {
+async function parseBilibili(targetUrl: string, options?: { bilibiliCookie?: string }): Promise<ParsedMediaInfo> {
   let realUrl = targetUrl;
   if (realUrl.includes('b23.tv')) {
     const headRes = await fetch(realUrl, {
@@ -740,13 +806,23 @@ async function parseBilibili(targetUrl: string): Promise<ParsedMediaInfo> {
   }
 
   const bvMatch = realUrl.match(/(BV[a-zA-Z0-9]{10})/i);
-  if (!bvMatch) {
-    throw new Error('未能从链接中解析出有效的 Bilibili BV 号');
+  let bvid = bvMatch ? bvMatch[1] : '';
+  if (!bvid) {
+    const avMatch = realUrl.match(/av(\d+)/i);
+    if (avMatch) {
+      bvid = `av${avMatch[1]}`;
+    }
   }
-  const bvid = bvMatch[1];
+  if (!bvid) {
+    throw new Error('未能从链接中解析出有效的 Bilibili BV 或 AV 号');
+  }
+
+  // 检查是否指定了分 P (如 ?p=2 或 &p=2)
+  const pMatch = realUrl.match(/[?&]p=(\d+)/);
+  const targetPage = pMatch ? parseInt(pMatch[1], 10) : 1;
 
   // 1. 获取视频基本信息与分 P cid
-  const viewRes = await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`, {
+  const viewRes = await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid.startsWith('BV') ? bvid : ''}&aid=${bvid.startsWith('av') ? bvid.slice(2) : ''}`, {
     headers: { 'User-Agent': PC_UA, 'Referer': 'https://www.bilibili.com' },
   }).then((r) => r.json());
 
@@ -755,16 +831,31 @@ async function parseBilibili(targetUrl: string): Promise<ParsedMediaInfo> {
   }
 
   const d = viewRes.data;
-  const cid = d.cid;
-  const durationSec = d.duration || 0;
+  let cid = d.cid;
+  let partTitle = d.title || 'B站作品';
+  let durationSec = d.duration || 0;
 
-  // 2. 请求 DASH 模式 (fnval=4048&fourk=1) 支持 1080P/1080P60 及独立 320kbps 音频流
-  const playRes = await fetch(
-    `https://api.bilibili.com/x/player/playurl?bvid=${bvid}&cid=${cid}&qn=80&fnval=4048&fourk=1`,
-    {
-      headers: { 'User-Agent': PC_UA, 'Referer': 'https://www.bilibili.com' },
+  if (d.pages && d.pages.length > 0) {
+    const matchedPage = d.pages.find((p: any) => p.page === targetPage) || d.pages[0];
+    cid = matchedPage.cid;
+    if (matchedPage.part && d.pages.length > 1) {
+      partTitle = `${d.title} (P${matchedPage.page} - ${matchedPage.part})`;
     }
-  ).then((r) => r.json());
+    if (matchedPage.duration) {
+      durationSec = matchedPage.duration;
+    }
+  }
+
+  // 2. 请求 DASH 模式 (fnval=4048&fourk=1&try_look=1) 支持免登录 1080P/720P 及会员 4K/1080P60
+  const cookieHeader = (options?.bilibiliCookie || '').trim();
+  const playUrl = `https://api.bilibili.com/x/player/playurl?bvid=${d.bvid || bvid}&cid=${cid}&qn=127&fnval=4048&fourk=1&try_look=1`;
+  const playRes = await fetch(playUrl, {
+    headers: {
+      'User-Agent': PC_UA,
+      'Referer': 'https://www.bilibili.com',
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+    },
+  }).then((r) => r.json());
 
   const resolutions: MediaResolutionOption[] = [];
   let primaryAudioUrl: string | undefined = undefined;
@@ -772,9 +863,10 @@ async function parseBilibili(targetUrl: string): Promise<ParsedMediaInfo> {
 
   const qnDescMap: Record<number, string> = {
     127: '8K 超高清',
+    125: 'HDR 真彩',
     120: '4K 超清',
     116: '1080P 60帧',
-    80: '1080P 高清',
+    80: '1080P 超清',
     64: '720P 高清',
     32: '480P 清晰',
     16: '360P 流畅',
@@ -784,9 +876,37 @@ async function parseBilibili(targetUrl: string): Promise<ParsedMediaInfo> {
   if (playRes.data?.dash) {
     const dash = playRes.data.dash;
     const audios: any[] = (dash.audio || []).sort((a: any, b: any) => (b.bandwidth || 0) - (a.bandwidth || 0));
+
+    // 智能探针：过滤未登录用户可能收到的 18 字节空占位音频桩，锁定真实最高音质音频流
     if (audios.length > 0) {
-      primaryAudioUrl = audios[0].baseUrl || audios[0].backupUrl?.[0];
-      audioBandwidth = audios[0].bandwidth || 128000;
+      const audioChecks = await Promise.all(
+        audios.map(async (a: any) => {
+          const u = a.baseUrl || a.backupUrl?.[0];
+          if (!u) return { audio: a, valid: false, length: 0, url: '' };
+          try {
+            const h = await fetch(u, {
+              method: 'HEAD',
+              headers: {
+                'User-Agent': PC_UA,
+                'Referer': 'https://www.bilibili.com',
+                ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+              },
+            });
+            const len = parseInt(h.headers.get('content-length') || '0', 10);
+            return { audio: a, valid: len > 1000, length: len, url: u };
+          } catch {
+            return { audio: a, valid: true, length: 0, url: u };
+          }
+        })
+      );
+
+      const validAudio = audioChecks.find((c) => c.valid);
+      if (validAudio) {
+        primaryAudioUrl = validAudio.url;
+        audioBandwidth = validAudio.audio.bandwidth || 128000;
+      } else {
+        primaryAudioUrl = audios[0].baseUrl || audios[0].backupUrl?.[0];
+      }
     }
 
     // 按清晰度分组：优先保留 H.264/AVC (codecid: 7) 兼容性最佳流或更高码率流
@@ -798,10 +918,10 @@ async function parseBilibili(targetUrl: string): Promise<ParsedMediaInfo> {
       if (!existing) {
         qnMap.set(qn, v);
       } else {
-        // 如果当前是 AVC (7) 且已存不是，或当前码率更高，则更新
+        // 如果当前是 AVC (7) 且已存不是，或同编码但码率更高，则更新
         if (v.codecid === 7 && existing.codecid !== 7) {
           qnMap.set(qn, v);
-        } else if ((v.bandwidth || 0) > (existing.bandwidth || 0)) {
+        } else if (v.codecid === existing.codecid && (v.bandwidth || 0) > (existing.bandwidth || 0)) {
           qnMap.set(qn, v);
         }
       }
@@ -826,8 +946,8 @@ async function parseBilibili(targetUrl: string): Promise<ParsedMediaInfo> {
       else if (v.codecs?.includes('av01') || v.codecid === 13) format = 'av1';
 
       resolutions.push({
-        id: `bili_${qn}`,
-        label: `${desc}${w && h ? ` (${w}×${h})` : ''}${idx === 0 ? ' · 最佳超清' : ''}`,
+        id: `bili_${qn}_${v.codecid || idx}`,
+        label: `${desc}${w && h ? ` (${w}×${h})` : ''}${idx === 0 ? ' · 最佳超清原画' : ''}`,
         quality: qn,
         videoUrl: vUrl,
         audioUrl: primaryAudioUrl,
@@ -862,12 +982,12 @@ async function parseBilibili(targetUrl: string): Promise<ParsedMediaInfo> {
   return {
     platform: 'bilibili',
     platformName: '哔哩哔哩',
-    title: d.title || 'B站作品',
+    title: partTitle,
     desc: d.desc || '',
     author: d.owner?.name || '未知UP主',
     authorAvatar: d.owner?.face || '',
     coverUrl: d.pic || '',
-    durationSec: d.duration || 0,
+    durationSec: durationSec,
     videoUrl: primaryVideoUrl,
     audioUrl: primaryAudioUrl,
     resolutions: resolutions.length > 0 ? resolutions : undefined,
@@ -1260,7 +1380,7 @@ async function parseGeneric(targetUrl: string): Promise<ParsedMediaInfo> {
 }
 
 // ---- 统一入口：解析媒体链接 ----
-export async function extractMedia(input: string): Promise<ParsedMediaInfo> {
+export async function extractMedia(input: string, options?: { bilibiliCookie?: string }): Promise<ParsedMediaInfo> {
   const match = cleanAndDetectUrl(input);
   if (!match) {
     throw new Error('未检测到有效的短视频或媒体链接，请粘贴包含链接的分享文本');
@@ -1272,7 +1392,7 @@ export async function extractMedia(input: string): Promise<ParsedMediaInfo> {
     case 'douyin':
       return await parseDouyin(url);
     case 'bilibili':
-      return await parseBilibili(url);
+      return await parseBilibili(url, options);
     case 'kuaishou':
       return await parseKuaishou(url);
     case 'xiaohongshu':
@@ -1302,9 +1422,12 @@ export function downloadMediaFile(
       };
 
       const req = client.get(fileUrl, { headers: reqHeaders }, (res) => {
-        // 遇到 301/302 重定向跟随
+        // 遇到 301/302 重定向跟随 (正确处理相对/绝对路径重定向)
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          return downloadMediaFile(res.headers.location, outputPath, headers, onProgress).then(resolve).catch(reject);
+          const nextUrl = res.headers.location.startsWith('http')
+            ? res.headers.location
+            : new URL(res.headers.location, fileUrl).href;
+          return downloadMediaFile(nextUrl, outputPath, headers, onProgress).then(resolve).catch(reject);
         }
 
         if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
