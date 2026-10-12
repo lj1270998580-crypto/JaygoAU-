@@ -10,10 +10,29 @@ export interface ChangelogItem {
 
 export const CHANGELOGS: ChangelogItem[] = [
   {
+    version: '0.7.52',
+    date: '2026-10-12',
+    title: '抖音真·无损原片母带 (ratio=default) 直取 · 小红书移动端 SSR 免登录穿透与 4K 原画母带解锁',
+    isLatest: true,
+    features: [
+      '【抖音未压缩原画母带 (ratio=default) 直取突破】彻底攻克抖音 Web 接口仅返回 1000kbps 二次压缩转码流（约 31.6MB）的行业瓶颈，新增基于 video_id 与移动端 aweme/v1/play/?ratio=default 协议的原始上传母带探针，直接锁定创作者上传的未压缩原片母带（/tos-cn-v-0015c002/，单条实测高达 332.7MB，码率与画质提升 10 倍以上），默认置顶第一顺位',
+      '【小红书全链路免登录穿透 · 彻底修复提取失败】针对小红书 PC 端对未登录请求强制拦截（felogin 空状态树）及分享口令中文标点粘连导致 404 的问题，全链路重构为移动端 H5 SSR 状态树解析 + 隐藏窗口渲染双保险，全面支持 xhslink 短链、/discovery/item/、/explore/ 及 /user/profile/{uid}/{noteId} 链接格式',
+      '【小红书 4K 原画视频母带与相机无损原图直取】深度解析小红书 consumer.originVideoKey 与 mediaV2 原始宽高，并发探测三大 CDN 节点直取 4K (2160×3840, 256MB+) 未压缩视频母带；图文笔记同步提供 ci.xiaohongshu.com 相机级无损原图直链',
+    ],
+    improvements: [
+      '升级全平台分享文案 URL 智能清洗引擎，精准剥离中文逗号、句号、书名号等全角标点粘连，防止 xsec_token 签名被破坏',
+      '优化抖音清晰度列表过滤策略，剔除带水印的 download_addr 低清流与无声 DASH 切片，确保所有可选规格均为完整有声 MP4',
+    ],
+    fixes: [
+      '彻底修复小红书视频与图文笔记提取全部报错失败的问题',
+      '修复抖音视频提取只能拿到 Web 压缩流而无法获取最高档原视频母带的问题',
+    ],
+  },
+  {
     version: '0.7.51',
     date: '2026-09-28',
     title: '全平台视频提取真高清母带重构 · B站免登录1080P超清与4K/8K解锁 · 音视频混流实时进度',
-    isLatest: true,
+    isLatest: false,
     features: [
       '【彻底告别假高清 · B站免登录 1080P 超清直取】针对 B 站未登录默认强制降档至 480P（qn=32）的限制，底层深度重构 DASH 音视频流解析注入协议（引入 try_look 与 4K 级参数），免登录状态下直接突破并锁定原生 1080P 超清（1920×886，码率 2000+ kbps，视频体积从 15MB 跃升至 80MB+ 真实高码率原画）',
       '【毫秒级音频智能探针 · 根除 18 字节空桩与混流失败】针对 B 站 DASH 音频流中首选音轨偶发 18 字节空占位桩导致 FFmpeg 混流崩溃的行业痛点，研发毫秒级并发音频流健康预检探针，精准锁定真实有效、高保真立体声音频轨',

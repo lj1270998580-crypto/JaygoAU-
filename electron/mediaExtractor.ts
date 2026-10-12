@@ -47,37 +47,43 @@ const MOBILE_UA =
 export const PC_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-// 智能清洗输入文本，提取首个 URL 并判别平台
+// 智能清洗输入文本，提取首个 URL 并判别平台（严格排除中文全角标点粘连）
 export function cleanAndDetectUrl(input: string): { url: string; platform: ParsedMediaInfo['platform'] } | null {
   const text = input.trim();
   if (!text) return null;
 
+  const stripTrail = (u: string) => u.replace(/[\.,;!，。！？；：、'"”’）\)】》]+$/, '');
+
   // 1. 抖音短链或长链
-  const dyMatch = text.match(/https?:\/\/(?:v|www)\.douyin\.com\/[^\s\u4e00-\u9fa5<>'\"()（）]+/i) ||
-                  text.match(/https?:\/\/www\.iesdouyin\.com\/share\/(?:video|note)\/[^\s\u4e00-\u9fa5<>'\"()（）]+/i);
-  if (dyMatch) return { url: dyMatch[0].replace(/[\.,;!]+$/, ''), platform: 'douyin' };
+  const dyMatch =
+    text.match(/https?:\/\/(?:v|www)\.douyin\.com\/[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f<>'\"()（）【】《》，。！？；：、]+/i) ||
+    text.match(/https?:\/\/www\.iesdouyin\.com\/share\/(?:video|note)\/[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f<>'\"()（）【】《》，。！？；：、]+/i);
+  if (dyMatch) return { url: stripTrail(dyMatch[0]), platform: 'douyin' };
 
   // 2. 哔哩哔哩
-  const biliMatch = text.match(/https?:\/\/(?:b23\.tv|www\.bilibili\.com\/video\/[a-zA-Z0-9]+)[^\s\u4e00-\u9fa5<>'\"()（）]*/i);
-  if (biliMatch) return { url: biliMatch[0].replace(/[\.,;!]+$/, ''), platform: 'bilibili' };
+  const biliMatch = text.match(/https?:\/\/(?:b23\.tv|www\.bilibili\.com\/video\/[a-zA-Z0-9]+)[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f<>'\"()（）【】《》，。！？；：、]*/i);
+  if (biliMatch) return { url: stripTrail(biliMatch[0]), platform: 'bilibili' };
 
   // 3. 快手 (支持 v.kuaishou.com, www.kuaishou.com, v.m.chenzhongtech.com, kuaishou.com)
-  const ksMatch = text.match(/https?:\/\/(?:v|www)\.kuaishou\.com\/[^\s\u4e00-\u9fa5<>'\"()（）]+/i) ||
-                  text.match(/https?:\/\/v\.m\.chenzhongtech\.com\/fw\/photo\/[^\s\u4e00-\u9fa5<>'\"()（）]+/i) ||
-                  text.match(/https?:\/\/kuaishou\.com\/[^\s\u4e00-\u9fa5<>'\"()（）]+/i);
-  if (ksMatch) return { url: ksMatch[0].replace(/[\.,;!]+$/, ''), platform: 'kuaishou' };
+  const ksMatch =
+    text.match(/https?:\/\/(?:v|www)\.kuaishou\.com\/[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f<>'\"()（）【】《》，。！？；：、]+/i) ||
+    text.match(/https?:\/\/v\.m\.chenzhongtech\.com\/fw\/photo\/[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f<>'\"()（）【】《》，。！？；：、]+/i) ||
+    text.match(/https?:\/\/kuaishou\.com\/[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f<>'\"()（）【】《》，。！？；：、]+/i);
+  if (ksMatch) return { url: stripTrail(ksMatch[0]), platform: 'kuaishou' };
 
-  // 4. 小红书 (支持 xhslink.com, xhslink.cn, www.xiaohongshu.com/discovery/item, explore)
-  const xhsMatch = text.match(/https?:\/\/(?:xhslink\.(?:com|cn)\/[^\s\u4e00-\u9fa5<>'\"()（）]+|www\.xiaohongshu\.com\/(?:discovery\/item|explore)\/[a-zA-Z0-9]+[^\s\u4e00-\u9fa5<>'\"()（）]*)/i);
-  if (xhsMatch) return { url: xhsMatch[0].replace(/[\.,;!]+$/, ''), platform: 'xiaohongshu' };
+  // 4. 小红书 (全面支持 xhslink.com/.cn, discovery/item, explore, user/profile/uid/noteId)
+  const xhsMatch = text.match(
+    /https?:\/\/(?:xhslink\.(?:com|cn)\/[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f<>'\"()（）【】《》，。！？；：、]+|(?:www\.)?xiaohongshu\.com\/(?:discovery\/item\/|explore\/|user\/profile\/[a-zA-Z0-9]+\/)[a-zA-Z0-9]+[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f<>'\"()（）【】《》，。！？；：、]*)/i
+  );
+  if (xhsMatch) return { url: stripTrail(xhsMatch[0]), platform: 'xiaohongshu' };
 
   // 5. 通用网络音视频链接
-  const genericMatch = text.match(/https?:\/\/[^\s\u4e00-\u9fa5]+\.(?:mp4|mov|mkv|webm|mp3|wav|m4a|aac|flv)(?:\?[^\s\u4e00-\u9fa5]*)?/i);
-  if (genericMatch) return { url: genericMatch[0].replace(/[\.,;!]+$/, ''), platform: 'generic' };
+  const genericMatch = text.match(/https?:\/\/[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f]+\.(?:mp4|mov|mkv|webm|mp3|wav|m4a|aac|flv)(?:\?[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f]*)?/i);
+  if (genericMatch) return { url: stripTrail(genericMatch[0]), platform: 'generic' };
 
   // 6. 其他任意 http/https 链接
-  const anyUrlMatch = text.match(/https?:\/\/[^\s\u4e00-\u9fa5]+/i);
-  if (anyUrlMatch) return { url: anyUrlMatch[0].replace(/[\.,;!]+$/, ''), platform: 'generic' };
+  const anyUrlMatch = text.match(/https?:\/\/[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f<>'\"()（）【】《》，。！？；：、]+/i);
+  if (anyUrlMatch) return { url: stripTrail(anyUrlMatch[0]), platform: 'generic' };
 
   return null;
 }
@@ -483,7 +489,7 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
           item.music?.play_url?.url_list?.[0] ||
           undefined;
 
-        // 构建包含原生母带 (play_addr) 与全规格码率 (bit_rate) 的候选池
+        // 构建包含创作者原始上传无损母带 (ratio=default)、Web 母带 (play_addr) 与全规格码率 (bit_rate) 的候选池
         interface StreamCandidate {
           url: string;
           width: number;
@@ -494,18 +500,80 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
           fps: number;
           isH265: boolean;
           isMaster: boolean;
+          isRawUploadMaster?: boolean;
           score: number;
         }
 
         const candidates: StreamCandidate[] = [];
+        const baseWidth = item.video?.play_addr?.width || item.video?.width || 1080;
+        const baseHeight = item.video?.play_addr?.height || item.video?.height || 1920;
+        const webPlaySize = item.video?.play_addr?.data_size || 0;
+        const videoUri = item.video?.play_addr?.uri || item.video?.play_addr_h264?.uri || '';
 
-        // 1. 抖音创作者原生上传的母带流 (play_addr，通常为最高码率高保真原片，无二次压缩)
+        // 0. 终极通道：通过 video_id 请求 ratio=default 探测字节跳动 CDN 创作者原始上传母带 (如 /tos-cn-v-0015c002/ 300MB+ 未压缩原片)
+        if (videoUri) {
+          const probeRawMaster = async (endpoint: string): Promise<{ url: string; size: number } | null> => {
+            try {
+              const ctrl = new AbortController();
+              const t = setTimeout(() => ctrl.abort(), 3500);
+              const r = await fetch(endpoint, {
+                method: 'GET',
+                redirect: 'manual',
+                headers: { 'User-Agent': MOBILE_UA },
+                signal: ctrl.signal,
+              });
+              clearTimeout(t);
+              const loc = r.headers.get('location');
+              if (!loc) return null;
+              const cdnUrl = loc.startsWith('http') ? loc : new URL(loc, endpoint).href;
+              const ctrl2 = new AbortController();
+              const t2 = setTimeout(() => ctrl2.abort(), 3500);
+              const headRes = await fetch(cdnUrl, {
+                method: 'HEAD',
+                headers: { 'User-Agent': MOBILE_UA },
+                signal: ctrl2.signal,
+              });
+              clearTimeout(t2);
+              const size = parseInt(headRes.headers.get('content-length') || '0', 10);
+              if (size > 100000) {
+                return { url: cdnUrl, size };
+              }
+            } catch {}
+            return null;
+          };
+
+          const rawMaster =
+            (await probeRawMaster(`https://aweme.snssdk.com/aweme/v1/play/?video_id=${videoUri}&ratio=default&line=0`)) ||
+            (await probeRawMaster(`https://api.amemv.com/aweme/v1/play/?video_id=${videoUri}&ratio=default&line=0`));
+
+          if (rawMaster && rawMaster.size > 0) {
+            const estBitrate = durationSec ? Math.round((rawMaster.size * 8) / durationSec) : 15000000;
+            const isTrueRawMaster = webPlaySize === 0 || rawMaster.size >= webPlaySize * 0.98;
+            const c: StreamCandidate = {
+              url: rawMaster.url,
+              width: baseWidth,
+              height: baseHeight,
+              bitrate: estBitrate,
+              dataSize: rawMaster.size,
+              gearName: isTrueRawMaster ? 'origin_raw_upload_master' : 'default_stream',
+              fps: 60,
+              isH265: false,
+              isMaster: isTrueRawMaster,
+              isRawUploadMaster: rawMaster.size > webPlaySize * 1.15,
+              score: 0,
+            };
+            c.score = computeDouyinQualityScore(c) + (isTrueRawMaster ? 15000000 : 0);
+            candidates.push(c);
+          }
+        }
+
+        // 1. 抖音 Web 端最高码率原画流 (play_addr)
         if (item.video?.play_addr?.url_list?.[0]) {
           const pa = item.video.play_addr;
           const rawU = pa.url_list[0] || '';
           const cleanU = rawU.replace('/playwm/', '/play/');
-          const w = pa.width || 0;
-          const h = pa.height || 0;
+          const w = pa.width || baseWidth;
+          const h = pa.height || baseHeight;
           const dataSize = pa.data_size || 0;
           const estBitrate = dataSize > 0 && durationSec ? Math.round((dataSize * 8) / durationSec) : 8000000;
           const c: StreamCandidate = {
@@ -522,46 +590,16 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
           };
           c.score = computeDouyinQualityScore(c);
           candidates.push(c);
-
-          if (cleanU.includes('ratio=720p')) {
-            const c1080 = { ...c, url: cleanU.replace('ratio=720p', 'ratio=1080p'), gearName: 'origin_master_1080' };
-            c1080.score = computeDouyinQualityScore(c1080) + 1000000;
-            candidates.push(c1080);
-          }
         }
 
-        // 2. 抖音官方下载无水印母带流 (download_addr)
-        if (item.video?.download_addr?.url_list?.[0]) {
-          const da = item.video.download_addr;
-          const rawU = da.url_list[0] || '';
-          const cleanU = rawU.replace('/playwm/', '/play/');
-          const w = da.width || 0;
-          const h = da.height || 0;
-          const dataSize = da.data_size || 0;
-          const estBitrate = dataSize > 0 && durationSec ? Math.round((dataSize * 8) / durationSec) : 9000000;
-          const c: StreamCandidate = {
-            url: cleanU,
-            width: w,
-            height: h,
-            bitrate: estBitrate,
-            dataSize,
-            gearName: 'download_addr_master',
-            fps: 30,
-            isH265: false,
-            isMaster: true,
-            score: 0,
-          };
-          c.score = computeDouyinQualityScore(c) + 2000000;
-          candidates.push(c);
-        }
-
-        // 3. 抖音 H.264 最佳兼容母带 (play_addr_h264)
+        // 2. 抖音 H.264 最佳兼容母带 (play_addr_h264)
+        // 注意：故意排除 item.video.download_addr，因为 PC 端 download_addr 为 720p 且带 watermark=1 与片尾抖音号水印
         if (item.video?.play_addr_h264?.url_list?.[0]) {
           const pah = item.video.play_addr_h264;
           const rawU = pah.url_list[0] || '';
           const cleanU = rawU.replace('/playwm/', '/play/');
-          const w = pah.width || 0;
-          const h = pah.height || 0;
+          const w = pah.width || baseWidth;
+          const h = pah.height || baseHeight;
           const dataSize = pah.data_size || 0;
           const estBitrate = dataSize > 0 && durationSec ? Math.round((dataSize * 8) / durationSec) : 8500000;
           const c: StreamCandidate = {
@@ -580,12 +618,16 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
           candidates.push(c);
         }
 
-        // 4. 遍历 bit_rate 各规格流
+        // 3. 遍历 bit_rate 各规格流（优先选取 format !== 'dash' 的完整有声 MP4 流，避免无声分片）
         const bitrates: any[] = item.video?.bit_rate || [];
+        const hasMp4Bitrate = bitrates.some((b) => b.format !== 'dash' && !b.play_addr?.url_list?.[0]?.includes('media-video'));
         for (const b of bitrates) {
           const pa = b.play_addr;
           if (!pa?.url_list?.[0]) continue;
           const rawU = pa.url_list[0] || '';
+          const isDashStream = b.format === 'dash' || rawU.includes('media-video');
+          if (hasMp4Bitrate && isDashStream) continue;
+
           const cleanU = rawU.replace('/playwm/', '/play/');
           const w = pa.width || 0;
           const h = pa.height || 0;
@@ -608,25 +650,21 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
           };
           c.score = computeDouyinQualityScore(c);
           candidates.push(c);
-
-          if (cleanU.includes('ratio=720p')) {
-            const c1080 = { ...c, url: cleanU.replace('ratio=720p', 'ratio=1080p'), gearName: `${gearName}_1080` };
-            c1080.score = computeDouyinQualityScore(c1080) + 1000000;
-            candidates.push(c1080);
-          }
         }
 
-        // 3. 去重与精简：相同直链去重；相同分辨率只保留得分最高的最佳流（防低码压缩流混入）
+        // 4. 去重与精简：相同直链去重；原始上传母带 (isRawUploadMaster) 与常规各分辨率档位分别保留最佳流
         const uniqueByUrl = new Map<string, StreamCandidate>();
         for (const c of candidates) {
-          if (!uniqueByUrl.has(c.url) || (c.score > (uniqueByUrl.get(c.url)!.score))) {
+          if (!uniqueByUrl.has(c.url) || c.score > uniqueByUrl.get(c.url)!.score) {
             uniqueByUrl.set(c.url, c);
           }
         }
 
         const resMap = new Map<string, StreamCandidate>();
         for (const c of uniqueByUrl.values()) {
-          const key = `${Math.min(c.width, c.height)}x${Math.max(c.width, c.height)}_${c.isH265 ? 'h265' : 'h264'}`;
+          const key = c.isRawUploadMaster
+            ? 'raw_upload_master'
+            : `${Math.min(c.width, c.height)}x${Math.max(c.width, c.height)}_${c.isH265 ? 'h265' : 'h264'}`;
           const existing = resMap.get(key);
           if (!existing || c.score > existing.score) {
             resMap.set(key, c);
@@ -635,7 +673,7 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
 
         const sortedCandidates = Array.from(resMap.values()).sort((a, b) => b.score - a.score);
 
-        // 4. 生成清晰度选项
+        // 5. 生成清晰度选项
         const resolutions: MediaResolutionOption[] = sortedCandidates.map((c, idx) => {
           const w = c.width;
           const h = c.height;
@@ -648,7 +686,8 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
             : undefined;
 
           let pTag = `${minDim}P`;
-          if (minDim >= 2160 || maxDim >= 3840) pTag = '4K (2160P)';
+          if (c.isRawUploadMaster) pTag = '原画母带';
+          else if (minDim >= 2160 || maxDim >= 3840) pTag = '4K (2160P)';
           else if (minDim >= 1440 || maxDim >= 2560) pTag = '2K (1440P)';
           else if (minDim >= 1080 || maxDim >= 1920) pTag = '1080P';
           else if (minDim >= 720 || maxDim >= 1280) pTag = '720P';
@@ -656,13 +695,13 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
 
           let label = `${pTag} (${w}×${h})`;
           if (idx === 0) {
-            label += ' · 最佳超清原画';
+            label += c.isRawUploadMaster ? ' · 无损最高画质原片' : ' · 最佳超清原画';
           } else if (c.gearName.includes('adapt_lowest')) {
             label += ' · 极速压缩流';
           }
 
           return {
-            id: `dy_${minDim}_${c.isH265 ? 'h265' : 'h264'}_${idx}`,
+            id: `dy_${c.isRawUploadMaster ? 'master' : minDim}_${c.isH265 ? 'h265' : 'h264'}_${idx}`,
             label,
             videoUrl: c.url,
             audioUrl,
@@ -1183,47 +1222,35 @@ async function parseKuaishou(targetUrl: string): Promise<ParsedMediaInfo> {
   };
 }
 
-// ---- 4. 小红书解析器（全参数保留跳转、图文/视频双模态与超清无损原图提取） ----
-async function parseXiaohongshu(targetUrl: string): Promise<ParsedMediaInfo> {
-  let fullUrl = targetUrl;
+// ---- 4. 小红书解析器（移动端 SSR 免登录穿透、双端状态树兼容、4K 原片母带 originVideoKey 直取与无损原图提取） ----
+function extractXhsNoteFromState(data: any): any | null {
+  if (!data || typeof data !== 'object') return null;
 
-  // 追踪多级重定向并完整保留包括 xsec_token 在内的所有 query 参数
-  for (let i = 0; i < 5; i++) {
-    try {
-      const res = await fetch(fullUrl, {
-        method: 'GET',
-        redirect: 'manual',
-        headers: {
-          'User-Agent': PC_UA,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-      });
-      const loc = res.headers.get('location');
-      if (loc) {
-        fullUrl = loc.startsWith('http') ? loc : new URL(loc, fullUrl).href;
-      } else {
-        break;
-      }
-    } catch {
-      break;
+  // 1. 移动端 H5 状态树 (data.noteData.data.noteData)
+  const mobileNote = data.noteData?.data?.noteData;
+  if (mobileNote && (mobileNote.noteId || mobileNote.title || mobileNote.desc || mobileNote.imageList?.length || mobileNote.video)) {
+    return mobileNote;
+  }
+
+  // 2. PC 端状态树 (data.note.noteDetailMap[id].note)
+  const noteMap = data.note?.noteDetailMap || {};
+  for (const k of Object.keys(noteMap)) {
+    const n = noteMap[k]?.note;
+    if (n && (n.noteId || n.title || n.desc || n.imageList?.length || n.video)) {
+      return n;
     }
   }
 
-  const pageRes = await fetch(fullUrl, {
-    headers: {
-      'User-Agent': PC_UA,
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Referer': 'https://www.xiaohongshu.com/',
-    },
-  });
-  const html = await pageRes.text();
+  return null;
+}
 
+function parseXhsInitialStateFromHtml(html: string): any | null {
   const stateIdx = html.indexOf('window.__INITIAL_STATE__');
-  if (stateIdx === -1) {
-    throw new Error('未在小红书页面找到有效数据，请检查链接或网络');
-  }
+  if (stateIdx === -1) return null;
 
   const start = html.indexOf('{', stateIdx);
+  if (start === -1) return null;
+
   let depth = 0;
   let end = -1;
   for (let i = start; i < html.length; i++) {
@@ -1236,83 +1263,281 @@ async function parseXiaohongshu(targetUrl: string): Promise<ParsedMediaInfo> {
       }
     }
   }
+  if (end === -1) return null;
 
-  if (end === -1) {
-    throw new Error('解析小红书页面数据结构失败');
+  try {
+    const rawStr = html.slice(start, end).trim();
+    const data = JSON.parse(rawStr.replace(/:\s*undefined/g, ':null'));
+    return extractXhsNoteFromState(data);
+  } catch {
+    return null;
+  }
+}
+
+async function parseXiaohongshu(targetUrl: string): Promise<ParsedMediaInfo> {
+  let fullUrl = targetUrl;
+
+  // 1. 若输入为 xhslink 短链，使用 MOBILE_UA 追踪重定向直至拿到包含笔记 ID 的长链（保留 xsec_token 等参数）
+  const xhsNotePathRe = /(?:discovery\/item|explore|user\/profile\/[a-zA-Z0-9]+)\/([a-zA-Z0-9]{24})/i;
+  for (let i = 0; i < 6; i++) {
+    if (xhsNotePathRe.test(fullUrl)) {
+      break; // 已拿到笔记长链，立即停止重定向，避免二次请求消耗 token 或触发 404
+    }
+    try {
+      const res = await fetch(fullUrl, {
+        method: 'GET',
+        redirect: 'manual',
+        headers: {
+          'User-Agent': MOBILE_UA,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'zh-CN,zh-Hans;q=0.9',
+        },
+      });
+      const loc = res.headers.get('location');
+      if (loc) {
+        if (!loc.startsWith('http')) {
+          if (loc.startsWith('/')) {
+            fullUrl = new URL(loc, fullUrl).href;
+          } else {
+            break; // 遇到 xhsdiscover:// 等 App 协议停止
+          }
+        } else {
+          fullUrl = loc;
+        }
+      } else {
+        break;
+      }
+    } catch {
+      break;
+    }
   }
 
-  const rawStr = html.slice(start, end).trim();
-  const data = JSON.parse(rawStr.replace(/:\s*undefined/g, ':null'));
-  const noteMap = data.note?.noteDetailMap || {};
-  const noteId = Object.keys(noteMap)[0];
-  if (!noteId || !noteMap[noteId]?.note) {
-    throw new Error('未能在小红书状态中获取到笔记数据，可能作品已删除或受隐私保护');
+  // 2. 统一规范化路径 (/user/profile/{uid}/{noteId} 或 /explore/{noteId} -> /discovery/item/{noteId}，完整保留全部 query 参数)
+  try {
+    const uObj = new URL(fullUrl);
+    const noteMatch = uObj.pathname.match(/(?:discovery\/item|explore|user\/profile\/[a-zA-Z0-9]+)\/([a-zA-Z0-9]+)/i);
+    if (noteMatch) {
+      uObj.pathname = `/discovery/item/${noteMatch[1]}`;
+      fullUrl = uObj.href;
+    }
+  } catch {}
+
+  // 3. 优先通过移动端 MOBILE_UA 请求 SSR 页面（避开 PC 端 felogin 强制登录墙）
+  let note: any = null;
+  try {
+    const pageRes = await fetch(fullUrl, {
+      headers: {
+        'User-Agent': MOBILE_UA,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh-Hans;q=0.9',
+        'Referer': 'https://www.xiaohongshu.com/',
+      },
+    });
+    const html = await pageRes.text();
+    note = parseXhsInitialStateFromHtml(html);
+  } catch {}
+
+  // 4. 若纯 HTTP 请求未拿到笔记数据，启动隐藏 BrowserWindow 渲染穿透兜底
+  if (!note) {
+    note = await new Promise<any>((resolve) => {
+      let settled = false;
+      const win = new BrowserWindow({
+        show: false,
+        width: 390,
+        height: 844,
+        webPreferences: {
+          offscreen: true,
+          partition: 'persist:xhs_mobile_session',
+        },
+      });
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        try {
+          win.destroy();
+        } catch {}
+      };
+
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          resolve(null);
+        }
+      }, 10000);
+
+      win.webContents.on('will-navigate', (e, navUrl) => {
+        if (!navUrl.startsWith('http')) e.preventDefault();
+      });
+
+      win.loadURL(fullUrl, { userAgent: MOBILE_UA }).catch(() => {});
+
+      const interval = setInterval(async () => {
+        if (settled || win.isDestroyed()) {
+          clearInterval(interval);
+          return;
+        }
+        try {
+          const stateStr = await win.webContents.executeJavaScript(`
+            (() => {
+              const st = window.__INITIAL_STATE__;
+              if (!st) return '';
+              const n = st.noteData?.data?.noteData || (st.note?.noteDetailMap && Object.values(st.note.noteDetailMap)[0]?.note);
+              return n ? JSON.stringify(n) : '';
+            })()
+          `);
+          if (stateStr) {
+            const parsed = JSON.parse(stateStr);
+            if (parsed && (parsed.title || parsed.desc || parsed.imageList?.length || parsed.video)) {
+              settled = true;
+              clearInterval(interval);
+              cleanup();
+              resolve(parsed);
+            }
+          }
+        } catch {}
+      }, 300);
+    });
   }
 
-  const note = noteMap[noteId].note;
+  if (!note) {
+    throw new Error('未能在小红书页面获取到有效笔记数据，请确认分享链接包含有效访问凭证或作品未删除');
+  }
+
   const isVideo = note.type === 'video' || Boolean(note.video);
-  const title = note.title || (note.desc ? note.desc.slice(0, 30) : '小红书笔记');
+  const title = (note.title || (note.desc ? note.desc.slice(0, 40) : '小红书笔记')).trim();
   const desc = note.desc || '';
-  const author = note.user?.nickname || '小红书薯友';
-  const authorAvatar = note.user?.avatar || '';
+  const author = note.user?.nickName || note.user?.nickname || '小红书薯友';
+  const authorAvatar = (note.user?.avatar || note.user?.image || '').replace(/^http:\/\//i, 'https://');
+  const durationSec = note.video?.capa?.duration || note.video?.media?.video?.duration || undefined;
 
   let videoUrl: string | undefined = undefined;
   const resolutions: MediaResolutionOption[] = [];
 
-  if (isVideo && note.video?.media?.stream) {
-    const stream = note.video.media.stream;
+  if (isVideo && note.video) {
+    // 1. 终极通道：探测小红书创作者上传的未压缩原片母带 (consumer.originVideoKey，支持 4K/2K 200MB+ 源流)
+    const originKey: string | undefined = note.video.consumer?.originVideoKey || note.video.originVideoKey;
+    let origW = 0;
+    let origH = 0;
+    if (note.video.mediaV2) {
+      try {
+        const mv2 = typeof note.video.mediaV2 === 'string' ? JSON.parse(note.video.mediaV2) : note.video.mediaV2;
+        origW = mv2?.video?.width || 0;
+        origH = mv2?.video?.height || 0;
+      } catch {}
+    }
+
+    if (originKey) {
+      const cdnHosts = ['sns-video-bd.xhscdn.com', 'sns-video-hw.xhscdn.com', 'sns-video-al.xhscdn.com'];
+      const probeResults = await Promise.all(
+        cdnHosts.map(async (host) => {
+          const candidateUrl = `https://${host}/${originKey}`;
+          try {
+            const ctrl = new AbortController();
+            const t = setTimeout(() => ctrl.abort(), 3000);
+            const hRes = await fetch(candidateUrl, {
+              method: 'HEAD',
+              headers: { 'User-Agent': MOBILE_UA },
+              signal: ctrl.signal,
+            });
+            clearTimeout(t);
+            const len = parseInt(hRes.headers.get('content-length') || '0', 10);
+            if (hRes.ok && len > 50000) {
+              return { url: candidateUrl, size: len };
+            }
+          } catch {}
+          return null;
+        })
+      );
+
+      const validOrigin = probeResults.find((r) => r !== null);
+      if (validOrigin) {
+        const minDim = origW && origH ? Math.min(origW, origH) : 1080;
+        const maxDim = origW && origH ? Math.max(origW, origH) : 1920;
+        let pTag = '原画母带';
+        if (minDim >= 2160 || maxDim >= 3840) pTag = '4K 原画母带';
+        else if (minDim >= 1440 || maxDim >= 2560) pTag = '2K 原画母带';
+        else if (minDim >= 1080 || maxDim >= 1920) pTag = '1080P 原画母带';
+
+        const estBitrate = durationSec ? Math.round((validOrigin.size * 8) / durationSec) : 15000000;
+        resolutions.push({
+          id: 'xhs_origin_master',
+          label: `${pTag}${origW && origH ? ` (${origW}×${origH})` : ''} · 无损最高画质原片`,
+          videoUrl: validOrigin.url,
+          width: origW || undefined,
+          height: origH || undefined,
+          bitrate: estBitrate,
+          format: 'mp4',
+          sizeEstimated: `${(validOrigin.size / (1024 * 1024)).toFixed(1)} MB`,
+          isDefault: true,
+          needsAudioMerge: false,
+        });
+      }
+    }
+
+    // 2. 遍历常规转码流 (stream.h264 / stream.h265 / stream.av1)
+    const stream = note.video.media?.stream || {};
     const h264List: any[] = stream.h264 || [];
     const h265List: any[] = stream.h265 || [];
+    const av1List: any[] = stream.av1 || [];
 
     const allStreams = [
       ...h264List.map((s) => ({ ...s, codec: 'h264' })),
       ...h265List.map((s) => ({ ...s, codec: 'h265' })),
+      ...av1List.map((s) => ({ ...s, codec: 'av1' })),
     ];
 
+    const transcodeOptions: MediaResolutionOption[] = [];
     allStreams.forEach((st, idx) => {
-      const u = st.masterUrl || st.mainUrl || st.url;
-      if (!u) return;
+      const rawU = st.masterUrl || st.mainUrl || st.url || st.backupUrls?.[0];
+      if (!rawU) return;
+      const u = rawU.replace(/^http:\/\//i, 'https://');
       const w = st.width || 0;
       const h = st.height || 0;
+      const minDim = Math.min(w, h);
+      const maxDim = Math.max(w, h);
       let label = '';
-      if (h) {
-        label = (h >= 1080 ? '1080P 超清' : h >= 720 ? '720P 高清' : `${h}P 标清`) + (w ? ` (${w}×${h})` : '');
+      if (maxDim) {
+        label = (minDim >= 1080 || maxDim >= 1920 ? '1080P 超清' : minDim >= 720 || maxDim >= 1280 ? '720P 高清' : `${minDim || h}P 标清`) + (w && h ? ` (${w}×${h})` : '');
       } else {
-        label = st.qualityType || (idx === 0 ? '超清无水印流' : `清晰度规格 ${idx + 1}`);
+        label = st.qualityType || `清晰度规格 ${idx + 1}`;
       }
       if (st.codec === 'h265') label += ' (H.265)';
 
-      const sizeBytes = st.size || st.videoSize;
+      const sizeBytes = st.size || st.videoSize || 0;
       const sizeEstimated = sizeBytes > 0 ? `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB` : undefined;
 
-      resolutions.push({
+      transcodeOptions.push({
         id: `xhs_${st.codec}_${idx}`,
         label,
         videoUrl: u,
-        bitrate: st.bitrate || st.videoBitrate,
+        bitrate: st.avgBitrate || st.bitrate || st.videoBitrate,
         width: w,
         height: h,
-        format: st.codec,
+        format: st.codec === 'h265' ? 'h265' : 'mp4',
         sizeEstimated,
+        needsAudioMerge: false,
       });
     });
 
+    transcodeOptions.sort((a, b) => (b.height || 0) - (a.height || 0) || (b.bitrate || 0) - (a.bitrate || 0));
+    resolutions.push(...transcodeOptions);
+
     if (resolutions.length > 0) {
-      // 优先按分辨率高度降序，再按码率降序
-      resolutions.sort((a, b) => (b.height || 0) - (a.height || 0) || (b.bitrate || 0) - (a.bitrate || 0));
-      resolutions[0].isDefault = true;
+      if (!resolutions.some((r) => r.isDefault)) {
+        resolutions[0].isDefault = true;
+      }
       videoUrl = resolutions[0].videoUrl;
-    } else {
-      videoUrl = h264List[0]?.masterUrl || stream.h265?.[0]?.masterUrl || undefined;
     }
   }
 
-  // 1. 网页端自适应预览图片列表
+  // 1. 网页端/移动端自适应预览图片列表（统一升级为 https）
   const images: string[] = (note.imageList || [])
     .map((img: any) => {
-      const dft = img.infoList?.find((it: any) => it.imageScene === 'WB_DFT')?.url;
+      const dft = img.infoList?.find((it: any) => it.imageScene === 'WB_DFT' || it.imageScene === 'H5_DTL')?.url;
       const prv = img.infoList?.find((it: any) => it.imageScene === 'WB_PRV')?.url;
-      return dft || img.urlDefault || prv || img.url;
+      const raw = dft || img.urlDefault || prv || img.url || '';
+      return raw.replace(/^http:\/\//i, 'https://');
     })
     .filter(Boolean);
 
@@ -1326,14 +1551,13 @@ async function parseXiaohongshu(targetUrl: string): Promise<ParsedMediaInfo> {
         if (m) fileId = m[1];
       }
       if (fileId) {
-        // ci.xiaohongshu.com 提供官方相机原画直连，单张达 5~20MB JPEG，无防盗链 403 阻断
         return `https://ci.xiaohongshu.com/${fileId}`;
       }
-      return img.urlDefault || anyUrl;
+      return (img.urlDefault || anyUrl).replace(/^http:\/\//i, 'https://');
     })
     .filter(Boolean);
 
-  const coverUrl = images[0] || note.cover?.url || '';
+  const coverUrl = (images[0] || note.cover?.url || '').replace(/^http:\/\//i, 'https://');
 
   return {
     platform: 'xiaohongshu',
@@ -1344,6 +1568,7 @@ async function parseXiaohongshu(targetUrl: string): Promise<ParsedMediaInfo> {
     author,
     authorAvatar,
     coverUrl,
+    durationSec,
     videoUrl,
     images: images.length > 0 ? images : undefined,
     rawImages: rawImages.length > 0 ? rawImages : undefined,
@@ -1351,7 +1576,7 @@ async function parseXiaohongshu(targetUrl: string): Promise<ParsedMediaInfo> {
     selectedResolutionId: resolutions[0]?.id,
     originalUrl: targetUrl,
     headers: {
-      'User-Agent': PC_UA,
+      'User-Agent': MOBILE_UA,
       'Referer': 'https://www.xiaohongshu.com/',
     },
   };
