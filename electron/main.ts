@@ -416,7 +416,90 @@ const ASR_STATUS_TEXT: Record<string, string> = {
   '55000031': '服务器繁忙，请稍后重试',
 };
 
-// 从 query 响应里尽量健壮地抽出识别文本与分句
+// 将分句文本与 ASR 原生 words 对齐（补齐原生 words 中缺失的标点符号；若服务端未返回 words 则按字词等比插值生成毫秒级逐字时间戳）
+function buildAlignedUtteranceWords(
+  uText: string,
+  uStartMs: number,
+  uEndMs: number,
+  rawWords?: any[]
+): Array<{ text: string; startTime: number; endTime: number }> {
+  const text = (uText || '').trim();
+  if (!text) return [];
+  const validStart = Math.max(0, Number(uStartMs) || 0);
+  const validEnd = Math.max(validStart + 80, Number(uEndMs) || validStart + text.length * 180);
+  const totalDur = validEnd - validStart;
+
+  if (Array.isArray(rawWords) && rawWords.length > 0) {
+    const baseWords = rawWords
+      .map((w: any) => ({
+        text: typeof w?.text === 'string' ? w.text : String(w?.word || ''),
+        startTime: Number(w?.start_time ?? w?.startTime) || 0,
+        endTime: Number(w?.end_time ?? w?.endTime) || 0,
+      }))
+      .filter((w) => w.text.length > 0);
+
+    if (baseWords.length > 0) {
+      // 将 uText 中的标点符号顺延吸附到对应字词上，保证 words 拼接后 100% 还原带标点原句
+      const aligned: Array<{ text: string; startTime: number; endTime: number }> = [];
+      let cursor = 0;
+      const puncRe = /^[，。！？；：、,.!?;:'"“”‘’（）()【】《》…—\-\s]+/;
+
+      // 吸收句首可能存在的前置引号或符号
+      const leadMatch = text.slice(cursor).match(puncRe);
+      let pendingLead = '';
+      if (leadMatch) {
+        pendingLead = leadMatch[0];
+        cursor += pendingLead.length;
+      }
+
+      for (let i = 0; i < baseWords.length; i++) {
+        const bw = baseWords[i];
+        let tokenText = (i === 0 ? pendingLead : '') + bw.text;
+        const idx = text.indexOf(bw.text, cursor);
+        if (idx !== -1 && idx - cursor <= 6) {
+          if (idx > cursor) {
+            tokenText = (i === 0 ? pendingLead : '') + text.slice(cursor, idx + bw.text.length);
+          }
+          cursor = idx + bw.text.length;
+          const trailMatch = text.slice(cursor).match(puncRe);
+          if (trailMatch) {
+            tokenText += trailMatch[0];
+            cursor += trailMatch[0].length;
+          }
+        }
+        const st = bw.startTime > 0 ? bw.startTime : Math.round(validStart + (i / baseWords.length) * totalDur);
+        const et = bw.endTime > st ? bw.endTime : Math.round(validStart + ((i + 1) / baseWords.length) * totalDur);
+        aligned.push({ text: tokenText, startTime: st, endTime: et });
+      }
+
+      if (cursor < text.length && aligned.length > 0) {
+        aligned[aligned.length - 1].text += text.slice(cursor);
+      }
+      return aligned;
+    }
+  }
+
+  // 兜底：将句子切分为单字/英文单词（标点吸附在前一个字后），按字长等比生成毫秒级逐字时间戳
+  const tokens = text.match(/[a-zA-Z0-9]+|[0-9.%]+|[\u4e00-\u9fa5]|[^\s]/g) || text.split('');
+  const mergedTokens: string[] = [];
+  const puncOnly = /^[，。！？；：、,.!?;:'"”’）)】》…—\-]+$/;
+  for (const tk of tokens) {
+    if (mergedTokens.length > 0 && puncOnly.test(tk)) {
+      mergedTokens[mergedTokens.length - 1] += tk;
+    } else {
+      mergedTokens.push(tk);
+    }
+  }
+
+  const count = Math.max(1, mergedTokens.length);
+  return mergedTokens.map((tk, idx) => ({
+    text: tk,
+    startTime: Math.round(validStart + (idx / count) * totalDur),
+    endTime: Math.round(validStart + ((idx + 1) / count) * totalDur),
+  }));
+}
+
+// 从 query 响应里尽量健壮地抽出识别文本与分句（含 100% 覆盖的逐字毫秒级时间戳）
 function extractAsrResult(body: any): { text: string; utterances: any[]; durationMs: number } | null {
   if (!body || typeof body !== 'object') return null;
   let r: any = body.result;
@@ -424,19 +507,18 @@ function extractAsrResult(body: any): { text: string; utterances: any[]; duratio
   if (!r || typeof r !== 'object') return null;
 
   const rawUtt: any[] = Array.isArray(r.utterances) ? r.utterances : Array.isArray(body.result) ? body.result : [];
-  const utterances = rawUtt.map((u: any) => ({
-    text: typeof u?.text === 'string' ? u.text : '',
-    startTime: Number(u?.start_time) || 0,
-    endTime: Number(u?.end_time) || 0,
-    speaker: u?.additions?.speaker,
-    words: Array.isArray(u?.words)
-      ? u.words.map((w: any) => ({
-          text: typeof w?.text === 'string' ? w.text : '',
-          startTime: Number(w?.start_time) || 0,
-          endTime: Number(w?.end_time) || 0,
-        }))
-      : undefined,
-  }));
+  const utterances = rawUtt.map((u: any) => {
+    const uText = typeof u?.text === 'string' ? u.text : '';
+    const startTime = Number(u?.start_time) || 0;
+    const endTime = Number(u?.end_time) || 0;
+    return {
+      text: uText,
+      startTime,
+      endTime,
+      speaker: u?.additions?.speaker,
+      words: buildAlignedUtteranceWords(uText, startTime, endTime, u?.words),
+    };
+  });
 
   // 文本优先取 result.text；没有就用全部分句拼起来兜底
   let text = typeof r.text === 'string' ? r.text : '';

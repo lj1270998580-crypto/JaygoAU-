@@ -1090,20 +1090,48 @@ export const AdvancedTimelineModal: React.FC<AdvancedTimelineModalProps> = ({
               )}
             </div>
 
-            {/* 3. ASR 口播切片 */}
+            {/* 3. ASR 口播切片（支持跟随播放逐字高亮） */}
             <div className="h-12 border-b border-zinc-800/60 relative bg-zinc-950/30 shrink-0 overflow-hidden">
               {asrUtterances.map((u, i) => {
                 const left = u.startTime * pxPerSec;
-                const width = Math.max(24, (u.endTime - u.startTime) * pxPerSec);
+                const uDur = Math.max(0.1, u.endTime - u.startTime);
+                const width = Math.max(24, uDur * pxPerSec);
+                const isCurrentU = currentTime >= u.startTime && currentTime <= u.endTime;
+                const chars = Array.from(u.text || '');
+                const activeCharIdx = isCurrentU
+                  ? Math.min(
+                      chars.length - 1,
+                      Math.max(0, Math.floor(((currentTime - u.startTime) / uDur) * chars.length))
+                    )
+                  : -1;
                 return (
                   <div
                     key={i}
                     style={{ left: `${left}px`, width: `${width}px` }}
-                    className="absolute top-1 bottom-1 rounded bg-emerald-950/40 border border-emerald-500/40 px-1.5 flex items-center overflow-hidden shadow-sm"
+                    className={`absolute top-1 bottom-1 rounded px-1.5 flex items-center overflow-hidden shadow-sm transition-colors ${
+                      isCurrentU
+                        ? 'bg-emerald-900/70 border-2 border-amber-400/90 z-10'
+                        : 'bg-emerald-950/40 border border-emerald-500/40'
+                    }`}
                     title={`${u.startTime.toFixed(1)}s - ${u.endTime.toFixed(1)}s: ${u.text}`}
                   >
-                    <span className="text-[10px] text-emerald-300 font-medium truncate pointer-events-none">
-                      {u.text}
+                    <span className="text-[10px] font-medium truncate pointer-events-none">
+                      {isCurrentU
+                        ? chars.map((ch, cIdx) => (
+                            <span
+                              key={cIdx}
+                              className={
+                                cIdx === activeCharIdx
+                                  ? 'bg-amber-400 text-zinc-950 font-bold px-0.5 rounded-xs'
+                                  : cIdx < activeCharIdx
+                                  ? 'text-amber-300 font-semibold'
+                                  : 'text-emerald-200/80'
+                              }
+                            >
+                              {ch}
+                            </span>
+                          ))
+                        : <span className="text-emerald-300">{u.text}</span>}
                     </span>
                   </div>
                 );

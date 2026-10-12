@@ -2,11 +2,18 @@ import { useEffect, useState, useRef, useMemo } from 'react';
 import { useStore } from '../store';
 import { api } from '../lib/ipc';
 
+interface WordTiming {
+  text: string;
+  startTime: number; // ms
+  endTime: number;   // ms
+}
+
 interface Utterance {
   text: string;
   startTime: number;
   endTime: number;
   speaker?: string;
+  words?: WordTiming[];
 }
 
 interface Paragraph {
@@ -14,6 +21,7 @@ interface Paragraph {
   startTime: number;
   endTime: number;
   text: string;
+  words: WordTiming[];
 }
 
 const ASR_PRICE_PER_HOUR = 0.8;
@@ -31,6 +39,15 @@ function fmtSec(ms: number) {
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function fmtMsPrecise(ms: number) {
+  const safeMs = Math.max(0, Math.floor(ms || 0));
+  const totalSec = Math.floor(safeMs / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  const tenth = Math.floor((safeMs % 1000) / 100);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${tenth}`;
 }
 
 function formatSrtTime(ms: number): string {
@@ -71,11 +88,87 @@ function buildSpeakerText(utterances: Utterance[]): string {
   return lines.join('\n\n');
 }
 
-// 智能分句提取与降级自愈（如遇服务端未下发分句，自动按标点与时长断句，保障时间轴与分段绝不空白）
+// 确保单条分句具备 100% 完整且标点对齐的逐字毫秒级时间戳
+function ensureUtteranceWords(u: Utterance): WordTiming[] {
+  const text = (u.text || '').trim();
+  if (!text) return [];
+  const validStart = Math.max(0, Number(u.startTime) || 0);
+  const validEnd = Math.max(validStart + 80, Number(u.endTime) || validStart + text.length * 180);
+  const totalDur = validEnd - validStart;
+
+  if (Array.isArray(u.words) && u.words.length > 0) {
+    const baseWords = u.words.filter((w) => w && w.text && w.text.length > 0);
+    if (baseWords.length > 0) {
+      // 检查是否已包含原句完整文本（含标点）
+      const joined = baseWords.map((w) => w.text).join('');
+      if (joined === text) {
+        return baseWords;
+      }
+
+      // 将原句中的标点顺延吸附到对应字词上
+      const aligned: WordTiming[] = [];
+      let cursor = 0;
+      const puncRe = /^[，。！？；：、,.!?;:'"“”‘’（）()【】《》…—\-\s]+/;
+      const leadMatch = text.slice(cursor).match(puncRe);
+      let pendingLead = '';
+      if (leadMatch) {
+        pendingLead = leadMatch[0];
+        cursor += pendingLead.length;
+      }
+
+      for (let i = 0; i < baseWords.length; i++) {
+        const bw = baseWords[i];
+        let tokenText = (i === 0 ? pendingLead : '') + bw.text;
+        const idx = text.indexOf(bw.text, cursor);
+        if (idx !== -1 && idx - cursor <= 6) {
+          if (idx > cursor) {
+            tokenText = (i === 0 ? pendingLead : '') + text.slice(cursor, idx + bw.text.length);
+          }
+          cursor = idx + bw.text.length;
+          const trailMatch = text.slice(cursor).match(puncRe);
+          if (trailMatch) {
+            tokenText += trailMatch[0];
+            cursor += trailMatch[0].length;
+          }
+        }
+        const st = bw.startTime > 0 ? bw.startTime : Math.round(validStart + (i / baseWords.length) * totalDur);
+        const et = bw.endTime > st ? bw.endTime : Math.round(validStart + ((i + 1) / baseWords.length) * totalDur);
+        aligned.push({ text: tokenText, startTime: st, endTime: et });
+      }
+      if (cursor < text.length && aligned.length > 0) {
+        aligned[aligned.length - 1].text += text.slice(cursor);
+      }
+      return aligned;
+    }
+  }
+
+  // 兜底：将句子切分为单字/英文单词（标点吸附在前一字后），等比生成毫秒级逐字时间戳
+  const tokens = text.match(/[a-zA-Z0-9]+|[0-9.%]+|[\u4e00-\u9fa5]|[^\s]/g) || text.split('');
+  const mergedTokens: string[] = [];
+  const puncOnly = /^[，。！？；：、,.!?;:'"”’）)】》…—\-]+$/;
+  for (const tk of tokens) {
+    if (mergedTokens.length > 0 && puncOnly.test(tk)) {
+      mergedTokens[mergedTokens.length - 1] += tk;
+    } else {
+      mergedTokens.push(tk);
+    }
+  }
+  const count = Math.max(1, mergedTokens.length);
+  return mergedTokens.map((tk, idx) => ({
+    text: tk,
+    startTime: Math.round(validStart + (idx / count) * totalDur),
+    endTime: Math.round(validStart + ((idx + 1) / count) * totalDur),
+  }));
+}
+
+// 智能分句提取与降级自愈（如遇服务端未下发分句，自动按标点与时长断句，并补齐逐字毫秒时间戳）
 function getEffectiveUtterances(result: { text: string; utterances: Utterance[]; durationMs: number } | null): Utterance[] {
   if (!result) return [];
   if (Array.isArray(result.utterances) && result.utterances.length > 0) {
-    return result.utterances;
+    return result.utterances.map((u) => ({
+      ...u,
+      words: ensureUtteranceWords(u),
+    }));
   }
   const raw = (result.text || '').trim();
   if (!raw) return [];
@@ -94,15 +187,17 @@ function getEffectiveUtterances(result: { text: string; utterances: Utterance[];
       const start = curTime;
       const end = Math.min(dur, start + segDur);
       curTime = end;
-      return {
+      const u: Utterance = {
         text: p,
         startTime: start,
         endTime: end,
       };
+      u.words = ensureUtteranceWords(u);
+      return u;
     });
 }
 
-// 智能分段聚类
+// 智能分段聚类（保留段内全部逐字时间戳）
 function clusterParagraphs(utterances: Utterance[]): Paragraph[] {
   if (!utterances || utterances.length === 0) return [];
   const paragraphs: Paragraph[] = [];
@@ -111,6 +206,7 @@ function clusterParagraphs(utterances: Utterance[]): Paragraph[] {
     startTime: utterances[0].startTime,
     endTime: utterances[0].endTime,
     text: utterances[0].text,
+    words: [...(utterances[0].words || ensureUtteranceWords(utterances[0]))],
   };
 
   for (let i = 1; i < utterances.length; i++) {
@@ -118,11 +214,13 @@ function clusterParagraphs(utterances: Utterance[]): Paragraph[] {
     const prev = utterances[i - 1];
     const isSameSpeaker = (u.speaker || '') === (curPara.speaker || '');
     const pauseTime = u.startTime - prev.endTime;
+    const uWords = u.words || ensureUtteranceWords(u);
 
     // 同一说话人且停顿小于 2 秒，且段落长度不超过 260 字，聚合为段落
     if (isSameSpeaker && pauseTime < 2000 && curPara.text.length < 260) {
       curPara.endTime = u.endTime;
       curPara.text += u.text;
+      curPara.words.push(...uWords);
     } else {
       paragraphs.push(curPara);
       curPara = {
@@ -130,6 +228,7 @@ function clusterParagraphs(utterances: Utterance[]): Paragraph[] {
         startTime: u.startTime,
         endTime: u.endTime,
         text: u.text,
+        words: [...uWords],
       };
     }
   }
@@ -159,18 +258,38 @@ export default function Transcribe() {
   const [drag, setDrag] = useState(false);
   const [status, setStatus] = useState('');
   const [result, setResult] = useState<{ text: string; utterances: Utterance[]; durationMs: number } | null>(null);
-  const [viewMode, setViewMode] = useState<'timeline' | 'paragraphs' | 'doc'>('paragraphs');
+  const [viewMode, setViewMode] = useState<'timeline' | 'paragraphs' | 'doc'>('timeline');
   const [copied, setCopied] = useState(false);
   const [playbackRate, setPlaybackRate] = useState<number>(1.0);
   const [linkInput, setLinkInput] = useState('');
   const [linkExtracting, setLinkExtracting] = useState(false);
 
+  // 实时播放进度（毫秒）与自动跟随滚动状态
+  const [currentTimeMs, setCurrentTimeMs] = useState<number>(0);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [autoScroll, setAutoScroll] = useState<boolean>(true);
+
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
+  const resultScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const off = api.onTranscribeStatus((msg) => setStatus(msg));
     return off;
   }, []);
+
+  // 60fps 毫秒级播放指针高频同步，确保逐字卡拉OK预览丝滑精准
+  useEffect(() => {
+    if (!isPlaying) return;
+    let rafId = 0;
+    const syncClock = () => {
+      if (mediaRef.current && !mediaRef.current.paused) {
+        setCurrentTimeMs(Math.round(mediaRef.current.currentTime * 1000));
+      }
+      rafId = requestAnimationFrame(syncClock);
+    };
+    rafId = requestAnimationFrame(syncClock);
+    return () => cancelAnimationFrame(rafId);
+  }, [isPlaying]);
 
   const isVideo = (path: string) => /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(path);
 
@@ -191,16 +310,17 @@ export default function Transcribe() {
     setBusy(true);
     setStatus('准备中…');
     setResult(null);
+    setCurrentTimeMs(0);
     try {
       const r = await api.transcribe({ filePath: targetPath, enableSpeakerInfo: settings?.enableSpeakerInfo ?? false });
       setResult(r);
       const effective = getEffectiveUtterances(r);
-      setViewMode(effective.length > 0 ? 'paragraphs' : 'doc');
+      setViewMode(effective.length > 0 ? 'timeline' : 'doc');
       setStatus('转录完成');
       showToast('转录完成', 'ok');
       api.showNotification?.({
         title: '📝 视音频转录已完成',
-        body: '识别文本与说话人时间轴已提取完毕，点击前往查看与导出',
+        body: '识别文本与逐字时间轴已提取完毕，点击前往查看与导出',
         tab: 'transcribe',
       });
     } catch (e: any) {
@@ -219,6 +339,7 @@ export default function Transcribe() {
       setFilePath(p);
       setFileName(n);
       setResult(null);
+      setCurrentTimeMs(0);
       if (autoStart) {
         startTranscribeWithFile(p);
       }
@@ -236,6 +357,46 @@ export default function Transcribe() {
   const paragraphs = useMemo(() => {
     return clusterParagraphs(effectiveUtterances);
   }, [effectiveUtterances]);
+
+  // 计算当前正在播放的分句（若处于句间短暂气口，则吸附到最近一句以便持续预览）
+  const activeUtteranceInfo = useMemo(() => {
+    if (!effectiveUtterances.length) return null;
+    const exactIdx = effectiveUtterances.findIndex(
+      (u) => currentTimeMs >= u.startTime && currentTimeMs <= u.endTime
+    );
+    if (exactIdx !== -1) {
+      return { utterance: effectiveUtterances[exactIdx], index: exactIdx, isExact: true };
+    }
+    // 寻找最近的一句
+    let bestIdx = 0;
+    let minDiff = Infinity;
+    effectiveUtterances.forEach((u, idx) => {
+      const diff = currentTimeMs < u.startTime ? u.startTime - currentTimeMs : currentTimeMs - u.endTime;
+      if (diff < minDiff) {
+        minDiff = diff;
+        bestIdx = idx;
+      }
+    });
+    return { utterance: effectiveUtterances[bestIdx], index: bestIdx, isExact: false };
+  }, [effectiveUtterances, currentTimeMs]);
+
+  // 自动滚动右侧时间轴/分段视图，让正在发音的字句始终保持在视口中央
+  useEffect(() => {
+    if (!isPlaying || !autoScroll || !resultScrollRef.current) return;
+    const container = resultScrollRef.current;
+    const activeWordEl = container.querySelector('[data-active-word="true"]') as HTMLElement | null;
+    const activeRowEl = container.querySelector('[data-active-row="true"]') as HTMLElement | null;
+    const targetEl = activeWordEl || activeRowEl;
+    if (targetEl) {
+      const cRect = container.getBoundingClientRect();
+      const tRect = targetEl.getBoundingClientRect();
+      const offsetTop = tRect.top - cRect.top + container.scrollTop;
+      const desiredTop = offsetTop - cRect.height * 0.38;
+      if (Math.abs(container.scrollTop - desiredTop) > 48) {
+        container.scrollTo({ top: Math.max(0, desiredTop), behavior: 'smooth' });
+      }
+    }
+  }, [activeUtteranceInfo?.index, Math.floor(currentTimeMs / 400), isPlaying, autoScroll, viewMode]);
 
   if (!settings) return null;
 
@@ -305,10 +466,12 @@ export default function Transcribe() {
     }
   };
 
-  // 跳转并播放
-  const seekTo = (ms: number) => {
+  // 跳转并播放（exact=true 用于单字级毫秒精准跳转，不预留提前量）
+  const seekTo = (ms: number, exact = false) => {
+    const targetMs = exact ? Math.max(0, ms) : Math.max(0, ms - 120);
+    setCurrentTimeMs(ms);
     if (mediaRef.current) {
-      mediaRef.current.currentTime = Math.max(0, ms / 1000 - 0.2);
+      mediaRef.current.currentTime = targetMs / 1000;
       mediaRef.current.play().catch(() => {});
     }
   };
@@ -319,8 +482,6 @@ export default function Transcribe() {
       mediaRef.current.playbackRate = rate;
     }
   };
-
-
 
   const copy = async (text: string) => {
     try {
@@ -377,7 +538,7 @@ export default function Transcribe() {
             <span>视音频转录工作台</span>
           </h2>
           <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-            火山引擎 Seed-ASR 2.0 大模型音视频识别 · 智能分段排版 · 角色分离 · 联动音视频同步对照
+            火山引擎 Seed-ASR 2.0 大模型音视频识别 · 60fps 逐字跟随预览 · 角色分离 · 点击单字毫秒级跳转
           </p>
         </div>
 
@@ -493,6 +654,8 @@ export default function Transcribe() {
                     setFilePath(null);
                     setFileName('');
                     setResult(null);
+                    setCurrentTimeMs(0);
+                    setIsPlaying(false);
                   }}
                   title="清除文件"
                 >
@@ -509,6 +672,12 @@ export default function Transcribe() {
                 <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
                   <span>📺</span>
                   <span>媒体同步预览</span>
+                  {isPlaying && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9.5px] font-medium bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                      同步中
+                    </span>
+                  )}
                 </span>
 
                 {/* 倍速切换胶囊 */}
@@ -537,6 +706,11 @@ export default function Transcribe() {
                     ref={mediaRef as React.RefObject<HTMLVideoElement>}
                     src={mediaUrl}
                     controls
+                    onPlay={() => setIsPlaying(true)}
+                    onPause={() => setIsPlaying(false)}
+                    onEnded={() => setIsPlaying(false)}
+                    onTimeUpdate={(e) => setCurrentTimeMs(Math.round(e.currentTarget.currentTime * 1000))}
+                    onSeeked={(e) => setCurrentTimeMs(Math.round(e.currentTarget.currentTime * 1000))}
                     className="w-full max-h-[220px] object-contain"
                   />
                 ) : (
@@ -549,15 +723,84 @@ export default function Transcribe() {
                       ref={mediaRef as React.RefObject<HTMLAudioElement>}
                       src={mediaUrl}
                       controls
+                      onPlay={() => setIsPlaying(true)}
+                      onPause={() => setIsPlaying(false)}
+                      onEnded={() => setIsPlaying(false)}
+                      onTimeUpdate={(e) => setCurrentTimeMs(Math.round(e.currentTarget.currentTime * 1000))}
+                      onSeeked={(e) => setCurrentTimeMs(Math.round(e.currentTarget.currentTime * 1000))}
                       className="w-full h-8"
                     />
                   </div>
                 )}
               </div>
 
+              {/* 🎤 实时逐字跟随字幕预览 (Karaoke Word Monitor) */}
+              {effectiveUtterances.length > 0 && activeUtteranceInfo && (
+                <div className="rounded-lg bg-zinc-900 dark:bg-[#0d0d12] border border-zinc-800 p-3 space-y-2 shadow-inner">
+                  <div className="flex items-center justify-between text-[10.5px] text-zinc-400">
+                    <span className="flex items-center gap-1.5 font-medium text-amber-400">
+                      <span>🎤</span>
+                      <span>实时逐字跟随预览</span>
+                    </span>
+                    <span className="font-mono text-zinc-400">
+                      {fmtMsPrecise(currentTimeMs)} · 第 {activeUtteranceInfo.index + 1}/{effectiveUtterances.length} 句
+                    </span>
+                  </div>
+
+                  <div className="min-h-[42px] flex flex-wrap items-center gap-y-1 text-[13.5px] leading-relaxed select-none">
+                    {(activeUtteranceInfo.utterance.words || []).map((w, wIdx) => {
+                      const isWordActive =
+                        activeUtteranceInfo.isExact &&
+                        currentTimeMs >= w.startTime &&
+                        currentTimeMs <= w.endTime;
+                      const isWordPassed =
+                        activeUtteranceInfo.isExact && currentTimeMs > w.endTime;
+                      return (
+                        <span
+                          key={wIdx}
+                          onClick={() => seekTo(w.startTime, true)}
+                          title={`${fmtMsPrecise(w.startTime)} - 点击跳到此字`}
+                          className={`cursor-pointer rounded px-0.5 transition-all duration-75 ${
+                            isWordActive
+                              ? 'bg-amber-400 text-zinc-950 font-bold scale-110 shadow-sm shadow-amber-400/40 mx-0.5'
+                              : isWordPassed
+                              ? 'text-blue-400 font-medium'
+                              : 'text-zinc-300 hover:text-white'
+                          }`}
+                        >
+                          {w.text}
+                        </span>
+                      );
+                    })}
+                  </div>
+
+                  {/* 当前句实时进度条 */}
+                  <div className="h-1 w-full rounded-full bg-zinc-800 overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-blue-500 to-amber-400 transition-all duration-75"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.max(
+                            0,
+                            ((currentTimeMs - activeUtteranceInfo.utterance.startTime) /
+                              Math.max(
+                                1,
+                                activeUtteranceInfo.utterance.endTime -
+                                  activeUtteranceInfo.utterance.startTime
+                              )) *
+                              100
+                          )
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="text-[11px] text-zinc-400 dark:text-zinc-500 leading-relaxed bg-zinc-50 dark:bg-[#1a1a20] p-2.5 rounded-lg border border-zinc-100 dark:border-zinc-800/80">
-                💡 <span className="font-medium text-zinc-600 dark:text-zinc-300">时间轴联动：</span>
-                点击右侧转录结果中的任意时间戳，播放器将自动精准跳转到对应位置！
+                💡 <span className="font-medium text-zinc-600 dark:text-zinc-300">逐字时间轴联动：</span>
+                播放时右侧文字将实时逐字高亮跟随；点击右侧<span className="text-blue-600 dark:text-blue-400 font-medium">任意单字</span>或时间戳，即可毫秒级精准跳转播放！
               </div>
             </div>
           )}
@@ -623,7 +866,7 @@ export default function Transcribe() {
               <div className="text-4xl mb-3">📄</div>
               <div className="text-sm font-medium text-zinc-800 dark:text-zinc-200 mb-1">等待开始转录</div>
               <p className="text-xs text-zinc-400 dark:text-zinc-500 max-w-sm mx-auto mb-4 leading-relaxed">
-                在左侧选择本地视音频文件后点击「开始转录」，结果将在此以智能分段排版呈现，并支持一键导出 SRT 字幕与文本。
+                在左侧选择本地视音频文件后点击「开始转录」，结果将在此以逐字跟随时间轴或智能分段呈现，并支持一键导出 SRT 字幕与文本。
               </p>
               <button
                 type="button"
@@ -645,7 +888,7 @@ export default function Transcribe() {
                   {status || '正在进行语音识别与分句处理…'}
                 </div>
                 <div className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-                  采用火山引擎大模型 ASR 接口，支持快速流式处理与高精准度标点预测
+                  采用火山引擎大模型 ASR 接口，支持快速流式处理与高精准度逐字时间戳对齐
                 </div>
               </div>
             </div>
@@ -655,41 +898,60 @@ export default function Transcribe() {
             <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800/80 bg-white dark:bg-[#141418] shadow-sm overflow-hidden animate-fade-in flex flex-col">
               {/* 头部工具栏与模式切换 */}
               <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 bg-zinc-50/70 dark:bg-[#18181e] border-b border-zinc-100 dark:border-zinc-800">
-                {/* 视图排版模式 */}
-                <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-[#202028] p-0.5 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('paragraphs')}
-                    className={`px-3 py-1 rounded-md transition flex items-center gap-1 ${
-                      viewMode === 'paragraphs'
-                        ? 'bg-blue-600 text-white font-medium shadow-xs'
-                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-                    }`}
-                  >
-                    <span>📄 智能分段</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('timeline')}
-                    className={`px-3 py-1 rounded-md transition flex items-center gap-1 ${
-                      viewMode === 'timeline'
-                        ? 'bg-blue-600 text-white font-medium shadow-xs'
-                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-                    }`}
-                  >
-                    <span>💬 对话时间轴</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('doc')}
-                    className={`px-3 py-1 rounded-md transition flex items-center gap-1 ${
-                      viewMode === 'doc'
-                        ? 'bg-blue-600 text-white font-medium shadow-xs'
-                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-                    }`}
-                  >
-                    <span>📝 纯文本</span>
-                  </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* 视图排版模式 */}
+                  <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-[#202028] p-0.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('timeline')}
+                      className={`px-3 py-1 rounded-md transition flex items-center gap-1 ${
+                        viewMode === 'timeline'
+                          ? 'bg-blue-600 text-white font-medium shadow-xs'
+                          : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <span>💬 逐字时间轴</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('paragraphs')}
+                      className={`px-3 py-1 rounded-md transition flex items-center gap-1 ${
+                        viewMode === 'paragraphs'
+                          ? 'bg-blue-600 text-white font-medium shadow-xs'
+                          : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <span>📄 智能分段</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('doc')}
+                      className={`px-3 py-1 rounded-md transition flex items-center gap-1 ${
+                        viewMode === 'doc'
+                          ? 'bg-blue-600 text-white font-medium shadow-xs'
+                          : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <span>📝 纯文本</span>
+                    </button>
+                  </div>
+
+                  {/* 自动滚动跟随开关 */}
+                  {viewMode !== 'doc' && (
+                    <button
+                      type="button"
+                      onClick={() => setAutoScroll((v) => !v)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition flex items-center gap-1 ${
+                        autoScroll
+                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
+                          : 'bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700'
+                      }`}
+                      title="播放时自动滚动并锁定正在发音的字句"
+                    >
+                      <span>🎯</span>
+                      <span>{autoScroll ? '逐字跟随已开启' : '逐字跟随已关闭'}</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* 导出与复制工具按钮 */}
@@ -727,8 +989,8 @@ export default function Transcribe() {
               </div>
 
               {/* 核心展示区 */}
-              <div className="p-5 max-h-[620px] overflow-y-auto">
-                {/* 1. 智能分段排版模式 */}
+              <div ref={resultScrollRef} className="p-5 max-h-[620px] overflow-y-auto scroll-smooth">
+                {/* 1. 智能分段排版模式（支持段落内逐字跟随高亮与点击单字跳转） */}
                 {viewMode === 'paragraphs' && (
                   <div className="space-y-4">
                     {paragraphs.length === 0 ? (
@@ -736,10 +998,17 @@ export default function Transcribe() {
                     ) : (
                       paragraphs.map((p, idx) => {
                         const style = getSpeakerStyle(p.speaker);
+                        const isCurrentPara =
+                          currentTimeMs >= p.startTime && currentTimeMs <= p.endTime;
                         return (
                           <div
                             key={idx}
-                            className="p-4 rounded-xl border border-zinc-200/80 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-[#16161c] hover:border-blue-300 dark:hover:border-blue-700/60 transition group"
+                            data-active-row={isCurrentPara ? 'true' : undefined}
+                            className={`p-4 rounded-xl border transition group ${
+                              isCurrentPara
+                                ? 'border-blue-400 dark:border-blue-500/80 bg-blue-50/30 dark:bg-blue-950/20 ring-2 ring-blue-500/15 shadow-xs'
+                                : 'border-zinc-200/80 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-[#16161c] hover:border-blue-300 dark:hover:border-blue-700/60'
+                            }`}
                           >
                             {/* 段落头部 */}
                             <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-zinc-100 dark:border-zinc-800/60">
@@ -750,7 +1019,11 @@ export default function Transcribe() {
                                 <button
                                   type="button"
                                   onClick={() => seekTo(p.startTime)}
-                                  className="text-[11px] font-mono text-zinc-500 hover:text-blue-600 dark:hover:text-blue-400 bg-white dark:bg-zinc-800 px-2 py-0.5 rounded border border-zinc-200 dark:border-zinc-700 flex items-center gap-1"
+                                  className={`text-[11px] font-mono px-2 py-0.5 rounded border flex items-center gap-1 transition ${
+                                    isCurrentPara
+                                      ? 'bg-blue-600 text-white border-blue-600 font-semibold'
+                                      : 'text-zinc-500 hover:text-blue-600 dark:hover:text-blue-400 bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700'
+                                  }`}
                                   title="点击播放器跳转至此段开始位置"
                                 >
                                   <span>▶</span>
@@ -768,9 +1041,35 @@ export default function Transcribe() {
                               </button>
                             </div>
 
-                            {/* 段落正文 */}
+                            {/* 段落正文（逐字跟随高亮 + 点击单字精准跳转） */}
                             <p className="text-[13.5px] leading-relaxed text-zinc-800 dark:text-zinc-200 select-text">
-                              {p.text}
+                              {p.words && p.words.length > 0 ? (
+                                p.words.map((w, wIdx) => {
+                                  const isWordActive =
+                                    currentTimeMs >= w.startTime && currentTimeMs <= w.endTime;
+                                  const isWordPassed =
+                                    isCurrentPara && currentTimeMs > w.endTime;
+                                  return (
+                                    <span
+                                      key={wIdx}
+                                      data-active-word={isWordActive ? 'true' : undefined}
+                                      onClick={() => seekTo(w.startTime, true)}
+                                      title={`${fmtMsPrecise(w.startTime)} - 点击跳到此字播放`}
+                                      className={`cursor-pointer rounded-xs transition-colors duration-75 ${
+                                        isWordActive
+                                          ? 'bg-amber-300 dark:bg-amber-400 text-zinc-950 font-bold px-0.5 shadow-2xs ring-2 ring-amber-400/50'
+                                          : isWordPassed
+                                          ? 'text-blue-600 dark:text-blue-400 font-medium'
+                                          : 'hover:bg-blue-100/70 dark:hover:bg-blue-900/40'
+                                      }`}
+                                    >
+                                      {w.text}
+                                    </span>
+                                  );
+                                })
+                              ) : (
+                                p.text
+                              )}
                             </p>
                           </div>
                         );
@@ -779,15 +1078,22 @@ export default function Transcribe() {
                   </div>
                 )}
 
-                {/* 2. 对话时间轴逐句模式 */}
+                {/* 2. 对话时间轴逐字跟随模式 */}
                 {viewMode === 'timeline' && (
                   <div className="space-y-2.5">
                     {effectiveUtterances.map((u, i) => {
                       const style = getSpeakerStyle(u.speaker);
+                      const isCurrentUtterance =
+                        currentTimeMs >= u.startTime && currentTimeMs <= u.endTime;
                       return (
                         <div
                           key={i}
-                          className="flex items-start gap-3 p-3 rounded-xl border border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-[#16161c] hover:bg-zinc-50 dark:hover:bg-[#1a1a20] transition group"
+                          data-active-row={isCurrentUtterance ? 'true' : undefined}
+                          className={`flex items-start gap-3 p-3 rounded-xl border transition group ${
+                            isCurrentUtterance
+                              ? 'border-blue-400 dark:border-blue-500/80 bg-blue-50/40 dark:bg-blue-950/25 ring-2 ring-blue-500/15 shadow-xs'
+                              : 'border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-[#16161c] hover:bg-zinc-50 dark:hover:bg-[#1a1a20]'
+                          }`}
                         >
                           <div className="shrink-0 flex flex-col items-center gap-1 pt-0.5">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${style.bg} ${style.text} ${style.border}`}>
@@ -796,7 +1102,11 @@ export default function Transcribe() {
                             <button
                               type="button"
                               onClick={() => seekTo(u.startTime)}
-                              className="text-[10px] font-mono text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition"
+                              className={`text-[10.5px] font-mono px-1.5 py-0.5 rounded transition ${
+                                isCurrentUtterance
+                                  ? 'bg-blue-600 text-white font-semibold shadow-2xs'
+                                  : 'text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400'
+                              }`}
                               title="点击跳转播放此句"
                             >
                               ▶ {fmtSec(u.startTime)}
@@ -804,7 +1114,33 @@ export default function Transcribe() {
                           </div>
 
                           <div className="flex-1 text-[13.5px] leading-relaxed text-zinc-800 dark:text-zinc-200 select-text">
-                            {u.text}
+                            {u.words && u.words.length > 0 ? (
+                              u.words.map((w, wIdx) => {
+                                const isWordActive =
+                                  currentTimeMs >= w.startTime && currentTimeMs <= w.endTime;
+                                const isWordPassed =
+                                  isCurrentUtterance && currentTimeMs > w.endTime;
+                                return (
+                                  <span
+                                    key={wIdx}
+                                    data-active-word={isWordActive ? 'true' : undefined}
+                                    onClick={() => seekTo(w.startTime, true)}
+                                    title={`${fmtMsPrecise(w.startTime)} - 点击跳到此字播放`}
+                                    className={`cursor-pointer rounded-xs transition-all duration-75 ${
+                                      isWordActive
+                                        ? 'bg-amber-300 dark:bg-amber-400 text-zinc-950 font-bold px-0.5 shadow-2xs ring-2 ring-amber-400/50'
+                                        : isWordPassed
+                                        ? 'text-blue-600 dark:text-blue-400 font-medium'
+                                        : 'hover:bg-blue-100/70 dark:hover:bg-blue-900/40'
+                                    }`}
+                                  >
+                                    {w.text}
+                                  </span>
+                                );
+                              })
+                            ) : (
+                              u.text
+                            )}
                           </div>
 
                           <button
@@ -833,8 +1169,8 @@ export default function Transcribe() {
 
               {/* 结果底栏信息 */}
               <div className="px-5 py-2.5 bg-zinc-50/60 dark:bg-[#16161c]/80 border-t border-zinc-100 dark:border-zinc-800 text-[11px] text-zinc-400 dark:text-zinc-500 flex items-center justify-between">
-                <span>智能标点预测与逆文本正则化已生效 · 支持时间戳精准寻道</span>
-                <span className="font-mono">共 {pureText.length} 字 · {paragraphs.length} 个自然段</span>
+                <span>60fps 逐字跟随与智能标点预测已生效 · 点击任意单字即可毫秒级精准寻道</span>
+                <span className="font-mono">共 {pureText.length} 字 · {effectiveUtterances.length} 句 · {paragraphs.length} 段</span>
               </div>
             </div>
           )}

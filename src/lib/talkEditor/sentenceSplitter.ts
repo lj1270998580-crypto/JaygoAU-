@@ -121,6 +121,39 @@ export function splitTextIntoShortPhrases(text: string): string[] {
 }
 
 /**
+ * 为短句构建完整的逐字时间戳数组（秒为单位），确保每个字符/标点都有起止时间
+ */
+function buildPhraseWords(
+  phrase: string,
+  startSec: number,
+  endSec: number,
+  candidateWords?: Array<{ text: string; startTime: number; endTime: number }>
+): Array<{ text: string; startTime: number; endTime: number }> {
+  const safeEnd = Math.max(startSec + 0.15, endSec);
+  if (Array.isArray(candidateWords) && candidateWords.length > 0) {
+    const joined = candidateWords.map((w) => w.text).join('');
+    if (joined === phrase) {
+      return candidateWords;
+    }
+  }
+  const tokens = phrase.match(/[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?|\s+|[^\sA-Za-z0-9]/g) || [phrase];
+  const dur = Math.max(0.05, safeEnd - startSec);
+  const totalWeight = Math.max(1, tokens.reduce((s, t) => s + Math.max(1, t.trim().length), 0));
+  let accWeight = 0;
+  return tokens.map((tok) => {
+    const w = Math.max(1, tok.trim().length);
+    const wStart = Number((startSec + (accWeight / totalWeight) * dur).toFixed(3));
+    accWeight += w;
+    const wEnd = Number((startSec + (accWeight / totalWeight) * dur).toFixed(3));
+    return {
+      text: tok,
+      startTime: wStart,
+      endTime: Math.max(wStart + 0.02, wEnd),
+    };
+  });
+}
+
+/**
  * 将原生 utterances 或长句切片精细化拆分为自媒体短视频单句字幕单元
  */
 export function refineUtterancesToSubtitleUnits(
@@ -143,7 +176,7 @@ export function refineUtterancesToSubtitleUnits(
     // 切出子短句
     const phrases = splitTextIntoShortPhrases(rawText);
     if (phrases.length <= 1) {
-      // 无需二次拆分
+      // 无需二次拆分，但仍确保 words 完整对齐
       const cleanText = rawText.replace(/[。！？!?，,；;、\s]+$/, '');
       results.push({
         id: raw.id || `sub-unit-${unitIndex++}`,
@@ -151,7 +184,7 @@ export function refineUtterancesToSubtitleUnits(
         cleanText: cleanText || rawText,
         startTime: rawStart,
         endTime: rawEnd,
-        words: raw.words,
+        words: buildPhraseWords(rawText, rawStart, rawEnd, raw.words),
       });
       continue;
     }
@@ -174,23 +207,18 @@ export function refineUtterancesToSubtitleUnits(
         if (sliceWords.length > 0) {
           subStart = sliceWords[0].startTime;
           subEnd = sliceWords[sliceWords.length - 1].endTime;
-          subWords = sliceWords;
+          subWords = buildPhraseWords(phrase, subStart, subEnd, sliceWords);
         } else {
           // 兜底等比计算
           subStart = Number((rawStart + (charCursor / totalChars) * rawDur).toFixed(3));
           subEnd = Number((rawStart + ((charCursor + pLen) / totalChars) * rawDur).toFixed(3));
+          subWords = buildPhraseWords(phrase, subStart, subEnd);
         }
       } else {
         // 无字级信息：按字符数在该段音频中等比分配
         subStart = Number((rawStart + (charCursor / totalChars) * rawDur).toFixed(3));
         subEnd = Number((rawStart + ((charCursor + pLen) / totalChars) * rawDur).toFixed(3));
-        // 为该分句内插生成字级信息
-        const charDur = Math.max(0.05, (subEnd - subStart) / Math.max(1, pLen));
-        subWords = phrase.split('').map((ch, i) => ({
-          text: ch,
-          startTime: Number((subStart + i * charDur).toFixed(3)),
-          endTime: Number((subStart + (i + 1) * charDur).toFixed(3)),
-        }));
+        subWords = buildPhraseWords(phrase, subStart, subEnd);
       }
 
       // 确保 endTime 严格大于 startTime

@@ -1622,6 +1622,10 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
                                 isSegSelectedByDrag &&
                                 wIdx >= dragSelection.startIdx &&
                                 wIdx <= dragSelection.endIdx;
+                              const isWordCurrent =
+                                isCurrent && currentTime >= w.startTime && currentTime <= w.endTime;
+                              const isWordPassed =
+                                isCurrent && currentTime > w.endTime;
 
                               // 在成片台词模式下，过滤已被切除的字
                               if (viewMode === 'clean' && (seg.isDeleted || w.isDeleted)) {
@@ -1638,22 +1642,28 @@ export const TranscriptCutter: React.FC<TranscriptCutterProps> = ({
                                       onSeek(w.startTime);
                                     }}
                                     onDoubleClick={(e) => toggleWordDeleted(seg.id, wIdx, e)}
-                                    className={`inline-block px-0.5 rounded transition cursor-pointer ${
+                                    className={`inline-block px-0.5 rounded transition-all duration-75 cursor-pointer ${
                                       isWordSelected
                                         ? 'bg-indigo-600 text-white font-bold'
                                         : seg.isDeleted || w.isDeleted
                                         ? isDark
                                           ? 'line-through opacity-40 text-rose-400 bg-rose-950/20 hover:opacity-80'
                                           : 'line-through opacity-50 text-rose-600 bg-rose-50 hover:opacity-80'
+                                        : isWordCurrent
+                                        ? 'bg-amber-400 text-zinc-950 font-bold shadow-2xs ring-2 ring-amber-400/50 scale-105'
+                                        : isWordPassed
+                                        ? isDark
+                                          ? 'text-indigo-300 font-semibold hover:bg-indigo-500/30'
+                                          : 'text-indigo-600 font-semibold hover:bg-indigo-100'
                                         : isCurrent
                                         ? isDark
-                                          ? 'hover:bg-indigo-500/30 text-indigo-200'
-                                          : 'hover:bg-indigo-100 text-indigo-700 font-semibold'
+                                          ? 'hover:bg-indigo-500/30 text-zinc-200'
+                                          : 'hover:bg-indigo-100 text-zinc-800'
                                         : isDark
                                         ? 'hover:bg-indigo-500/20'
                                         : 'hover:bg-indigo-50'
                                     }`}
-                                    title="单击: 定位播放 / 双击: 切除或恢复此字"
+                                    title="单击: 定位到此字播放 / 双击: 切除或恢复此字"
                                   >
                                     {w.text}
                                   </span>

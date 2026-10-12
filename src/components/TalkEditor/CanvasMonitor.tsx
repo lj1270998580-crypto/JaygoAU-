@@ -263,35 +263,45 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
     }
   }, [isPlaying]);
 
-  // 🌟 核心跳切引擎：60fps 帧精细检测与瞬移跳过已切除片段 (比 HTML5 onTimeUpdate 灵敏 15 倍)
+  // 🌟 核心 60fps 帧同步与跳切引擎：实时推进逐字高亮时间轴，并瞬移跳过已切除片段 (比 HTML5 onTimeUpdate 灵敏 15 倍)
   useEffect(() => {
-    if (!isPlaying || !autoSkipDeleted || deletedIntervals.length === 0) return;
+    if (!isPlaying) return;
 
     let animId: number;
-    const checkAndSkip = () => {
+    let lastReportTime = 0;
+    const checkAndSkip = (now: number) => {
       const video = videoRef.current;
       if (video && !video.paused) {
         const cur = video.currentTime;
-        // 检查当前或未来 35ms 即将撞上的切除区间 (带提前量，彻底消灭剪掉片段的微小杂音)
-        const hit = deletedIntervals.find(
-          (it) =>
-            (cur >= it.start && cur < it.end) ||
-            (cur < it.start && cur + 0.035 >= it.start && cur + 0.035 < it.end)
-        );
-        if (hit) {
-          const nextTarget = hit.end + 0.005;
-          // 🌟 尾部刹车保护：如果当前切除区间延伸至视频末尾（或下个目标已超总时长）
-          if (hit.end >= videoDuration - 0.08 || nextTarget >= videoDuration) {
-            video.pause();
-            // 刹车停在切除区间起点稍前 20ms，彻底消除伸手关镜头/咳嗽杂音
-            const stopPoint = Math.max(0, hit.start - 0.02);
-            video.currentTime = stopPoint;
-            onSeek(stopPoint);
+        if (autoSkipDeleted && deletedIntervals.length > 0) {
+          // 检查当前或未来 35ms 即将撞上的切除区间 (带提前量，彻底消灭剪掉片段的微小杂音)
+          const hit = deletedIntervals.find(
+            (it) =>
+              (cur >= it.start && cur < it.end) ||
+              (cur < it.start && cur + 0.035 >= it.start && cur + 0.035 < it.end)
+          );
+          if (hit) {
+            const nextTarget = hit.end + 0.005;
+            // 🌟 尾部刹车保护：如果当前切除区间延伸至视频末尾（或下个目标已超总时长）
+            if (hit.end >= videoDuration - 0.08 || nextTarget >= videoDuration) {
+              video.pause();
+              // 刹车停在切除区间起点稍前 20ms，彻底消除伸手关镜头/咳嗽杂音
+              const stopPoint = Math.max(0, hit.start - 0.02);
+              video.currentTime = stopPoint;
+              onSeek(stopPoint);
+              return;
+            }
+
+            video.currentTime = nextTarget;
+            onSeek(nextTarget);
+            animId = requestAnimationFrame(checkAndSkip);
             return;
           }
-
-          video.currentTime = nextTarget;
-          onSeek(nextTarget);
+        }
+        // ~30fps 高频同步播放进度，驱动右侧台词与画布字幕逐字卡拉OK高亮
+        if (now - lastReportTime >= 32) {
+          lastReportTime = now;
+          onSeek(cur);
         }
       }
       animId = requestAnimationFrame(checkAndSkip);
@@ -1265,98 +1275,166 @@ export const CanvasMonitor: React.FC<CanvasMonitorProps> = ({
                   title="双击直接编辑字幕文字"
                   className="cursor-pointer"
                 >
-                  {subtitleConfig.templateId === 'pill_badge' ? (
-                    <div
-                      style={{
-                        backgroundColor: subtitleConfig.boxColor || '#fbbf24',
-                        color: subtitleConfig.textColor || '#000000',
-                        fontSize: `${previewSubtitleFontSize}px`,
-                        borderRadius: `${Math.round(8 * fontScale)}px`,
-                        lineHeight: 1.35,
-                        padding: `${Math.round(4 * fontScale)}px ${Math.round(12 * fontScale)}px`,
-                        maxWidth: `${Math.round(containerWidth * 0.88)}px`,
-                        whiteSpace:
-                          displaySubtitleText.length <= 16 && !displaySubtitleText.includes('\n')
-                            ? 'nowrap'
-                            : 'normal',
-                        wordBreak: 'break-word',
-                        display: 'inline-block',
-                      }}
-                      className="font-bold shadow-lg"
-                    >
-                      {displaySubtitleText}
-                    </div>
-                  ) : subtitleConfig.templateId === 'karaoke' ? (
-                    <div
-                      style={{
-                        fontSize: `${previewSubtitleFontSize}px`,
-                        color: subtitleConfig.textColor || '#ffffff',
-                        WebkitTextStroke: `${Math.max(1, (subtitleConfig.strokeWidth || 2) * fontScale)}px ${
-                          subtitleConfig.strokeColor || '#000000'
-                        }`,
-                        paintOrder: 'stroke fill',
-                        lineHeight: 1.35,
-                        padding: `${Math.round(3 * fontScale)}px ${Math.round(8 * fontScale)}px`,
-                        maxWidth: `${Math.round(containerWidth * 0.88)}px`,
-                        whiteSpace:
-                          displaySubtitleText.length <= 16 && !displaySubtitleText.includes('\n')
-                            ? 'nowrap'
-                            : 'normal',
-                        wordBreak: 'break-word',
-                        display: 'inline-block',
-                      }}
-                      className="font-extrabold tracking-wide drop-shadow-md text-amber-300"
-                    >
-                      {displaySubtitleText}
-                    </div>
-                  ) : subtitleConfig.templateId === 'clean_white' ? (
-                    <div
-                      style={{
-                        fontSize: `${previewSubtitleFontSize}px`,
-                        color: '#ffffff',
-                        WebkitTextStroke: `${Math.max(1, (subtitleConfig.strokeWidth || 1.5) * fontScale)}px ${
-                          subtitleConfig.strokeColor || '#000000'
-                        }`,
-                        paintOrder: 'stroke fill',
-                        lineHeight: 1.35,
-                        padding: `${Math.round(3 * fontScale)}px ${Math.round(8 * fontScale)}px`,
-                        maxWidth: `${Math.round(containerWidth * 0.88)}px`,
-                        whiteSpace:
-                          displaySubtitleText.length <= 16 && !displaySubtitleText.includes('\n')
-                            ? 'nowrap'
-                            : 'normal',
-                        wordBreak: 'break-word',
-                        display: 'inline-block',
-                      }}
-                      className="font-medium tracking-wider drop-shadow"
-                    >
-                      {displaySubtitleText}
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        fontSize: `${previewSubtitleFontSize}px`,
-                        color: subtitleConfig.textColor || '#ffffff',
-                        WebkitTextStroke: `${Math.max(1, (subtitleConfig.strokeWidth || 2.5) * fontScale)}px ${
-                          subtitleConfig.strokeColor || '#000000'
-                        }`,
-                        paintOrder: 'stroke fill',
-                        lineHeight: 1.35,
-                        padding: `${Math.round(3 * fontScale)}px ${Math.round(8 * fontScale)}px`,
-                        maxWidth: `${Math.round(containerWidth * 0.88)}px`,
-                        whiteSpace:
-                          displaySubtitleText.length <= 16 && !displaySubtitleText.includes('\n')
-                            ? 'nowrap'
-                            : 'normal',
-                        wordBreak: 'break-word',
-                        display: 'inline-block',
-                        textShadow: '0 2px 10px rgba(0,0,0,0.85)',
-                      }}
-                      className="font-black tracking-wide drop-shadow-lg"
-                    >
-                      {displaySubtitleText}
-                    </div>
-                  )}
+                  {(() => {
+                    const renderSubtitleWords = (mode: 'pill' | 'karaoke' | 'default') => {
+                      const words = activeSubtitle?.words;
+                      if (!words || words.length === 0) {
+                        return displaySubtitleText;
+                      }
+                      return words.map((w, idx) => {
+                        const isActiveWord = currentTime >= w.startTime && currentTime <= w.endTime;
+                        const isPassedWord = currentTime > w.endTime;
+                        if (mode === 'pill') {
+                          return (
+                            <span
+                              key={idx}
+                              style={
+                                isActiveWord
+                                  ? {
+                                      color: '#dc2626',
+                                      display: 'inline-block',
+                                      transform: 'scale(1.1)',
+                                    }
+                                  : undefined
+                              }
+                              className="transition-transform duration-75"
+                            >
+                              {w.word}
+                            </span>
+                          );
+                        }
+                        if (mode === 'karaoke') {
+                          return (
+                            <span
+                              key={idx}
+                              style={{
+                                color: isActiveWord
+                                  ? '#fde047'
+                                  : isPassedWord
+                                  ? subtitleConfig.highlightColor || '#fbbf24'
+                                  : '#ffffff',
+                                display: isActiveWord ? 'inline-block' : undefined,
+                                transform: isActiveWord ? 'scale(1.12)' : undefined,
+                              }}
+                              className="transition-all duration-75"
+                            >
+                              {w.word}
+                            </span>
+                          );
+                        }
+                        return (
+                          <span
+                            key={idx}
+                            style={
+                              isActiveWord
+                                ? {
+                                    color: subtitleConfig.highlightColor || '#fbbf24',
+                                    display: 'inline-block',
+                                    transform: 'scale(1.08)',
+                                  }
+                                : undefined
+                            }
+                            className="transition-all duration-75"
+                          >
+                            {w.word}
+                          </span>
+                        );
+                      });
+                    };
+
+                    return subtitleConfig.templateId === 'pill_badge' ? (
+                      <div
+                        style={{
+                          backgroundColor: subtitleConfig.boxColor || '#fbbf24',
+                          color: subtitleConfig.textColor || '#000000',
+                          fontSize: `${previewSubtitleFontSize}px`,
+                          borderRadius: `${Math.round(8 * fontScale)}px`,
+                          lineHeight: 1.35,
+                          padding: `${Math.round(4 * fontScale)}px ${Math.round(12 * fontScale)}px`,
+                          maxWidth: `${Math.round(containerWidth * 0.88)}px`,
+                          whiteSpace:
+                            displaySubtitleText.length <= 16 && !displaySubtitleText.includes('\n')
+                              ? 'nowrap'
+                              : 'normal',
+                          wordBreak: 'break-word',
+                          display: 'inline-block',
+                        }}
+                        className="font-bold shadow-lg"
+                      >
+                        {renderSubtitleWords('pill')}
+                      </div>
+                    ) : subtitleConfig.templateId === 'karaoke' ? (
+                      <div
+                        style={{
+                          fontSize: `${previewSubtitleFontSize}px`,
+                          color: subtitleConfig.textColor || '#ffffff',
+                          WebkitTextStroke: `${Math.max(1, (subtitleConfig.strokeWidth || 2) * fontScale)}px ${
+                            subtitleConfig.strokeColor || '#000000'
+                          }`,
+                          paintOrder: 'stroke fill',
+                          lineHeight: 1.35,
+                          padding: `${Math.round(3 * fontScale)}px ${Math.round(8 * fontScale)}px`,
+                          maxWidth: `${Math.round(containerWidth * 0.88)}px`,
+                          whiteSpace:
+                            displaySubtitleText.length <= 16 && !displaySubtitleText.includes('\n')
+                              ? 'nowrap'
+                              : 'normal',
+                          wordBreak: 'break-word',
+                          display: 'inline-block',
+                        }}
+                        className="font-extrabold tracking-wide drop-shadow-md text-amber-300"
+                      >
+                        {renderSubtitleWords('karaoke')}
+                      </div>
+                    ) : subtitleConfig.templateId === 'clean_white' ? (
+                      <div
+                        style={{
+                          fontSize: `${previewSubtitleFontSize}px`,
+                          color: '#ffffff',
+                          WebkitTextStroke: `${Math.max(1, (subtitleConfig.strokeWidth || 1.5) * fontScale)}px ${
+                            subtitleConfig.strokeColor || '#000000'
+                          }`,
+                          paintOrder: 'stroke fill',
+                          lineHeight: 1.35,
+                          padding: `${Math.round(3 * fontScale)}px ${Math.round(8 * fontScale)}px`,
+                          maxWidth: `${Math.round(containerWidth * 0.88)}px`,
+                          whiteSpace:
+                            displaySubtitleText.length <= 16 && !displaySubtitleText.includes('\n')
+                              ? 'nowrap'
+                              : 'normal',
+                          wordBreak: 'break-word',
+                          display: 'inline-block',
+                        }}
+                        className="font-medium tracking-wider drop-shadow"
+                      >
+                        {renderSubtitleWords('default')}
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          fontSize: `${previewSubtitleFontSize}px`,
+                          color: subtitleConfig.textColor || '#ffffff',
+                          WebkitTextStroke: `${Math.max(1, (subtitleConfig.strokeWidth || 2.5) * fontScale)}px ${
+                            subtitleConfig.strokeColor || '#000000'
+                          }`,
+                          paintOrder: 'stroke fill',
+                          lineHeight: 1.35,
+                          padding: `${Math.round(3 * fontScale)}px ${Math.round(8 * fontScale)}px`,
+                          maxWidth: `${Math.round(containerWidth * 0.88)}px`,
+                          whiteSpace:
+                            displaySubtitleText.length <= 16 && !displaySubtitleText.includes('\n')
+                              ? 'nowrap'
+                              : 'normal',
+                          wordBreak: 'break-word',
+                          display: 'inline-block',
+                          textShadow: '0 2px 10px rgba(0,0,0,0.85)',
+                        }}
+                        className="font-black tracking-wide drop-shadow-lg"
+                      >
+                        {renderSubtitleWords('default')}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
