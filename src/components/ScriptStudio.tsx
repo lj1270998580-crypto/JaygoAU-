@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { SkillPreset, SkillFileAsset } from '../lib/skillTypes';
 import {
   getAllSkills,
@@ -12,7 +12,7 @@ import {
 } from '../lib/skillParser';
 import { chatCompletion, type ChatMessage } from '../lib/modelHubService';
 import type { ModelHubSettings, ModelProviderType } from '../lib/modelHubTypes';
-import { PRESET_PROVIDERS, getModelContextLimit } from '../lib/modelHubTypes';
+import { PRESET_PROVIDERS, getModelContextLimit, isCustomProvider, getProviderDisplayName } from '../lib/modelHubTypes';
 import { extractStyleFromSamples } from '../lib/styleExtractor';
 import { extractCleanScript } from '../lib/scriptSanitizer';
 import { useAdaptiveColumns } from '../lib/useAdaptiveColumns';
@@ -704,15 +704,45 @@ export function ScriptStudio({
   // 快捷切换当前模型
   const currentProviderKey = modelSettings?.defaultProvider || 'doubao';
   const currentProviderConfig = modelSettings?.providers?.[currentProviderKey];
-  const currentModelName = currentProviderConfig?.selectedModel || 'doubao-seed-2.1-pro';
+  const currentModelName = currentProviderConfig?.customModelName || currentProviderConfig?.selectedModel || 'doubao-seed-2.1-pro';
 
-  const handleQuickSwitchModel = (providerType: ModelProviderType, modelId: string) => {
+  const switchableProviders = useMemo(() => {
+    const list: { key: string; name: string; icon: string; isCustom: boolean }[] = [];
+    // 1. 预设主流与国际模型 (排除 'custom')
+    for (const [key, preset] of Object.entries(PRESET_PROVIDERS)) {
+      if (key === 'custom') continue;
+      list.push({
+        key,
+        name: preset.name,
+        icon: preset.icon,
+        isCustom: false,
+      });
+    }
+    // 2. 所有自定义接口 (来自 modelSettings.providers，包含 custom 及 custom_xxx)
+    const allCustomKeys = Object.keys(modelSettings?.providers || {}).filter((k) => isCustomProvider(k));
+    if (allCustomKeys.length === 0) {
+      allCustomKeys.push('custom');
+    }
+    for (const cKey of allCustomKeys) {
+      const cfg = modelSettings?.providers?.[cKey];
+      list.push({
+        key: cKey,
+        name: getProviderDisplayName(cKey, cfg),
+        icon: '⚙️',
+        isCustom: true,
+      });
+    }
+    return list;
+  }, [modelSettings?.providers]);
+
+  const handleQuickSwitchModel = (providerType: string, modelId: string) => {
     if (!modelSettings) return;
+    const isCustom = isCustomProvider(providerType);
     const targetProvider = modelSettings.providers?.[providerType] || {
-      type: providerType,
+      type: isCustom ? 'custom' : providerType,
       enabled: true,
       apiKey: '',
-      baseUrl: PRESET_PROVIDERS[providerType]?.defaultBaseUrl || '',
+      baseUrl: isCustom ? 'https://api.siliconflow.cn/v1' : (PRESET_PROVIDERS[providerType]?.defaultBaseUrl || ''),
       selectedModel: modelId,
     };
     const hasKey = Boolean(targetProvider.apiKey?.trim());
@@ -725,16 +755,15 @@ export function ScriptStudio({
         [providerType]: {
           ...targetProvider,
           selectedModel: modelId,
+          customModelName: isCustom ? modelId : targetProvider.customModelName,
           enabled: true,
         },
       },
     };
 
     onUpdateModelHubSettings?.(nextSettings);
+    const provName = getProviderDisplayName(providerType, targetProvider);
     const preset = PRESET_PROVIDERS[providerType];
-    const provName = (providerType === 'custom' && targetProvider?.customProviderName?.trim())
-      ? targetProvider.customProviderName.trim()
-      : (preset?.name?.split(' ')[0] || providerType);
     const modelObj = preset?.models?.find(m => m.id === modelId);
     const mName = modelObj?.name || modelId;
 
@@ -1747,22 +1776,22 @@ export function ScriptStudio({
                           </div>
 
                           <div className="max-h-56 overflow-y-auto space-y-1.5 py-1">
-                            {Object.entries(PRESET_PROVIDERS).map(([pType, preset]) => {
-                              const provConfig = modelSettings?.providers?.[pType as ModelProviderType];
+                            {switchableProviders.map((prov: { key: string; name: string; icon: string; isCustom: boolean }) => {
+                              const pType = prov.key;
+                              const provConfig = modelSettings?.providers?.[pType];
                               const hasKey = Boolean(provConfig?.apiKey?.trim());
-                              const provTitle = (pType === 'custom' && provConfig?.customProviderName?.trim())
-                                ? provConfig.customProviderName.trim()
-                                : preset.name;
-                              
+                              const provTitle = prov.name;
+                              const preset = PRESET_PROVIDERS[pType];
+
                               // 优先使用从服务商动态获取到的最新可用模型
                               const dynamicList = provConfig?.availableModels && provConfig.availableModels.length > 0
-                                ? provConfig.availableModels.map(id => ({ id, name: id }))
-                                : (provConfig?.selectedModel ? [{ id: provConfig.selectedModel, name: provConfig.selectedModel }] : (preset.models || []));
+                                ? provConfig.availableModels.map((id: string) => ({ id, name: id }))
+                                : (provConfig?.selectedModel ? [{ id: provConfig.selectedModel, name: provConfig.selectedModel }] : (preset?.models || []));
 
-                              const models = (pType === 'custom'
+                              const models = (prov.isCustom
                                 ? (provConfig?.customModelName?.trim()
-                                    ? [{ id: provConfig.customModelName.trim(), name: provConfig.customModelName.trim() }]
-                                    : dynamicList)
+                                    ? [{ id: provConfig.customModelName.trim(), name: provConfig.customModelName.trim() }, ...dynamicList.filter((d: any) => d.id !== provConfig?.customModelName?.trim())]
+                                    : (dynamicList.length > 0 ? dynamicList : [{ id: 'default', name: '自定义默认模型' }]))
                                 : (provConfig?.customModelName?.trim()
                                     ? [{ id: provConfig.customModelName.trim(), name: `${provConfig.customModelName.trim()} (自定义)` }, ...dynamicList]
                                     : dynamicList)).slice(0, 8);
@@ -1770,20 +1799,20 @@ export function ScriptStudio({
                               return (
                                 <div key={pType} className="space-y-0.5">
                                   <div className="px-2 py-0.5 text-[10px] font-semibold text-zinc-400 flex items-center justify-between">
-                                    <span className="truncate max-w-[140px] font-bold">{preset.icon} {provTitle}</span>
+                                    <span className="truncate max-w-[140px] font-bold">{prov.icon} {provTitle}</span>
                                     <span className={`text-[9px] shrink-0 ${hasKey ? 'text-emerald-500' : 'text-amber-500'}`}>
                                       {hasKey ? '● 已就绪' : '○ 需配Key'}
                                     </span>
                                   </div>
                                   {models.map(m => {
-                                    const isSelected = currentProviderKey === pType && (currentModelName === m.id || (pType === 'custom' && !currentModelName));
+                                    const isSelected = currentProviderKey === pType && (currentModelName === m.id || (prov.isCustom && !currentModelName));
                                     return (
                                       <div
                                         key={m.id}
                                         onMouseDown={e => e.preventDefault()}
                                         onClick={e => {
                                           e.stopPropagation();
-                                          handleQuickSwitchModel(pType as ModelProviderType, m.id);
+                                          handleQuickSwitchModel(pType, m.id);
                                           setModelDropdownOpen(false);
                                         }}
                                         className={`px-2 py-1 rounded-lg text-xs flex items-center justify-between cursor-pointer transition ${

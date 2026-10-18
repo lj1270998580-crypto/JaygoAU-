@@ -9,7 +9,8 @@ export type ModelProviderType =
   | 'claude'
   | 'minimax'
   | 'mimo'
-  | 'custom';
+  | 'custom'
+  | string;
 
 export interface ModelOption {
   id: string;
@@ -160,13 +161,27 @@ export interface ConfiguredProvider {
 }
 
 export interface ModelHubSettings {
-  providers: Record<ModelProviderType, ConfiguredProvider>;
-  defaultProvider: ModelProviderType;
+  providers: Record<string, ConfiguredProvider>;
+  defaultProvider: string;
   taskBindings?: {
-    scriptWriter?: { provider: ModelProviderType; model: string };
-    topicFinder?: { provider: ModelProviderType; model: string };
-    copilotChat?: { provider: ModelProviderType; model: string };
+    scriptWriter?: { provider: string; model: string };
+    topicFinder?: { provider: string; model: string };
+    copilotChat?: { provider: string; model: string };
   };
+}
+
+export function isCustomProvider(type: string): boolean {
+  return type === 'custom' || type.startsWith('custom_') || type.startsWith('custom-');
+}
+
+export function getProviderDisplayName(type: string, provider?: ConfiguredProvider): string {
+  if (provider?.customProviderName?.trim()) {
+    return provider.customProviderName.trim();
+  }
+  const preset = (PRESET_PROVIDERS as Record<string, ProviderPreset>)[type];
+  if (preset?.name) return preset.name;
+  if (isCustomProvider(type)) return '自定义接口';
+  return type;
 }
 
 export const DEFAULT_MODEL_HUB_SETTINGS: ModelHubSettings = {

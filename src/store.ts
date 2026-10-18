@@ -158,8 +158,31 @@ export function sanitizeModelHubSettings(parsed: any): ModelHubSettings {
     };
   }
 
-  const validDefault = (parsed.defaultProvider && mergedProviders[parsed.defaultProvider as ModelProviderType])
-    ? (parsed.defaultProvider as ModelProviderType)
+  // 保留所有用户新增的自定义多服务商配置 (custom_xxx)
+  if (parsed.providers && typeof parsed.providers === 'object') {
+    for (const key of Object.keys(parsed.providers)) {
+      if (!mergedProviders[key] && (key.startsWith('custom') || parsed.providers[key]?.type === 'custom')) {
+        const userConf = parsed.providers[key];
+        mergedProviders[key] = {
+          type: 'custom',
+          enabled: userConf?.enabled ?? true,
+          apiKey: typeof userConf?.apiKey === 'string' ? userConf.apiKey : '',
+          baseUrl: typeof userConf?.baseUrl === 'string' ? userConf.baseUrl : '',
+          selectedModel: typeof userConf?.selectedModel === 'string' ? userConf.selectedModel : '',
+          customModelName: typeof userConf?.customModelName === 'string' ? userConf.customModelName : '',
+          customProviderName: typeof userConf?.customProviderName === 'string' ? userConf.customProviderName : `自定义接口 ${key.replace('custom_', '')}`,
+          availableModels: Array.isArray(userConf?.availableModels)
+            ? userConf.availableModels.map((m: any) => typeof m === 'string' ? m : (m?.id || m?.name || String(m))).filter(Boolean)
+            : [],
+          lastPingMs: userConf?.lastPingMs,
+          lastTestOk: userConf?.lastTestOk,
+        };
+      }
+    }
+  }
+
+  const validDefault = (parsed.defaultProvider && mergedProviders[parsed.defaultProvider])
+    ? parsed.defaultProvider
     : DEFAULT_MODEL_HUB_SETTINGS.defaultProvider;
 
   return {

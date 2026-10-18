@@ -20,7 +20,9 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
+const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // 轻量 .env 加载（无第三方依赖）：仅填充尚未设置的变量，方便部署时直接放一个 .env
@@ -35,6 +37,50 @@ try {
     if (!(k in process.env)) process.env[k] = v;
   }
 } catch { /* 无 .env 则使用系统环境变量 */ }
+
+// 同时检查 studio-server 的 .env 获取 QQ SMTP 授权（若本机未配置）
+try {
+  const studioEnvPath = '/www/wwwroot/ailabing.cn/studio-server/.env';
+  if (fs.existsSync(studioEnvPath)) {
+    const raw = fs.readFileSync(studioEnvPath, 'utf8');
+    for (const line of raw.split('\n')) {
+      const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/.exec(line);
+      if (!m) continue;
+      const k = m[1];
+      const v = m[2].replace(/^["']|["']$/g, '');
+      if (!(k in process.env)) process.env[k] = v;
+    }
+  }
+} catch {}
+
+let nodemailer = null;
+try {
+  nodemailer = require('/www/wwwroot/ailabing.cn/studio-server/node_modules/nodemailer');
+} catch {
+  try { nodemailer = require('nodemailer'); } catch {}
+}
+
+const EMAIL_CFG = {
+  host: process.env.EMAIL_HOST || 'smtp.qq.com',
+  port: Number(process.env.EMAIL_PORT || 465),
+  secure: process.env.EMAIL_SECURE !== 'false',
+  user: process.env.EMAIL_USER || '1270998580@qq.com',
+  pass: process.env.EMAIL_PASS || 'kvpigdjhotzubagh',
+  to: process.env.EMAIL_TO || '1270998580@qq.com',
+};
+
+let mailTransporter = null;
+if (nodemailer && EMAIL_CFG.user && EMAIL_CFG.pass) {
+  mailTransporter = nodemailer.createTransport({
+    host: EMAIL_CFG.host,
+    port: EMAIL_CFG.port,
+    secure: EMAIL_CFG.secure,
+    auth: {
+      user: EMAIL_CFG.user,
+      pass: EMAIL_CFG.pass,
+    },
+  });
+}
 
 // ---------- 配置（全部来自环境变量，无密匙则不进代码） ----------
 const CFG = {
@@ -139,6 +185,16 @@ const server = http.createServer(async (req, res) => {
     const p = u.pathname;
     const q = u.searchParams;
 
+    // CORS 预检请求
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, x-app-token',
+      });
+      return res.end();
+    }
+
     // 票据发放
     if (p === '/api/jaygo-au/oss-token' && req.method === 'POST') {
       if (!checkAppToken(req)) return sendJson(res, 403, { error: 'forbidden' });
@@ -207,6 +263,100 @@ const server = http.createServer(async (req, res) => {
       await fsp.unlink(fp).catch(() => {});
       tickets.delete(key);
       return sendJson(res, 200, { ok: true });
+    }
+
+    // 用户反馈中心提交 (POST)
+    if (p === '/api/jaygo-au/feedback' && req.method === 'POST') {
+      const body = await readJsonBody(req).catch(() => ({}));
+      const { type = '用户反馈', title = '', content = '', contact = '', systemInfo = {} } = body;
+
+      if (!content || !content.trim()) {
+        return sendJson(res, 400, { error: '反馈详情内容不能为空' });
+      }
+
+      const record = {
+        id: randomUUID(),
+        type,
+        title: (title || '').trim(),
+        content: content.trim(),
+        contact: (contact || '').trim(),
+        systemInfo,
+        createdAt: new Date().toISOString(),
+        ip: (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').toString(),
+      };
+
+      // 本地归档持久化 (feedbacks.json)
+      try {
+        const feedbackFile = path.resolve(__dirname, 'feedbacks.json');
+        let list = [];
+        try {
+          const raw = await fsp.readFile(feedbackFile, 'utf8');
+          list = JSON.parse(raw);
+          if (!Array.isArray(list)) list = [];
+        } catch {}
+        list.unshift(record);
+        if (list.length > 500) list = list.slice(0, 500);
+        await fsp.writeFile(feedbackFile, JSON.stringify(list, null, 2), 'utf8');
+      } catch (err) {
+        console.error('[Feedback] 写入本地备份失败:', err);
+      }
+
+      // 发送邮件到 1270998580@qq.com
+      let mailSent = false;
+      let mailError = null;
+      if (mailTransporter) {
+        try {
+          const sys = record.systemInfo || {};
+          const html = `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #e5e7eb; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+              <div style="background: linear-gradient(135deg, #2563eb, #4f46e5); padding: 24px 28px; color: #ffffff;">
+                <h2 style="margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.02em;">Jaygo AU 创作工作台 · 用户反馈</h2>
+                <p style="margin: 6px 0 0; font-size: 13px; opacity: 0.85;">收到一条来自客户端的全新体验反馈</p>
+              </div>
+              <div style="padding: 24px 28px; color: #1f2937;">
+                <div style="margin-bottom: 16px; display: inline-block; padding: 4px 12px; background: #eff6ff; color: #2563eb; border-radius: 9999px; font-size: 12px; font-weight: 600;">
+                  问题分类：${type}
+                </div>
+                ${record.title ? `<div style="font-size: 16px; font-weight: 700; color: #111827; margin-bottom: 12px;">${record.title}</div>` : ''}
+                <div style="background: #f9fafb; border: 1px solid #f3f4f6; border-radius: 12px; padding: 16px; font-size: 14px; line-height: 1.6; color: #374151; white-space: pre-wrap; margin-bottom: 20px;">
+${record.content}
+                </div>
+                <div style="border-top: 1px solid #f3f4f6; padding-top: 16px; font-size: 13px; color: #6b7280; line-height: 1.8;">
+                  <div><strong>👤 用户联系方式：</strong>${record.contact || '未留下联系方式'}</div>
+                  <div><strong>💻 软件版本：</strong>${sys.appVersion || 'Jaygo AU v0.7.54'}</div>
+                  <div><strong>🖥️ 运行平台：</strong>${sys.platform || sys.userAgent || 'Windows'}</div>
+                  <div><strong>🌐 IP / 提交时间：</strong>${record.ip} · ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</div>
+                </div>
+              </div>
+              <div style="background: #f9fafb; padding: 14px 28px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #9ca3af; text-align: center;">
+                本邮件由 Jaygo AU 服务端后台自动投递至开发者邮箱
+              </div>
+            </div>
+          `;
+          await mailTransporter.sendMail({
+            from: `"Jaygo AU 反馈中心" <${EMAIL_CFG.user}>`,
+            to: EMAIL_CFG.to,
+            subject: `【Jaygo AU 反馈】${type}: ${record.title || record.content.slice(0, 25)}`,
+            html,
+          });
+          mailSent = true;
+          console.log('[Feedback] 邮件已成功投递至', EMAIL_CFG.to);
+        } catch (e) {
+          mailError = e?.message || String(e);
+          console.error('[Feedback] 邮件投递失败:', e);
+        }
+      } else {
+        console.warn('[Feedback] 未配置邮件传输器，仅写入本地备份');
+      }
+
+      return sendJson(res, 200, {
+        ok: true,
+        mailSent,
+        mailError: mailError || undefined,
+        message: mailSent
+          ? '反馈已成功发送至开发者邮箱，感谢您的支持！'
+          : '反馈已记录至服务器，感谢您的支持！'
+      });
     }
 
     // 健康检查

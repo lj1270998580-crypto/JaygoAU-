@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import type { ModelHubSettings, ModelProviderType, ProviderCategory, ConfiguredProvider, ProviderPreset } from '../lib/modelHubTypes';
-import { PRESET_PROVIDERS, DEFAULT_MODEL_HUB_SETTINGS } from '../lib/modelHubTypes';
+import { PRESET_PROVIDERS, DEFAULT_MODEL_HUB_SETTINGS, isCustomProvider, getProviderDisplayName } from '../lib/modelHubTypes';
 import { testConnection, fetchProviderModels } from '../lib/modelHubService';
 import { useStore, sanitizeModelHubSettings } from '../store';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -21,6 +21,8 @@ import {
   Sparkles,
   Clipboard,
   RotateCcw,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 
 interface Props {
@@ -36,7 +38,7 @@ const CATEGORY_LABELS: Record<ProviderCategory, { label: string; icon: string }>
   custom: { label: '自定义 / 聚合接口', icon: '⚙️' },
 };
 
-const CATEGORIZED_PROVIDERS: { category: ProviderCategory; types: ModelProviderType[] }[] = [
+const CATEGORIZED_PROVIDERS: { category: ProviderCategory; types: string[] }[] = [
   {
     category: 'domestic',
     types: ['doubao', 'deepseek', 'sensenova', 'qwen', 'zhipu', 'moonshot', 'minimax', 'mimo'],
@@ -51,7 +53,7 @@ const CATEGORIZED_PROVIDERS: { category: ProviderCategory; types: ModelProviderT
   },
 ];
 
-const PROVIDER_NAMES: Record<ModelProviderType, string> = {
+const PROVIDER_NAMES: Record<string, string> = {
   doubao: '豆包 (火山方舟)',
   sensenova: '商汤日日新 (SenseNova)',
   deepseek: 'DeepSeek (深度求索)',
@@ -65,14 +67,20 @@ const PROVIDER_NAMES: Record<ModelProviderType, string> = {
   custom: '自定义兼容接口',
 };
 
+const QUICK_BASE_URLS = [
+  { label: '硅基流动 (SiliconFlow)', url: 'https://api.siliconflow.cn/v1' },
+  { label: '本地 Ollama', url: 'http://localhost:11434/v1' },
+  { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1' },
+  { label: 'DeepSeek 官方', url: 'https://api.deepseek.com/v1' },
+  { label: 'OneAPI / 聚合中转', url: 'https://api.openai-proxy.org/v1' },
+];
+
 export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
   const safeInitialSettings = useMemo(() => sanitizeModelHubSettings(settings), [settings]);
   const [formData, setFormData] = useState<ModelHubSettings>(safeInitialSettings);
 
-  const [activeTab, setActiveTab] = useState<ModelProviderType>(() => {
-    return (safeInitialSettings?.defaultProvider && PRESET_PROVIDERS[safeInitialSettings.defaultProvider])
-      ? safeInitialSettings.defaultProvider
-      : 'doubao';
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    return safeInitialSettings?.defaultProvider || 'doubao';
   });
 
   const [testing, setTesting] = useState(false);
@@ -99,16 +107,29 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
     const prov = formData.providers?.[activeTab];
     if (prov && typeof prov === 'object') return prov;
     return DEFAULT_MODEL_HUB_SETTINGS.providers[activeTab] || {
-      type: activeTab,
+      type: isCustomProvider(activeTab) ? 'custom' : activeTab,
       enabled: true,
       apiKey: '',
-      baseUrl: PRESET_PROVIDERS[activeTab]?.defaultBaseUrl || '',
+      baseUrl: isCustomProvider(activeTab) ? 'https://api.siliconflow.cn/v1' : (PRESET_PROVIDERS[activeTab]?.defaultBaseUrl || ''),
       selectedModel: '',
       availableModels: [],
     };
   }, [formData.providers, activeTab]);
 
   const preset: ProviderPreset = useMemo(() => {
+    if (isCustomProvider(activeTab)) {
+      const customName = currentProvider.customProviderName?.trim() || (activeTab === 'custom' ? '自定义兼容接口' : '自定义大模型接口');
+      return {
+        type: 'custom',
+        name: customName,
+        icon: '⚙️',
+        category: 'custom',
+        defaultBaseUrl: 'https://api.siliconflow.cn/v1',
+        keyPlaceholder: '请输入 API Key (本地服务如 Ollama 可填入任意字符如 sk-xxx)',
+        docUrl: '',
+        models: [],
+      };
+    }
     return PRESET_PROVIDERS[activeTab] || {
       type: activeTab,
       name: activeTab,
@@ -119,7 +140,15 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
       docUrl: '',
       models: [],
     };
-  }, [activeTab]);
+  }, [activeTab, currentProvider.customProviderName]);
+
+  const customProviderKeys = useMemo(() => {
+    const keys = Object.keys(formData.providers || {}).filter((k) => isCustomProvider(k));
+    if (!keys.includes('custom')) {
+      keys.unshift('custom');
+    }
+    return keys;
+  }, [formData.providers]);
 
   // 动态过滤展示的模型列表（保证安全只渲染纯字符串，无条件置于顶层调用）
   const displayedModels = useMemo(() => {
@@ -133,7 +162,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
   }, [currentProvider?.availableModels, modelSearchQuery]);
 
   const effectiveModel =
-    currentProvider.type === 'custom' && currentProvider.customModelName
+    isCustomProvider(currentProvider.type) && currentProvider.customModelName
       ? currentProvider.customModelName
       : (currentProvider.customModelName || currentProvider.selectedModel || (Array.isArray(currentProvider.availableModels) && currentProvider.availableModels[0]) || '');
 
@@ -144,6 +173,52 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
       onSave(next);
       return next;
     });
+  };
+
+  const handleAddCustomProvider = () => {
+    const newId = `custom_${Date.now()}`;
+    const nextIdx = customProviderKeys.length + 1;
+    updateFormData((prev) => ({
+      ...prev,
+      providers: {
+        ...prev.providers,
+        [newId]: {
+          type: 'custom',
+          enabled: true,
+          apiKey: '',
+          baseUrl: 'https://api.siliconflow.cn/v1',
+          selectedModel: '',
+          customModelName: '',
+          customProviderName: `自定义接口 ${nextIdx}`,
+          availableModels: [],
+        },
+      },
+    }));
+    setActiveTab(newId);
+    useStore.getState().showToast(`已新建【自定义接口 ${nextIdx}】，可填入 API Key 与接口地址`, 'ok');
+  };
+
+  const handleDeleteCustomProvider = (targetKey: string) => {
+    if (customProviderKeys.length <= 1) {
+      useStore.getState().showToast('至少需保留一个自定义模型接口配置', 'err');
+      return;
+    }
+    updateFormData((prev) => {
+      const nextProviders = { ...prev.providers };
+      delete nextProviders[targetKey];
+      let nextDefault = prev.defaultProvider;
+      if (nextDefault === targetKey) {
+        nextDefault = 'doubao';
+      }
+      return {
+        ...prev,
+        defaultProvider: nextDefault,
+        providers: nextProviders,
+      };
+    });
+    const remaining = customProviderKeys.filter((k) => k !== targetKey);
+    setActiveTab(remaining[0] || 'doubao');
+    useStore.getState().showToast('已删除该自定义接口', 'ok');
   };
 
   // 自动从服务商获取最新模型列表（当用户已配置 API Key 但本地尚未获取过模型时）
@@ -242,12 +317,13 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
     }));
   };
 
-  const handleSetDefault = (type: ModelProviderType) => {
+  const handleSetDefault = (type: string) => {
     updateFormData((prev) => ({
       ...prev,
       defaultProvider: type,
     }));
-    useStore.getState().showToast(`已将 ${PROVIDER_NAMES[type]} 设为全局默认大模型`, 'ok');
+    const dispName = getProviderDisplayName(type, formData.providers?.[type]);
+    useStore.getState().showToast(`已将【${dispName}】设为全局默认大模型`, 'ok');
   };
 
   /**
@@ -396,6 +472,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
           <div className="w-64 border-r border-zinc-100 dark:border-zinc-800/80 p-3 space-y-3 bg-zinc-50/40 dark:bg-zinc-900/20 overflow-y-auto shrink-0 select-none">
             {CATEGORIZED_PROVIDERS.map((group) => {
               const catInfo = CATEGORY_LABELS[group.category];
+              const typesToRender = group.category === 'custom' ? customProviderKeys : group.types;
               return (
                 <div key={group.category} className="space-y-1">
                   <div className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 px-2.5 py-1 uppercase tracking-wider flex items-center gap-1.5">
@@ -403,31 +480,30 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
                     <span>{catInfo.label}</span>
                   </div>
 
-                  {group.types.map((type) => {
-                    const p = PRESET_PROVIDERS[type] || { name: type, icon: '⚡' };
+                  {typesToRender.map((type) => {
+                    const p = PRESET_PROVIDERS[type] || { name: type, icon: '⚙️' };
                     const cfg = formData.providers?.[type] || DEFAULT_MODEL_HUB_SETTINGS.providers[type];
                     const isDefault = formData.defaultProvider === type;
                     const hasKey = Boolean(cfg?.apiKey && String(cfg.apiKey).trim());
                     const modelCount = Array.isArray(cfg?.availableModels) ? cfg.availableModels.length : 0;
                     const isCurrent = activeTab === type;
+                    const displayName = getProviderDisplayName(type, cfg);
 
                     return (
                       <button
                         key={type}
                         type="button"
                         onClick={() => setActiveTab(type)}
-                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-2xl text-xs font-medium transition text-left ${
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-2xl text-xs font-medium transition text-left cursor-pointer ${
                           isCurrent
                             ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25 font-semibold'
                             : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100/80 dark:hover:bg-zinc-800/50'
                         }`}
                       >
                         <div className="flex items-center gap-2.5 truncate">
-                          <span className="text-base shrink-0">{p.icon}</span>
+                          <span className="text-base shrink-0">{isCustomProvider(type) ? '⚙️' : p.icon}</span>
                           <span className="truncate">
-                            {type === 'custom' && cfg?.customProviderName?.trim()
-                              ? cfg.customProviderName.trim()
-                              : (PROVIDER_NAMES[type] || p.name || type)}
+                            {displayName}
                           </span>
                         </div>
 
@@ -467,6 +543,17 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
                       </button>
                     );
                   })}
+
+                  {group.category === 'custom' && (
+                    <button
+                      type="button"
+                      onClick={handleAddCustomProvider}
+                      className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50/60 dark:bg-blue-950/30 hover:bg-blue-100/70 dark:hover:bg-blue-900/50 border border-dashed border-blue-300/80 dark:border-blue-800/70 transition cursor-pointer mt-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>添加自定义接口</span>
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -505,40 +592,54 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => handleSetDefault(activeTab)}
-                disabled={formData.defaultProvider === activeTab}
-                className={`text-xs px-3.5 py-1.5 rounded-xl border font-semibold transition flex items-center gap-1.5 cursor-pointer ${
-                  formData.defaultProvider === activeTab
-                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 cursor-default'
-                    : 'border-zinc-200 dark:border-zinc-700 hover:border-blue-500 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                }`}
-              >
-                {formData.defaultProvider === activeTab ? (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    <span>当前全局默认模型</span>
-                  </>
-                ) : (
-                  <span>设为全局默认模型</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSetDefault(activeTab)}
+                  disabled={formData.defaultProvider === activeTab}
+                  className={`text-xs px-3.5 py-1.5 rounded-xl border font-semibold transition flex items-center gap-1.5 cursor-pointer ${
+                    formData.defaultProvider === activeTab
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 cursor-default'
+                      : 'border-zinc-200 dark:border-zinc-700 hover:border-blue-500 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                  }`}
+                >
+                  {formData.defaultProvider === activeTab ? (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>当前全局默认模型</span>
+                    </>
+                  ) : (
+                    <span>设为全局默认模型</span>
+                  )}
+                </button>
+
+                {isCustomProvider(activeTab) && customProviderKeys.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCustomProvider(activeTab)}
+                    className="text-xs px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-semibold transition flex items-center gap-1.5 cursor-pointer"
+                    title="删除此自定义接口配置"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>删除此接口</span>
+                  </button>
                 )}
-              </button>
+              </div>
             </div>
 
             {/* 自定义别名 */}
-            {activeTab === 'custom' && (
+            {isCustomProvider(activeTab) && (
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center justify-between">
-                  <span>自定义供应商显示名称</span>
-                  <span className="text-[11px] text-zinc-400">各工作台模型切换菜单将显示此别名</span>
+                  <span>自定义接口显示名称</span>
+                  <span className="text-[11px] text-zinc-400">文案工坊/插画师等工作台下拉菜单将显示此别名</span>
                 </label>
                 <input
                   type="text"
                   value={currentProvider.customProviderName || ''}
                   onChange={(e) => handleCustomProviderNameChange(e.target.value)}
                   placeholder="例如: 硅基流动 (SiliconFlow)、本地 Ollama、OpenRouter、OneAPI"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition font-medium"
                 />
               </div>
             )}
@@ -618,6 +719,21 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
                   placeholder={preset.defaultBaseUrl}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 font-mono transition"
                 />
+                {isCustomProvider(activeTab) && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <span className="text-[11px] text-zinc-400 mr-1">快捷填入：</span>
+                    {QUICK_BASE_URLS.map((q) => (
+                      <button
+                        key={q.label}
+                        type="button"
+                        onClick={() => handleBaseUrlChange(q.url)}
+                        className="text-[10px] px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/60 dark:hover:text-blue-400 text-zinc-600 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60 transition cursor-pointer"
+                      >
+                        {q.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* 连通性测试与快速动作 */}
@@ -672,7 +788,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
                 <div className="flex items-center gap-2">
                   <div className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>模型选择 (实时从服务商获取)</span>
+                    <span>模型选择 (实时从服务商获取 / 自定义指定)</span>
                   </div>
                   {currentProvider.availableModels && currentProvider.availableModels.length > 0 && (
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/50 font-mono">
@@ -681,36 +797,40 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
                   )}
                 </div>
 
-                {activeTab !== 'custom' && (
-                  <button
-                    type="button"
-                    onClick={() => handleFetchModels(activeTab, true)}
-                    disabled={fetchingModels || !currentProvider.apiKey}
-                    className="px-3 py-1 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-blue-600 dark:text-blue-400 text-xs font-semibold hover:bg-blue-100 dark:hover:bg-blue-900/60 transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-xs"
-                    title="向服务商 API 发起请求，拉取最新可用的全部模型列表"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${fetchingModels ? 'animate-spin' : ''}`} />
-                    <span>{fetchingModels ? '正在同步最新模型...' : '从服务商获取最新模型'}</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => handleFetchModels(activeTab, true)}
+                  disabled={fetchingModels || !currentProvider.apiKey}
+                  className="px-3 py-1 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-blue-600 dark:text-blue-400 text-xs font-semibold hover:bg-blue-100 dark:hover:bg-blue-900/60 transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-xs"
+                  title="向服务商 API 发起请求，拉取最新可用的全部模型列表"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${fetchingModels ? 'animate-spin' : ''}`} />
+                  <span>{fetchingModels ? '正在同步最新模型...' : '从服务商获取最新模型'}</span>
+                </button>
               </div>
 
               {/* 模型列表选择区 */}
-              {activeTab === 'custom' ? (
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                    输入模型 ID (自定义兼容模式)
-                  </label>
-                  <input
-                    type="text"
-                    value={currentProvider.customModelName || ''}
-                    onChange={(e) => handleCustomModelNameChange(e.target.value)}
-                    placeholder="输入具体的 Model ID，如 gpt-4o、deepseek-chat、qwen-plus、claude-3-5-sonnet 等"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 font-mono"
-                  />
-                  <p className="text-[11px] text-zinc-400 leading-relaxed">
-                    自定义接口将直接使用该 Model ID 作为请求参数发送至您的 Base URL。
-                  </p>
+              {isCustomProvider(activeTab) && (!currentProvider.availableModels || currentProvider.availableModels.length === 0) ? (
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center justify-between">
+                      <span>输入目标 Model ID (自定义模式)</span>
+                      <span className="text-[11px] text-zinc-400">将作为 model 参数发送至 Base URL</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={currentProvider.customModelName || currentProvider.selectedModel || ''}
+                      onChange={(e) => {
+                        handleCustomModelNameChange(e.target.value);
+                        handleModelSelect(e.target.value);
+                      }}
+                      placeholder="输入具体 Model ID，例如: Qwen/Qwen2.5-72B-Instruct、deepseek-chat、gpt-4o 等"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 font-mono"
+                    />
+                  </div>
+                  <div className="p-3 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 text-[11px] text-zinc-400 dark:text-zinc-500 leading-relaxed">
+                    💡 提示：若您的接口支持 OpenAI 标准 <code>/v1/models</code> 端点（如硅基流动、Ollama、OpenRouter、OneAPI），填入 Key 后可直接点击右上角<strong>「从服务商获取最新模型」</strong>，系统将自动列出所有在线模型供您点击选用。
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -833,7 +953,7 @@ export function ModelHubModal({ open, onClose, settings, onSave }: Props) {
           <div className="text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5">
             <span>当前全局默认引擎：</span>
             <strong className="text-blue-600 dark:text-blue-400 font-semibold">
-              {PROVIDER_NAMES[formData.defaultProvider] || PRESET_PROVIDERS[formData.defaultProvider]?.name || formData.defaultProvider}
+              {getProviderDisplayName(formData.defaultProvider, formData.providers?.[formData.defaultProvider])}
             </strong>
           </div>
           <div className="flex items-center gap-2.5">

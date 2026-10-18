@@ -4,6 +4,7 @@ import { api } from '../lib/ipc';
 import { FORMATS, SAMPLE_RATES, RESOURCE_IDS, LANGUAGES } from '../lib/format';
 import { PRICING } from '../lib/pricing';
 import { ModelHubModal } from './ModelHubModal';
+import { getProviderDisplayName } from '../lib/modelHubTypes';
 
 type SettingsTab = 'ai_models' | 'preferences' | 'system' | 'about';
 
@@ -261,7 +262,7 @@ export default function Settings() {
             desc="集中管理火山豆包、DeepSeek、阿里通义千问、智谱清言、Kimi 及自定义大模型，支持默认从服务商 API 实时拉取最新模型。"
             badge={
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/80 text-blue-600 dark:text-blue-300 font-mono font-bold">
-                {(modelHubSettings?.defaultProvider || 'doubao').toUpperCase()} 默认驱动
+                {getProviderDisplayName(modelHubSettings?.defaultProvider || 'doubao', modelHubSettings?.providers?.[modelHubSettings?.defaultProvider || 'doubao'])} 默认驱动
               </span>
             }
             action={
@@ -277,8 +278,8 @@ export default function Settings() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="p-3 rounded-xl border border-zinc-200/60 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
                 <div className="text-[11px] text-zinc-400">当前默认引擎</div>
-                <div className="text-xs font-bold text-zinc-800 dark:text-zinc-200 mt-0.5">
-                  {(modelHubSettings?.defaultProvider || 'doubao').toUpperCase()}
+                <div className="text-xs font-bold text-zinc-800 dark:text-zinc-200 mt-0.5 truncate">
+                  {getProviderDisplayName(modelHubSettings?.defaultProvider || 'doubao', modelHubSettings?.providers?.[modelHubSettings?.defaultProvider || 'doubao'])}
                 </div>
               </div>
               <div className="p-3 rounded-xl border border-zinc-200/60 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
@@ -936,7 +937,7 @@ export default function Settings() {
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-mono font-bold text-sm shadow-md shadow-blue-500/20">
-                  v{appVersion || '0.7.53'}
+                  v{appVersion || '0.7.54'}
                 </div>
                 <div>
                   <div className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">

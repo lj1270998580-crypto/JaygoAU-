@@ -1,5 +1,5 @@
 import type { ModelHubSettings, ConfiguredProvider, ModelProviderType } from './modelHubTypes';
-import { PRESET_PROVIDERS } from './modelHubTypes';
+import { PRESET_PROVIDERS, getProviderDisplayName } from './modelHubTypes';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -50,10 +50,10 @@ export interface ResolvedModelInfo {
  */
 export function resolveModelInfo(settings: ModelHubSettings, options?: ChatCompletionOptions): ResolvedModelInfo {
   const { provider, model } = resolveProviderAndModel(settings, options);
-  const preset = (PRESET_PROVIDERS as Record<string, { name?: string }>)[provider.type];
+  const targetType = options?.providerType || settings.defaultProvider || 'doubao';
   return {
     providerType: provider.type,
-    providerLabel: preset?.name || provider.type,
+    providerLabel: getProviderDisplayName(targetType, provider),
     model,
     baseUrl: normalizeBaseUrl(provider),
   };
