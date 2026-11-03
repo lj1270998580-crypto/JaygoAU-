@@ -716,7 +716,7 @@ export default function App() {
                 title="遇到问题或有产品建议？点击向作者反馈"
               >
                 <MessageSquarePlus className="w-3.5 h-3.5 text-blue-500" />
-                <span>反馈中心</span>
+                <span>反馈</span>
               </button>
             </div>
 

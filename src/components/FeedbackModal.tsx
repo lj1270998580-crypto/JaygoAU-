@@ -26,6 +26,7 @@ export function FeedbackModal({ open, onClose }: Props) {
   const [errorMsg, setErrorMsg] = useState('');
 
   const showToast = useStore((s) => s.showToast);
+  const appVersion = useStore((s) => s.appVersion);
 
   if (!open) return null;
 
@@ -50,7 +51,7 @@ export function FeedbackModal({ open, onClose }: Props) {
       content: content.trim(),
       contact: contact.trim() || undefined,
       systemInfo: {
-        appVersion: '0.7.54',
+        appVersion: appVersion || '0.7.55',
         userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
         platform: typeof navigator !== 'undefined' ? navigator.platform : '',
         screen: typeof window !== 'undefined' ? `${window.innerWidth}x${window.innerHeight}` : '',
@@ -239,7 +240,7 @@ export function FeedbackModal({ open, onClose }: Props) {
             {/* 底部按钮栏 */}
             <div className="pt-2 flex items-center justify-between border-t border-zinc-100 dark:border-zinc-800/80">
               <div className="text-[11px] text-zinc-400">
-                客户端版本：<span className="font-mono text-zinc-600 dark:text-zinc-300 font-semibold">v0.7.54</span>
+                客户端版本：<span className="font-mono text-zinc-600 dark:text-zinc-300 font-semibold">v{appVersion || '0.7.55'}</span>
               </div>
               <div className="flex items-center gap-2">
                 <button
