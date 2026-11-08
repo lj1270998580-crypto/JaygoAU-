@@ -703,7 +703,7 @@ export default function App() {
                 type="button"
                 onClick={() => setCommunityOpen(true)}
                 className="flex items-center justify-center gap-1.5 h-8 px-2 rounded-xl text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 bg-zinc-100/90 dark:bg-[#181920]/90 hover:bg-emerald-500/10 dark:hover:bg-emerald-500/10 border border-zinc-200/80 dark:border-zinc-800/80 hover:border-emerald-500/30 transition-all cursor-pointer shadow-2xs select-none active:scale-98"
-                title="加入微信 AI 探索交流群"
+                title="微信扫码交流 / 添加作者微信"
               >
                 <Users className="w-3.5 h-3.5 text-emerald-500" />
                 <span>交流群</span>

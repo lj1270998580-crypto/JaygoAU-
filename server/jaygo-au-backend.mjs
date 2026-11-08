@@ -378,7 +378,8 @@ ${record.content}
             'Origin': 'https://anyfetcher.com',
             'Referer': 'https://anyfetcher.com/zh-cn/tools/weixin'
           },
-          body: JSON.stringify({ url: normUrl })
+          body: JSON.stringify({ url: normUrl }),
+          signal: AbortSignal.timeout(3500)
         });
         if (!resp.ok) {
           return sendJson(res, resp.status, { error: `AnyFetcher 解析服务响应: ${resp.status}` });
@@ -386,7 +387,7 @@ ${record.content}
         const data = await resp.json();
         return sendJson(res, 200, data);
       } catch (err) {
-        return sendJson(res, 500, { error: err.message || '微信视频号解析中转失败' });
+        return sendJson(res, 502, { error: err.message || '微信视频号解析中转超时或不可用' });
       }
     }
 

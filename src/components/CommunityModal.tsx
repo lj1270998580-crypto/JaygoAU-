@@ -15,9 +15,9 @@ export function CommunityModal({ open, onClose }: Props) {
   if (!open) return null;
 
   const handleCopyContact = () => {
-    navigator.clipboard.writeText('1270998580@qq.com');
+    navigator.clipboard.writeText('jaygo');
     setCopied(true);
-    showToast('已复制作者联系方式: 1270998580@qq.com', 'ok');
+    showToast('已复制作者微信号: jaygo', 'ok');
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -25,11 +25,11 @@ export function CommunityModal({ open, onClose }: Props) {
     try {
       const a = document.createElement('a');
       a.href = communityQr;
-      a.download = 'JaygoAU-AI探索交流群.png';
+      a.download = 'Jaygo-微信二维码.png';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      showToast('群二维码图片已下载到本地', 'ok');
+      showToast('作者微信二维码已下载到本地', 'ok');
     } catch {
       showToast('保存图片失败，请直接截图保存', 'err');
     }
@@ -46,12 +46,12 @@ export function CommunityModal({ open, onClose }: Props) {
             </div>
             <div>
               <h3 className="font-bold text-zinc-900 dark:text-zinc-100 text-sm flex items-center gap-1.5">
-                <span>AI 探索交流群</span>
+                <span>微信交流 · 联系作者</span>
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                  官方微信社群
+                  微信号: jaygo
                 </span>
               </h3>
-              <p className="text-[11px] text-zinc-400">创作者交流 · 功能探讨 · 玩法分享</p>
+              <p className="text-[11px] text-zinc-400">添加微信好友 · 进群交流 · 答疑互助</p>
             </div>
           </div>
           <button
@@ -68,7 +68,7 @@ export function CommunityModal({ open, onClose }: Props) {
           <div className="relative group p-2.5 rounded-2xl bg-zinc-50 dark:bg-zinc-900/80 border border-zinc-200/80 dark:border-zinc-800 shadow-inner">
             <img
               src={communityQr}
-              alt="微信群二维码"
+              alt="作者微信二维码"
               className="w-56 h-auto object-contain rounded-xl select-none"
             />
           </div>
@@ -76,12 +76,10 @@ export function CommunityModal({ open, onClose }: Props) {
           <div className="space-y-1">
             <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 flex items-center justify-center gap-1">
               <MessageCircle className="w-3.5 h-3.5 text-emerald-500" />
-              <span>使用微信扫一扫上方二维码进群</span>
+              <span>使用微信扫一扫上方二维码添加好友</span>
             </div>
             <p className="text-[11px] text-zinc-400 dark:text-zinc-500 max-w-xs leading-relaxed">
-              若微信扫码提示二维码已过期或频繁，请直接联系作者微信或发送邮件至
-              <span className="text-blue-500 font-mono ml-1 font-semibold">1270998580@qq.com</span>
-              ，第一时间手动邀请您进群！
+              添加作者个人微信（<span className="text-emerald-600 dark:text-emerald-400 font-mono font-semibold">jaygo</span>），拉入创作者交流群，交流 AI 自媒体玩法与功能建议！
             </p>
           </div>
 
@@ -93,7 +91,7 @@ export function CommunityModal({ open, onClose }: Props) {
               className="px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800/80 hover:bg-zinc-200/70 dark:hover:bg-zinc-700/80 text-zinc-700 dark:text-zinc-200 text-xs font-medium transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
             >
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5 text-zinc-400" />}
-              <span>{copied ? '已复制联系方式' : '复制作者邮箱'}</span>
+              <span>{copied ? '已复制微信号' : '复制微信号'}</span>
             </button>
 
             <button

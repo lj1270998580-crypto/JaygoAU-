@@ -115,8 +115,17 @@ export default function MediaExtractor() {
     setLastSavedPath(null);
     setExtractError(null);
 
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('解析请求超时（超过 12 秒），目标服务器响应过慢或连接受阻，请检查网络或稍后重试'));
+      }, 12000);
+    });
+
     try {
-      const res: ParsedMediaInfo = await (window as any).JaygoAPI.extractMedia(raw);
+      const res: ParsedMediaInfo = await Promise.race([
+        (window as any).JaygoAPI.extractMedia(raw),
+        timeoutPromise,
+      ]);
       setCurrentMedia(res);
       const defaultRes = res.resolutions?.find((r) => r.isDefault)?.id || res.resolutions?.[0]?.id || null;
       setSelectedResolutionId(defaultRes);
@@ -266,49 +275,54 @@ export default function MediaExtractor() {
   return (
     <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 animate-fade-in text-zinc-900 dark:text-zinc-100">
       {/* 头部标题与支持平台 */}
-      <div className="pb-4 mb-6 border-b border-zinc-100 dark:border-zinc-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-[17px] font-semibold text-zinc-900 dark:text-white leading-tight flex items-center gap-2">
-            <span>⚡</span>
-            <span>多平台短视频 / 媒体无水印提取</span>
-          </h2>
-          <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-            支持一键解析微信视频号、抖音、哔哩哔哩、快手、小红书与网络音视频直链 · 提取无水印原片 · 抽取 MP3 原声 · 直达文案转写
-          </p>
+      <div className="pb-4 mb-6 border-b border-zinc-100 dark:border-zinc-800/80 flex flex-col gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-[17px] font-semibold text-zinc-900 dark:text-white leading-tight flex items-center gap-2">
+              <span>⚡</span>
+              <span>多平台短视频 / 媒体无水印提取</span>
+            </h2>
+            <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1 leading-normal">
+              支持一键解析微信视频号、抖音、哔哩哔哩、快手、小红书与网络音视频直链 · 提取无水印原片 · 抽取 MP3 原声 · 直达文案转写
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+            <button
+              type="button"
+              onClick={() => {
+                setBiliCookieInput(settings?.bilibiliCookie || '');
+                setBiliCookieModalOpen(true);
+              }}
+              className="px-2.5 py-1 rounded-lg bg-pink-50 hover:bg-pink-100/80 dark:bg-pink-950/40 dark:hover:bg-pink-900/60 text-pink-700 dark:text-pink-300 border border-pink-200/80 dark:border-pink-800/60 transition flex items-center gap-1.5 cursor-pointer text-xs font-medium shadow-2xs"
+              title="点击配置 B 站 Cookie / SESSDATA 解锁 1080P60 / 4K / 8K"
+            >
+              <span>⚙️</span>
+              <span>B站画质设置 {settings?.bilibiliCookie ? '(已激活会员)' : '(免登录1080P)'}</span>
+            </button>
+          </div>
         </div>
 
-        {/* 平台徽标集合与画质配置 */}
-        <div className="flex flex-wrap items-center gap-1.5 shrink-0 text-[11px] font-medium">
-                    <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 font-medium">
+        {/* 平台徽标集合 */}
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium pt-0.5">
+          <span className="text-[11px] text-zinc-400 dark:text-zinc-500 mr-1 select-none font-normal">支持平台:</span>
+          <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 font-medium flex items-center gap-1">
             🟢 微信视频号 (无水印)
           </span>
-<span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700/80">
+          <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700/80 flex items-center gap-1">
             🎵 抖音 (去水印)
           </span>
-          <span className="px-2 py-0.5 rounded-md bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-300 border border-pink-200/80 dark:border-pink-800/60">
+          <span className="px-2 py-0.5 rounded-md bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-300 border border-pink-200/80 dark:border-pink-800/60 flex items-center gap-1">
             📺 哔哩哔哩 (B站)
           </span>
-          <span className="px-2 py-0.5 rounded-md bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-300 border border-orange-200/80 dark:border-orange-800/60">
+          <span className="px-2 py-0.5 rounded-md bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-300 border border-orange-200/80 dark:border-orange-800/60 flex items-center gap-1">
             ⚡ 快手
           </span>
-          <span className="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-300 border border-rose-200/80 dark:border-rose-800/60">
+          <span className="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-300 border border-rose-200/80 dark:border-rose-800/60 flex items-center gap-1">
             📕 小红书
           </span>
-          <span className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60">
+          <span className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 flex items-center gap-1">
             🌐 网络直链
           </span>
-          <button
-            type="button"
-            onClick={() => {
-              setBiliCookieInput(settings?.bilibiliCookie || '');
-              setBiliCookieModalOpen(true);
-            }}
-            className="px-2.5 py-0.5 rounded-md bg-pink-100/70 hover:bg-pink-100 dark:bg-pink-900/40 dark:hover:bg-pink-900/60 text-pink-700 dark:text-pink-300 border border-pink-300/80 dark:border-pink-700/80 transition flex items-center gap-1 cursor-pointer font-medium ml-1"
-            title="点击配置 B 站 Cookie / SESSDATA 解锁 1080P60 / 4K / 8K"
-          >
-            <span>⚙️</span>
-            <span>B站画质设置 {settings?.bilibiliCookie ? '(已激活会员)' : '(免登录1080P)'}</span>
-          </button>
         </div>
       </div>
 

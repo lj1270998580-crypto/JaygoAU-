@@ -1589,14 +1589,14 @@ async function parseXiaohongshu(targetUrl: string): Promise<ParsedMediaInfo> {
 }
 
 
-// ---- 5. 微信视频号解析器 (AnyFetcher 逆向解析 + ailabing 云端双通道容灾) ----
+// ---- 5. 微信视频号解析器 (多通道熔断容灾 + 本地轻量 BrowserWindow 极速嗅探) ----
 async function parseWeixin(targetUrl: string): Promise<ParsedMediaInfo> {
   let normalizedUrl = targetUrl.trim();
   if (normalizedUrl.startsWith('http://')) {
     normalizedUrl = 'https://' + normalizedUrl.slice(7);
   }
 
-  // 1. 若为短链，尝试解析 301/302 重定向获取长链 (finder-preview)
+  // 1. 若为短链，尝试解析 301/302 重定向获取长链 (带 3 秒超时熔断)
   let redirectedUrl = normalizedUrl;
   try {
     const headRes = await fetch(normalizedUrl, {
@@ -1605,6 +1605,7 @@ async function parseWeixin(targetUrl: string): Promise<ParsedMediaInfo> {
         'User-Agent': PC_UA,
       },
       redirect: 'manual',
+      signal: AbortSignal.timeout(3000),
     });
     if (headRes.status === 301 || headRes.status === 302) {
       const loc = headRes.headers.get('location');
@@ -1616,7 +1617,7 @@ async function parseWeixin(targetUrl: string): Promise<ParsedMediaInfo> {
     // 忽略预探测错误
   }
 
-  // 2. 核心通道：调用 AnyFetcher 视频号专用逆向引擎
+  // 2. 核心通道：调用 AnyFetcher 视频号专用逆向引擎 (严格 3.5 秒超时)
   const parseWithUrl = async (u: string) => {
     const res = await fetch('https://anyfetcher.com/api/video/parse', {
       method: 'POST',
@@ -1627,6 +1628,7 @@ async function parseWeixin(targetUrl: string): Promise<ParsedMediaInfo> {
         'Referer': 'https://anyfetcher.com/zh-cn/tools/weixin',
       },
       body: JSON.stringify({ url: u }),
+      signal: AbortSignal.timeout(3500),
     });
     if (!res.ok) {
       throw new Error(`AnyFetcher 解析服务响应异常状态码: ${res.status}`);
@@ -1634,7 +1636,7 @@ async function parseWeixin(targetUrl: string): Promise<ParsedMediaInfo> {
     return await res.json();
   };
 
-  // 3. 备用通道：云端官方代理接口 (高可用容灾)
+  // 3. 备用通道：云端官方代理接口 (严格 3.5 秒超时)
   const parseWithBackupServer = async (u: string) => {
     const res = await fetch('https://ailabing.cn/api/jaygo-au/extract/weixin', {
       method: 'POST',
@@ -1643,6 +1645,7 @@ async function parseWeixin(targetUrl: string): Promise<ParsedMediaInfo> {
         'User-Agent': PC_UA,
       },
       body: JSON.stringify({ url: u }),
+      signal: AbortSignal.timeout(3500),
     });
     if (!res.ok) {
       throw new Error(`云端备用解析服务响应异常: ${res.status}`);
@@ -1651,19 +1654,15 @@ async function parseWeixin(targetUrl: string): Promise<ParsedMediaInfo> {
   };
 
   let data: any = null;
-  let lastError: any = null;
 
   // 尝试主力通道 (先规范化链接，再尝试重定向长链)
   try {
     data = await parseWithUrl(normalizedUrl);
   } catch (err1: any) {
-    lastError = err1;
     if (redirectedUrl && redirectedUrl !== normalizedUrl) {
       try {
         data = await parseWithUrl(redirectedUrl);
-      } catch (err2: any) {
-        lastError = err2;
-      }
+      } catch (err2: any) {}
     }
   }
 
@@ -1671,61 +1670,189 @@ async function parseWeixin(targetUrl: string): Promise<ParsedMediaInfo> {
   if (!data || !data.medias) {
     try {
       data = await parseWithBackupServer(normalizedUrl);
-    } catch (err3: any) {
-      // 保留主要报错信息
+    } catch (err3: any) {}
+  }
+
+  // 若外部解析接口成功解析出视频或图片
+  if (data && (data.medias || data.preview_url)) {
+    const rawTitle = (data.title || '微信视频号作品').trim();
+    const titleLines = rawTitle.split('\n').map((l: string) => l.trim()).filter(Boolean);
+    const mainTitle = titleLines[0] || '微信视频号作品';
+    const desc = rawTitle;
+
+    const medias = Array.isArray(data.medias) ? data.medias : [];
+    const videoMedia = medias.find((m: any) => m.media_type === 'video' && m.resource_url);
+    const imageMedias = medias.filter(
+      (m: any) => (m.media_type === 'image' || m.media_type === 'photo') && m.resource_url
+    );
+
+    const isImages = !videoMedia && imageMedias.length > 0;
+    const coverUrl = data.preview_url || videoMedia?.preview_url || imageMedias[0]?.resource_url;
+    const videoUrl = videoMedia?.resource_url;
+
+    if (videoUrl || (imageMedias && imageMedias.length > 0)) {
+      return {
+        platform: 'weixin',
+        platformName: '微信视频号',
+        mediaType: isImages ? 'images' : 'video',
+        title: mainTitle,
+        desc,
+        author: data.author || '微信视频号创作者',
+        coverUrl,
+        videoUrl,
+        originalUrl: targetUrl,
+        headers: {
+          'User-Agent': PC_UA,
+        },
+        images: isImages ? imageMedias.map((m: any) => m.resource_url) : undefined,
+        rawImages: isImages ? imageMedias.map((m: any) => m.resource_url) : undefined,
+        resolutions: videoUrl
+          ? [
+              {
+                id: 'original',
+                label: '原画超清 (无水印母带)',
+                videoUrl,
+                isDefault: true,
+              },
+            ]
+          : undefined,
+        selectedResolutionId: videoUrl ? 'original' : undefined,
+      };
     }
   }
 
-  if (!data || (!data.medias && !data.preview_url)) {
-    throw new Error(
-      lastError?.message
-        ? `微信视频号解析失败: ${lastError.message}`
-        : '未能从微信视频号解析到有效的无水印视音频资源，请确认链接是否有效'
-    );
-  }
+  // 4. 本地 Electron 极速轻量嗅探兜底 (直接穿透微信官方页面提取标题、作者与原画封面)
+  const sniffTargetUrl = redirectedUrl.includes('channels.weixin.qq.com') ? redirectedUrl : normalizedUrl;
+  const sniffResult = await new Promise<{ title?: string; author?: string; avatar?: string; coverUrl?: string; videoUrl?: string } | null>((resolve) => {
+    let settled = false;
+    const win = new BrowserWindow({
+      width: 390,
+      height: 844,
+      show: false,
+      webPreferences: {
+        offscreen: true,
+        partition: 'persist:weixin_sph_session',
+      },
+    });
 
-  const rawTitle = (data.title || '微信视频号作品').trim();
-  const titleLines = rawTitle.split('\n').map((l: string) => l.trim()).filter(Boolean);
-  const mainTitle = titleLines[0] || '微信视频号作品';
-  const desc = rawTitle;
+    const cleanup = () => {
+      clearTimeout(timer);
+      try {
+        win.destroy();
+      } catch {}
+    };
 
-  const medias = Array.isArray(data.medias) ? data.medias : [];
-  const videoMedia = medias.find((m: any) => m.media_type === 'video' && m.resource_url);
-  const imageMedias = medias.filter(
-    (m: any) => (m.media_type === 'image' || m.media_type === 'photo') && m.resource_url
-  );
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        resolve(null);
+      }
+    }, 4500);
 
-  const isImages = !videoMedia && imageMedias.length > 0;
-  const coverUrl = data.preview_url || videoMedia?.preview_url || imageMedias[0]?.resource_url;
-  const videoUrl = videoMedia?.resource_url;
+    let capturedVideoUrl = '';
+    let capturedCoverUrl = '';
 
-  return {
-    platform: 'weixin',
-    platformName: '微信视频号',
-    mediaType: isImages ? 'images' : 'video',
-    title: mainTitle,
-    desc,
-    author: data.author || '微信视频号创作者',
-    coverUrl,
-    videoUrl,
-    originalUrl: targetUrl,
-    headers: {
-      'User-Agent': PC_UA,
-    },
-    images: isImages ? imageMedias.map((m: any) => m.resource_url) : undefined,
-    rawImages: isImages ? imageMedias.map((m: any) => m.resource_url) : undefined,
-    resolutions: videoUrl
-      ? [
+    win.webContents.session.webRequest.onBeforeRequest((details, callback) => {
+      const u = details.url;
+      if (u.includes('finder.video.qq.com') || u.includes('stodownload')) {
+        if (u.includes('picformat=200') || u.includes('wxampicformat=')) {
+          if (!capturedCoverUrl) capturedCoverUrl = u;
+        } else if (!capturedVideoUrl && (u.includes('.mp4') || u.includes('video'))) {
+          capturedVideoUrl = u;
+        }
+      }
+      callback({});
+    });
+
+    win.loadURL(sniffTargetUrl, {
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+    }).catch(() => {});
+
+    const interval = setInterval(async () => {
+      if (settled || win.isDestroyed()) {
+        clearInterval(interval);
+        return;
+      }
+      try {
+        const domInfo = await win.webContents.executeJavaScript(`
+          (() => {
+            const descEl = document.querySelector('.desc, .feed-desc, .caption, [class*="desc"], [class*="content"]');
+            const authorEl = document.querySelector('.nickname, .author, [class*="nick"], [class*="author"]');
+            const avatarEl = document.querySelector('img[class*="avatar"], .avatar img');
+            const videoEl = document.querySelector('video');
+            return {
+              desc: descEl ? descEl.innerText.trim() : '',
+              author: authorEl ? authorEl.innerText.split('\\n')[0].trim() : '',
+              avatar: avatarEl ? avatarEl.src : '',
+              videoSrc: videoEl ? videoEl.src : '',
+            };
+          })()
+        `);
+
+        if (domInfo && (domInfo.desc || domInfo.author || capturedCoverUrl)) {
+          settled = true;
+          clearInterval(interval);
+          cleanup();
+          resolve({
+            title: domInfo.desc || '微信视频号作品',
+            author: domInfo.author || '微信视频号创作者',
+            avatar: domInfo.avatar,
+            coverUrl: capturedCoverUrl,
+            videoUrl: domInfo.videoSrc || capturedVideoUrl,
+          });
+        }
+      } catch {}
+    }, 400);
+  });
+
+  if (sniffResult && (sniffResult.videoUrl || sniffResult.coverUrl || sniffResult.title)) {
+    const mainTitle = (sniffResult.title || '微信视频号作品').split('\n')[0].trim();
+    if (sniffResult.videoUrl) {
+      return {
+        platform: 'weixin',
+        platformName: '微信视频号',
+        mediaType: 'video',
+        title: mainTitle,
+        desc: sniffResult.title,
+        author: sniffResult.author || '微信视频号创作者',
+        authorAvatar: sniffResult.avatar,
+        coverUrl: sniffResult.coverUrl,
+        videoUrl: sniffResult.videoUrl,
+        originalUrl: targetUrl,
+        headers: { 'User-Agent': PC_UA },
+        resolutions: [
           {
             id: 'original',
             label: '原画超清 (无水印母带)',
-            videoUrl,
+            videoUrl: sniffResult.videoUrl,
             isDefault: true,
           },
-        ]
-      : undefined,
-    selectedResolutionId: videoUrl ? 'original' : undefined,
-  };
+        ],
+        selectedResolutionId: 'original',
+      };
+    }
+
+    // 若腾讯风控限制网页直接播放视频流，返回高质量图文卡片与原图封面
+    return {
+      platform: 'weixin',
+      platformName: '微信视频号',
+      mediaType: 'images',
+      title: mainTitle,
+      desc: sniffResult.title + '\n\n【提示】微信官方对视频号设置了客户端播放鉴权，已为您提取作品文案、作者与高清封面。',
+      author: sniffResult.author || '微信视频号创作者',
+      authorAvatar: sniffResult.avatar,
+      coverUrl: sniffResult.coverUrl,
+      images: sniffResult.coverUrl ? [sniffResult.coverUrl] : undefined,
+      rawImages: sniffResult.coverUrl ? [sniffResult.coverUrl] : undefined,
+      originalUrl: targetUrl,
+      headers: { 'User-Agent': PC_UA },
+    };
+  }
+
+  throw new Error(
+    '微信视频号解析超时或已被官方风控限制。请确认链接有效，或尝试在微信手机端直接转发/打开'
+  );
 }
 
 // ---- 6. 通用直链解析器 ----
