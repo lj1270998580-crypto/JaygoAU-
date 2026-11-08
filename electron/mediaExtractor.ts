@@ -22,7 +22,7 @@ export interface MediaResolutionOption {
 }
 
 export interface ParsedMediaInfo {
-  platform: 'douyin' | 'bilibili' | 'kuaishou' | 'xiaohongshu' | 'generic';
+  platform: 'douyin' | 'bilibili' | 'kuaishou' | 'xiaohongshu' | 'weixin' | 'generic';
   platformName: string;
   mediaType?: 'video' | 'images';
   title: string;
@@ -77,11 +77,17 @@ export function cleanAndDetectUrl(input: string): { url: string; platform: Parse
   );
   if (xhsMatch) return { url: stripTrail(xhsMatch[0]), platform: 'xiaohongshu' };
 
-  // 5. 通用网络音视频链接
+  // 5. 微信视频号 (全面支持 weixin.qq.com/sph/xxx 与 channels.weixin.qq.com/...)
+  const weixinMatch = text.match(
+    /https?:\/\/(?:weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\/)[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f<>'\"()（）【】《》，。！？；：、]+/i
+  );
+  if (weixinMatch) return { url: stripTrail(weixinMatch[0]), platform: 'weixin' };
+
+  // 6. 通用网络音视频链接
   const genericMatch = text.match(/https?:\/\/[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f]+\.(?:mp4|mov|mkv|webm|mp3|wav|m4a|aac|flv)(?:\?[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f]*)?/i);
   if (genericMatch) return { url: stripTrail(genericMatch[0]), platform: 'generic' };
 
-  // 6. 其他任意 http/https 链接
+  // 7. 其他任意 http/https 链接
   const anyUrlMatch = text.match(/https?:\/\/[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f<>'\"()（）【】《》，。！？；：、]+/i);
   if (anyUrlMatch) return { url: stripTrail(anyUrlMatch[0]), platform: 'generic' };
 
@@ -1582,7 +1588,147 @@ async function parseXiaohongshu(targetUrl: string): Promise<ParsedMediaInfo> {
   };
 }
 
-// ---- 5. 通用直链解析器 ----
+
+// ---- 5. 微信视频号解析器 (AnyFetcher 逆向解析 + ailabing 云端双通道容灾) ----
+async function parseWeixin(targetUrl: string): Promise<ParsedMediaInfo> {
+  let normalizedUrl = targetUrl.trim();
+  if (normalizedUrl.startsWith('http://')) {
+    normalizedUrl = 'https://' + normalizedUrl.slice(7);
+  }
+
+  // 1. 若为短链，尝试解析 301/302 重定向获取长链 (finder-preview)
+  let redirectedUrl = normalizedUrl;
+  try {
+    const headRes = await fetch(normalizedUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': PC_UA,
+      },
+      redirect: 'manual',
+    });
+    if (headRes.status === 301 || headRes.status === 302) {
+      const loc = headRes.headers.get('location');
+      if (loc) {
+        redirectedUrl = loc.startsWith('http') ? loc : new URL(loc, normalizedUrl).href;
+      }
+    }
+  } catch (e) {
+    // 忽略预探测错误
+  }
+
+  // 2. 核心通道：调用 AnyFetcher 视频号专用逆向引擎
+  const parseWithUrl = async (u: string) => {
+    const res = await fetch('https://anyfetcher.com/api/video/parse', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': PC_UA,
+        'Origin': 'https://anyfetcher.com',
+        'Referer': 'https://anyfetcher.com/zh-cn/tools/weixin',
+      },
+      body: JSON.stringify({ url: u }),
+    });
+    if (!res.ok) {
+      throw new Error(`AnyFetcher 解析服务响应异常状态码: ${res.status}`);
+    }
+    return await res.json();
+  };
+
+  // 3. 备用通道：云端官方代理接口 (高可用容灾)
+  const parseWithBackupServer = async (u: string) => {
+    const res = await fetch('https://ailabing.cn/api/jaygo-au/extract/weixin', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': PC_UA,
+      },
+      body: JSON.stringify({ url: u }),
+    });
+    if (!res.ok) {
+      throw new Error(`云端备用解析服务响应异常: ${res.status}`);
+    }
+    return await res.json();
+  };
+
+  let data: any = null;
+  let lastError: any = null;
+
+  // 尝试主力通道 (先规范化链接，再尝试重定向长链)
+  try {
+    data = await parseWithUrl(normalizedUrl);
+  } catch (err1: any) {
+    lastError = err1;
+    if (redirectedUrl && redirectedUrl !== normalizedUrl) {
+      try {
+        data = await parseWithUrl(redirectedUrl);
+      } catch (err2: any) {
+        lastError = err2;
+      }
+    }
+  }
+
+  // 若主力通道遇到网络波动，尝试备用服务器通道
+  if (!data || !data.medias) {
+    try {
+      data = await parseWithBackupServer(normalizedUrl);
+    } catch (err3: any) {
+      // 保留主要报错信息
+    }
+  }
+
+  if (!data || (!data.medias && !data.preview_url)) {
+    throw new Error(
+      lastError?.message
+        ? `微信视频号解析失败: ${lastError.message}`
+        : '未能从微信视频号解析到有效的无水印视音频资源，请确认链接是否有效'
+    );
+  }
+
+  const rawTitle = (data.title || '微信视频号作品').trim();
+  const titleLines = rawTitle.split('\n').map((l: string) => l.trim()).filter(Boolean);
+  const mainTitle = titleLines[0] || '微信视频号作品';
+  const desc = rawTitle;
+
+  const medias = Array.isArray(data.medias) ? data.medias : [];
+  const videoMedia = medias.find((m: any) => m.media_type === 'video' && m.resource_url);
+  const imageMedias = medias.filter(
+    (m: any) => (m.media_type === 'image' || m.media_type === 'photo') && m.resource_url
+  );
+
+  const isImages = !videoMedia && imageMedias.length > 0;
+  const coverUrl = data.preview_url || videoMedia?.preview_url || imageMedias[0]?.resource_url;
+  const videoUrl = videoMedia?.resource_url;
+
+  return {
+    platform: 'weixin',
+    platformName: '微信视频号',
+    mediaType: isImages ? 'images' : 'video',
+    title: mainTitle,
+    desc,
+    author: data.author || '微信视频号创作者',
+    coverUrl,
+    videoUrl,
+    originalUrl: targetUrl,
+    headers: {
+      'User-Agent': PC_UA,
+    },
+    images: isImages ? imageMedias.map((m: any) => m.resource_url) : undefined,
+    rawImages: isImages ? imageMedias.map((m: any) => m.resource_url) : undefined,
+    resolutions: videoUrl
+      ? [
+          {
+            id: 'original',
+            label: '原画超清 (无水印母带)',
+            videoUrl,
+            isDefault: true,
+          },
+        ]
+      : undefined,
+    selectedResolutionId: videoUrl ? 'original' : undefined,
+  };
+}
+
+// ---- 6. 通用直链解析器 ----
 async function parseGeneric(targetUrl: string): Promise<ParsedMediaInfo> {
   const parsed = new URL(targetUrl);
   const pathname = parsed.pathname;
@@ -1622,6 +1768,8 @@ export async function extractMedia(input: string, options?: { bilibiliCookie?: s
       return await parseKuaishou(url);
     case 'xiaohongshu':
       return await parseXiaohongshu(url);
+    case 'weixin':
+      return await parseWeixin(url);
     case 'generic':
     default:
       return await parseGeneric(url);

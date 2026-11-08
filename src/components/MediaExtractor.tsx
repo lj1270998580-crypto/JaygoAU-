@@ -273,13 +273,16 @@ export default function MediaExtractor() {
             <span>多平台短视频 / 媒体无水印提取</span>
           </h2>
           <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-            支持一键解析抖音、哔哩哔哩、快手、小红书与网络音视频直链 · 提取无水印原片 · 抽取 MP3 原声 · 直达文案转写
+            支持一键解析微信视频号、抖音、哔哩哔哩、快手、小红书与网络音视频直链 · 提取无水印原片 · 抽取 MP3 原声 · 直达文案转写
           </p>
         </div>
 
         {/* 平台徽标集合与画质配置 */}
         <div className="flex flex-wrap items-center gap-1.5 shrink-0 text-[11px] font-medium">
-          <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700/80">
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 font-medium">
+            🟢 微信视频号 (无水印)
+          </span>
+<span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700/80">
             🎵 抖音 (去水印)
           </span>
           <span className="px-2 py-0.5 rounded-md bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-300 border border-pink-200/80 dark:border-pink-800/60">
@@ -316,7 +319,7 @@ export default function MediaExtractor() {
             rows={3}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="请在此粘贴任意带有短视频链接的分享文本或网页链接（例如：抖音分享口令、B站视频链接、快手、小红书或直链）…"
+            placeholder="请在此粘贴任意带有短视频链接的分享文本或网页链接（例如：微信视频号 weixin.qq.com/sph/xxx、抖音分享口令、B站视频链接、快手、小红书或直链）…"
             className="w-full rounded-xl bg-zinc-50/80 dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 p-3.5 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition resize-none"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -421,7 +424,8 @@ export default function MediaExtractor() {
           <div className="rounded-2xl border border-blue-100 dark:border-blue-950/80 bg-blue-50/20 dark:bg-blue-950/10 p-5 mb-8 shadow-xs animate-fade-in">
             <div className="flex items-center justify-between pb-3 mb-4 border-b border-zinc-200/60 dark:border-zinc-800/80">
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-600 text-white">
+                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold text-white ${currentMedia.platform === 'weixin' ? 'bg-emerald-600' : 'bg-blue-600'}`}>
+                  {currentMedia.platform === 'weixin' && <span>🟢</span>}
                   <span>{currentMedia.platformName}</span>
                 </span>
                 <span className={`px-2 py-0.5 rounded-md text-[11px] font-medium ${

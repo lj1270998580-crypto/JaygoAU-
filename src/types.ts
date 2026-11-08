@@ -391,7 +391,7 @@ export interface MediaResolutionOption {
 }
 
 export interface ParsedMediaInfo {
-  platform: 'douyin' | 'bilibili' | 'kuaishou' | 'xiaohongshu' | 'generic';
+  platform: 'douyin' | 'bilibili' | 'kuaishou' | 'xiaohongshu' | 'weixin' | 'generic';
   platformName: string;
   mediaType?: 'video' | 'images';
   title: string;

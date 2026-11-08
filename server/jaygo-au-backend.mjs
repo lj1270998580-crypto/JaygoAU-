@@ -359,6 +359,37 @@ ${record.content}
       });
     }
 
+    // 微信视频号提取中转代理 (POST)
+    if (p === '/api/jaygo-au/extract/weixin' && req.method === 'POST') {
+      const body = await readJsonBody(req).catch(() => ({}));
+      const { url: weixinUrl } = body;
+      if (!weixinUrl || typeof weixinUrl !== 'string') {
+        return sendJson(res, 400, { error: '参数 url 不能为空' });
+      }
+
+      try {
+        let normUrl = weixinUrl.trim();
+        if (normUrl.startsWith('http://')) normUrl = 'https://' + normUrl.slice(7);
+        const resp = await fetch('https://anyfetcher.com/api/video/parse', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Origin': 'https://anyfetcher.com',
+            'Referer': 'https://anyfetcher.com/zh-cn/tools/weixin'
+          },
+          body: JSON.stringify({ url: normUrl })
+        });
+        if (!resp.ok) {
+          return sendJson(res, resp.status, { error: `AnyFetcher 解析服务响应: ${resp.status}` });
+        }
+        const data = await resp.json();
+        return sendJson(res, 200, data);
+      } catch (err) {
+        return sendJson(res, 500, { error: err.message || '微信视频号解析中转失败' });
+      }
+    }
+
     // 健康检查
     if (p === '/api/jaygo-au/health') {
       return sendJson(res, 200, { ok: true, storage: 'local', uploadDir: CFG.uploadDir });
