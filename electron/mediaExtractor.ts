@@ -61,7 +61,9 @@ export function cleanAndDetectUrl(input: string): { url: string; platform: Parse
   if (dyMatch) return { url: stripTrail(dyMatch[0]), platform: 'douyin' };
 
   // 2. 哔哩哔哩
-  const biliMatch = text.match(/https?:\/\/(?:b23\.tv|www\.bilibili\.com\/video\/[a-zA-Z0-9]+)[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f<>'\"()（）【】《》，。！？；：、]*/i);
+  const biliMatch = text.match(
+    /https?:\/\/(?:b23\.tv|(?:(?:www|m)\.)?bilibili\.com\/(?:video\/[a-zA-Z0-9]+|bangumi\/play\/(?:ep|ss)\d+|opus\/\d+))[^\s\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f<>'\"()（）【】《》，。！？；：、]*/i
+  );
   if (biliMatch) return { url: stripTrail(biliMatch[0]), platform: 'bilibili' };
 
   // 3. 快手 (支持 v.kuaishou.com, www.kuaishou.com, v.m.chenzhongtech.com, kuaishou.com)
@@ -838,7 +840,166 @@ async function parseDouyin(rawUrl: string, retryCount = 1): Promise<ParsedMediaI
   });
 }
 
-// ---- 2. 哔哩哔哩解析器（解除 720P 限制，全面接入 DASH 模式支持 1080P/1080P60 原画与独立高品质音频） ----
+// ---- 2. 哔哩哔哩解析器（支持常规视频、番剧影视、解除 720P 限制全面接入 DASH 模式与独立高品质音频） ----
+async function parseBilibiliPgc(
+  targetUrl: string,
+  realUrl: string,
+  options?: { bilibiliCookie?: string }
+): Promise<ParsedMediaInfo> {
+  const epMatch = realUrl.match(/bangumi\/play\/ep(\d+)/i);
+  const ssMatch = realUrl.match(/bangumi\/play\/ss(\d+)/i);
+  const cookieHeader = (options?.bilibiliCookie || '').trim();
+
+  const pgcApiUrl = epMatch
+    ? `https://api.bilibili.com/pgc/view/web/season?ep_id=${epMatch[1]}`
+    : `https://api.bilibili.com/pgc/view/web/season?season_id=${ssMatch![1]}`;
+
+  const seasonResp = await fetch(pgcApiUrl, {
+    headers: {
+      'User-Agent': PC_UA,
+      'Referer': 'https://www.bilibili.com',
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+    },
+  });
+  if (!seasonResp.ok) {
+    throw new Error(`获取 B 站番剧/影视接口响应异常: HTTP ${seasonResp.status}`);
+  }
+  const seasonRes = await seasonResp.json();
+
+  if (seasonRes.code === -10403 || seasonRes.message?.includes('大会员') || seasonRes.message?.includes('受限')) {
+    throw new Error('检测到该作品为 B 站大会员专享番剧/电影，请点击右上角「⚙️ B站画质设置」填入带有大会员权限的 Cookie 后解析');
+  }
+
+  if (seasonRes.code !== 0 || !seasonRes.result) {
+    throw new Error(seasonRes.message || '获取 B 站番剧/影视信息失败');
+  }
+
+  const sResult = seasonRes.result;
+  const episodes = sResult.episodes || [];
+  let ep = epMatch ? episodes.find((e: any) => String(e.id || e.ep_id) === epMatch[1]) : episodes[0];
+  if (!ep && episodes.length > 0) ep = episodes[0];
+  if (!ep) {
+    throw new Error('未能从番剧/影视信息中获取到有效剧集');
+  }
+
+  const bvid = ep.bvid;
+  const cid = ep.cid;
+  const epId = ep.id || ep.ep_id;
+  const partTitle = ep.share_copy || `${sResult.title || 'B站番剧'} ${ep.title ? ep.title : ''} ${ep.long_title || ''}`.trim();
+  const coverUrl = ep.cover || sResult.cover || '';
+  const durationSec = ep.duration ? Math.round(ep.duration / 1000) : 0;
+  const author = sResult.up_info?.uname || '哔哩哔哩影视';
+  const authorAvatar = sResult.up_info?.avatar || '';
+
+  // 请求 PGC 播放流
+  const playUrl = `https://api.bilibili.com/pgc/player/web/playurl?bvid=${bvid}&cid=${cid}${epId ? `&ep_id=${epId}` : ''}&qn=127&fnval=4048&fourk=1&try_look=1`;
+  const playResp = await fetch(playUrl, {
+    headers: {
+      'User-Agent': PC_UA,
+      'Referer': 'https://www.bilibili.com',
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+    },
+  });
+  if (!playResp.ok) {
+    throw new Error(`获取 B 站影视播放流接口异常: HTTP ${playResp.status}`);
+  }
+  const playRes = await playResp.json();
+
+  const playData = playRes.result || playRes.data;
+  if (playRes.code === -10403 || playRes.message?.includes('大会员')) {
+    throw new Error('检测到该作品为 B 站大会员专享内容，请点击右上角「⚙️ B站画质设置」填入带有大会员权限的 Cookie 后重新解析');
+  }
+  if (!playData) {
+    throw new Error(playRes.message || '获取 B 站影视播放流失败');
+  }
+
+  const isPreview = playData.is_preview === 1 && !playData.has_paid;
+  const resolutions: MediaResolutionOption[] = [];
+  let primaryAudioUrl: string | undefined = undefined;
+
+  const qnDescMap: Record<number, string> = {
+    127: '8K 超高清',
+    125: 'HDR 真彩',
+    120: '4K 超清',
+    116: '1080P 60帧',
+    80: '1080P 超清',
+    64: '720P 高清',
+    32: '480P 清晰',
+    16: '360P 流畅',
+  };
+
+  // 1. DASH
+  if (playData.dash) {
+    const dash = playData.dash;
+    const audios = (dash.audio || []).sort((a: any, b: any) => (b.bandwidth || 0) - (a.bandwidth || 0));
+    if (audios.length > 0) primaryAudioUrl = audios[0].baseUrl || audios[0].backupUrl?.[0];
+
+    const videos = (dash.video || []).sort((a: any, b: any) => (b.bandwidth || 0) - (a.bandwidth || 0));
+    const seenQn = new Set<number>();
+    videos.forEach((v: any, idx: number) => {
+      const qn = v.id;
+      if (seenQn.has(qn)) return;
+      seenQn.add(qn);
+      const desc = qnDescMap[qn] || `${qn}P`;
+      const w = v.width;
+      const h = v.height;
+      const vUrl = v.baseUrl || v.backupUrl?.[0];
+      if (!vUrl) return;
+
+      resolutions.push({
+        id: `bili_pgc_${qn}_${idx}`,
+        label: `${desc}${w && h ? ` (${w}×${h})` : ''}${idx === 0 ? ' · 最佳原画' : ''}${isPreview ? ' (试看片段)' : ''}`,
+        quality: qn,
+        videoUrl: vUrl,
+        audioUrl: primaryAudioUrl,
+        width: w,
+        height: h,
+        bitrate: v.bandwidth,
+        isDefault: idx === 0,
+        needsAudioMerge: Boolean(primaryAudioUrl),
+      });
+    });
+  }
+
+  // 2. DURL 兜底兼容
+  if (resolutions.length === 0 && playData.durl?.[0]?.url) {
+    const curQn = playData.quality || 80;
+    const curSize = playData.durl[0].size;
+    resolutions.push({
+      id: `pgc_${curQn}`,
+      label: `${qnDescMap[curQn] || curQn + 'P'}${isPreview ? ' (试看片段 · 需大会员配置Cookie看全片)' : ' · 兼容直连'}`,
+      quality: curQn,
+      videoUrl: playData.durl[0].url,
+      sizeEstimated: curSize ? `${(curSize / (1024 * 1024)).toFixed(1)} MB` : undefined,
+      isDefault: true,
+      needsAudioMerge: false,
+    });
+  }
+
+  return {
+    platform: 'bilibili',
+    platformName: '哔哩哔哩',
+    title: partTitle,
+    desc: isPreview
+      ? '⚠️ 本视频为 B 站大会员专享影视/番剧（当前免登录仅提供预览试看片段）。如需提取完整原画，请点击右上角「⚙️ B站画质设置」配置大会员 Cookie。'
+      : sResult.evaluate || sResult.title || '',
+    author,
+    authorAvatar,
+    coverUrl,
+    durationSec,
+    videoUrl: resolutions[0]?.videoUrl,
+    audioUrl: primaryAudioUrl,
+    resolutions: resolutions.length > 0 ? resolutions : undefined,
+    selectedResolutionId: resolutions[0]?.id,
+    needsAudioMerge: resolutions[0]?.needsAudioMerge ?? false,
+    originalUrl: targetUrl,
+    headers: {
+      'User-Agent': PC_UA,
+      'Referer': 'https://www.bilibili.com/',
+    },
+  };
+}
+
 async function parseBilibili(targetUrl: string, options?: { bilibiliCookie?: string }): Promise<ParsedMediaInfo> {
   let realUrl = targetUrl;
   if (realUrl.includes('b23.tv')) {
@@ -848,6 +1009,11 @@ async function parseBilibili(targetUrl: string, options?: { bilibiliCookie?: str
     });
     const loc = headRes.headers.get('location');
     if (loc) realUrl = loc;
+  }
+
+  // 优先匹配番剧/影视链接 (bangumi/play/ep... 或 ss...)
+  if (/bangumi\/play\/(?:ep|ss)\d+/i.test(realUrl)) {
+    return await parseBilibiliPgc(targetUrl, realUrl, options);
   }
 
   const bvMatch = realUrl.match(/(BV[a-zA-Z0-9]{10})/i);
@@ -867,9 +1033,20 @@ async function parseBilibili(targetUrl: string, options?: { bilibiliCookie?: str
   const targetPage = pMatch ? parseInt(pMatch[1], 10) : 1;
 
   // 1. 获取视频基本信息与分 P cid
-  const viewRes = await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid.startsWith('BV') ? bvid : ''}&aid=${bvid.startsWith('av') ? bvid.slice(2) : ''}`, {
-    headers: { 'User-Agent': PC_UA, 'Referer': 'https://www.bilibili.com' },
-  }).then((r) => r.json());
+  const viewResp = await fetch(
+    `https://api.bilibili.com/x/web-interface/view?bvid=${bvid.startsWith('BV') ? bvid : ''}&aid=${bvid.startsWith('av') ? bvid.slice(2) : ''}`,
+    {
+      headers: { 'User-Agent': PC_UA, 'Referer': 'https://www.bilibili.com' },
+    }
+  );
+  if (!viewResp.ok) {
+    throw new Error(`获取 B 站视频接口响应异常状态码: HTTP ${viewResp.status}`);
+  }
+  const viewRes = await viewResp.json();
+
+  if (viewRes.code === -10403 || viewRes.message?.includes('大会员') || viewRes.message?.includes('充电')) {
+    throw new Error('该视频为 B 站大会员或充电专享内容，请点击右上角「⚙️ B站画质设置」配置有效账号 Cookie 后再试');
+  }
 
   if (viewRes.code !== 0 || !viewRes.data) {
     throw new Error(viewRes.message || '获取 B 站视频信息失败');
@@ -894,13 +1071,21 @@ async function parseBilibili(targetUrl: string, options?: { bilibiliCookie?: str
   // 2. 请求 DASH 模式 (fnval=4048&fourk=1&try_look=1) 支持免登录 1080P/720P 及会员 4K/1080P60
   const cookieHeader = (options?.bilibiliCookie || '').trim();
   const playUrl = `https://api.bilibili.com/x/player/playurl?bvid=${d.bvid || bvid}&cid=${cid}&qn=127&fnval=4048&fourk=1&try_look=1`;
-  const playRes = await fetch(playUrl, {
+  const playResp = await fetch(playUrl, {
     headers: {
       'User-Agent': PC_UA,
       'Referer': 'https://www.bilibili.com',
       ...(cookieHeader ? { Cookie: cookieHeader } : {}),
     },
-  }).then((r) => r.json());
+  });
+  if (!playResp.ok) {
+    throw new Error(`获取 B 站视频播放流接口响应异常: HTTP ${playResp.status}`);
+  }
+  const playRes = await playResp.json();
+
+  if (playRes.code === -10403 || playRes.message?.includes('大会员')) {
+    throw new Error('检测到该视频为 B 站大会员专享内容，请点击右上角「⚙️ B站画质设置」填入带有大会员权限的 Cookie 后重新解析');
+  }
 
   const resolutions: MediaResolutionOption[] = [];
   let primaryAudioUrl: string | undefined = undefined;
